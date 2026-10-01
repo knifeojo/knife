@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pesa Marketing Career GPS</title>
+<style>
+  :root{
+    --ink:#14211E; --paper:#F4F6F4; --card:#FFFFFF; --hair:#E0E5E1;
+    --teal:#0E5A4F; --teal2:#137A66; --slate:#5B6B78; --slate-d:#3F4C57;
+    --coral:#DA5247; --coral-d:#B73B31; --muted:#6E7B76; --faint:#AEB8B3;
+    --shared:#0E7D68; --ic:#5B6B78; --people:#DA5247;
+    --shadow:0 1px 2px rgba(20,33,30,.05),0 8px 24px rgba(20,33,30,.06);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  body{font-family:var(--sans);color:var(--ink);background:var(--paper);
+    -webkit-font-smoothing:antialiased;line-height:1.5}
+  .app{display:flex;min-height:100vh}
+
+  /* ---------- sidebar ---------- */
+  .side{width:264px;flex:0 0 264px;background:var(--ink);color:#EAF0EC;
+    padding:26px 18px 32px;position:sticky;top:env(safe-area-inset-top,0px);height:100vh;max-height:100dvh;overflow-y:auto}
+  .brand{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+  .brand .logo{font-weight:800;letter-spacing:-.04em;font-size:26px;color:#fff}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--coral);
+    display:inline-block;margin-bottom:3px}
+  .brand-sub{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;
+    text-transform:uppercase;color:#8FA29B;margin:0 0 26px 2px}
+  .nav-h{font-family:var(--mono);font-size:10px;letter-spacing:.2em;
+    text-transform:uppercase;color:#7E918A;margin:18px 6px 8px}
+  .nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+    background:none;border:0;color:#CBD6D0;font-family:var(--sans);font-size:14px;
+    padding:9px 10px;border-radius:9px;cursor:pointer;transition:background .15s,color .15s;line-height:1.25}
+  .nav button:hover{background:rgba(255,255,255,.06);color:#fff}
+  .nav button.active{background:rgba(255,255,255,.1);color:#fff;font-weight:600}
+  .nav .tick{width:9px;height:9px;border-radius:3px;flex:0 0 9px}
+  .nav .home{font-weight:600;color:#fff}
+  .side-foot{margin-top:26px;padding-top:16px;border-top:1px solid #2A3733;
+    font-size:11.5px;color:#7E918A;line-height:1.5}
+
+  /* ---------- main ---------- */
+  .main{flex:1;min-width:0;padding:30px 40px 80px;max-width:1180px}
+  .topline{font-family:var(--mono);font-size:11px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  h1.dept{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;font-weight:800}
+  .blurb{color:var(--muted);font-size:15px;max-width:780px;margin:0 0 22px}
+
+  .legend{display:flex;flex-wrap:wrap;gap:18px;margin:0 0 14px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:22px;height:4px;border-radius:3px;display:inline-block}
+
+  .mapwrap{background:var(--card);border:1px solid var(--hair);border-radius:16px;
+    box-shadow:var(--shadow);padding:10px;margin-bottom:26px;overflow-x:auto}
+  .mapinner{min-width:760px}
+  svg .node{cursor:pointer}
+  svg .node circle{transition:transform .15s, filter .15s}
+  svg .node:hover circle{filter:brightness(1.06)}
+  svg .label{font-family:var(--sans);font-size:13px;font-weight:600;fill:var(--ink)}
+  svg .code{font-family:var(--mono);font-size:10px;fill:#fff;opacity:.85;font-weight:700;letter-spacing:.05em}
+  svg .tracklab{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+    text-transform:uppercase;font-weight:700}
+  svg .ring{fill:none;stroke-width:3}
+  svg .beyondlab{font-family:var(--sans);font-size:11.5px;fill:var(--faint);font-weight:600}
+
+  /* ---------- detail ---------- */
+  .detail{background:var(--card);border:1px solid var(--hair);border-radius:16px;
+    box-shadow:var(--shadow);overflow:hidden}
+  .d-head{padding:22px 26px 18px;border-bottom:1px solid var(--hair)}
+  .d-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+  .chip{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;
+    padding:3px 9px;border-radius:999px;border:1px solid var(--hair);color:var(--muted)}
+  .chip.band{color:#fff;border:0}
+  .chip.track{border:0;color:#fff}
+  .d-title{font-size:23px;font-weight:800;letter-spacing:-.01em;margin:0}
+  .d-body{padding:8px 26px 24px}
+  .sec{padding:18px 0;border-bottom:1px solid var(--hair)}
+  .sec:last-child{border-bottom:0}
+  .sec h3{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--teal);margin:0 0 10px;font-weight:700}
+  .sec p{margin:0;font-size:15px;color:#27332F}
+  .own{margin:0;padding:0;list-style:none}
+  .own li{position:relative;padding-left:20px;margin-bottom:7px;font-size:14.5px;color:#27332F}
+  .own li:before{content:"";position:absolute;left:2px;top:9px;width:7px;height:7px;
+    border-radius:2px;background:var(--teal2)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .skchip{font-size:12.5px;background:#EEF4F1;color:#235047;border:1px solid #DCE8E3;
+    padding:5px 11px;border-radius:999px;font-weight:600}
+  .acc{border:1px solid var(--hair);border-radius:10px;overflow:hidden}
+  .acc + .acc{margin-top:8px}
+  .acc>button{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;
+    background:#fff;border:0;padding:13px 15px;text-align:left;cursor:pointer;font-family:var(--sans);
+    font-size:14.5px;font-weight:600;color:var(--ink)}
+  .acc>button:hover{background:#F7FAF8}
+  .acc .arw{flex:0 0 auto;color:var(--muted);transition:transform .18s;font-size:13px}
+  .acc.open .arw{transform:rotate(90deg)}
+  .acc .panel{max-height:0;overflow:hidden;transition:max-height .22s ease}
+  .acc.open .panel{max-height:900px}
+  .acc .ctx{margin:0 15px 10px;padding:10px 12px;background:#F3F8F5;border-left:3px solid var(--teal2);border-radius:6px;font-size:13.5px;color:#2F3B37}
+  .acc .ex{margin:0 15px 14px;padding:10px 12px;background:#FBF7EE;border-left:3px solid #D9B45A;border-radius:6px;font-size:13.5px;color:#4A3D1C}
+  .acc .ctx b,.acc .ex b{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:3px}
+  .acc .ctx b{color:var(--teal)} .acc .ex b{color:#8A6A1E}
+  .acc .panel p{margin:0;padding:0 15px 14px;font-size:14px;color:#46524D}
+  .acc .src{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);margin-left:8px}
+
+  /* ---------- sub-track toggle ---------- */
+  .subs{display:inline-flex;gap:4px;background:#E6ECE8;border-radius:11px;padding:4px;margin:0 0 18px;flex-wrap:wrap}
+  .subs button{border:0;background:none;font-family:var(--sans);font-size:13.5px;font-weight:600;color:var(--slate-d);
+    padding:8px 14px;border-radius:8px;cursor:pointer}
+  .subs button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(20,33,30,.12)}
+  .subs-lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+
+  /* ---------- learning ---------- */
+  .learn-note{font-size:13px;color:var(--muted);margin:0 0 14px}
+  .lgrp{margin-bottom:16px}
+  .lgrp h4{font-size:13px;font-weight:800;margin:0 0 8px;display:flex;align-items:center;gap:8px;color:var(--ink)}
+  .lgrp h4 .ic{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;
+    font-size:12px;background:#EEF4F1}
+  .litem{display:block;padding:10px 12px;border:1px solid var(--hair);border-radius:10px;margin-bottom:6px;
+    text-decoration:none;color:inherit;transition:border-color .15s,background .15s}
+  a.litem:hover{border-color:#B9D3CA;background:#F7FBF9}
+  .litem .ln{font-weight:700;font-size:14px;color:var(--teal)}
+  .litem .lb{font-size:12.5px;color:var(--muted);margin-left:6px}
+  .litem .lw{display:block;font-size:13px;color:#46524D;margin-top:2px}
+  .litem .lu{display:block;font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:4px;letter-spacing:.04em}
+  .litem.do{background:#FBF7EE;border-color:#EADFC4}
+  .litem.do .ln{color:#7A5A14}
+  .africa{background:linear-gradient(180deg,#fff,#F3F8F5);border:1px solid #CFE3DA;border-radius:12px;padding:14px 14px 6px;margin-top:6px}
+  .africa h4.ah{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);margin:0 0 4px}
+  .africa p.as{font-size:13px;color:var(--muted);margin:0 0 12px}
+
+  /* ---------- overview ---------- */
+  .ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:8px}
+  .ov-card{background:var(--card);border:1px solid var(--hair);border-radius:14px;
+    box-shadow:var(--shadow);padding:20px 22px}
+  .ov-card h3{margin:0 0 8px;font-size:16px;font-weight:800;letter-spacing:-.01em}
+  .ov-card p{margin:0 0 8px;font-size:14px;color:#3A4642}
+  .ov-card.span{grid-column:1 / -1}
+  .bandtable{width:100%;border-collapse:collapse;margin-top:6px;font-size:13.5px}
+  .bandtable th,.bandtable td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--hair);vertical-align:top}
+  .bandtable th{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .bandtable td.code{font-family:var(--mono);font-weight:700;color:var(--teal)}
+  .pill{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff}
+  .two-tests{counter-reset:t;list-style:none;margin:0;padding:0}
+  .two-tests li{position:relative;padding-left:34px;margin-bottom:12px;font-size:14px;color:#3A4642}
+  .two-tests li:before{counter-increment:t;content:counter(t);position:absolute;left:0;top:0;
+    width:23px;height:23px;border-radius:50%;background:var(--teal);color:#fff;font-weight:700;
+    font-size:12px;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+  .gate{background:linear-gradient(180deg,#fff, #FBF4F3);border:1px dashed #E2B0AB;}
+
+  @media (max-width:860px){
+    .app{flex-direction:column}
+    .side{width:100%;flex:none;height:auto;position:static;padding:18px 16px}
+    .nav{display:flex;flex-wrap:wrap;gap:4px}
+    .nav-h{width:100%}
+    .nav button{width:auto}
+    .side-foot{display:none}
+    .main{padding:22px 18px 60px}
+    .ov-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="logo">Pesa</span><span class="dot"></span></div>
+    <div class="brand-sub">Career GPS &middot; Marketing</div>
+    <nav class="nav" id="nav">
+      <button class="home active" data-view="overview">&#9678;&nbsp; Start here</button>
+      <div class="nav-h">Departments</div>
+      <!-- dept buttons injected -->
+    </nav>
+    <div class="side-foot">
+      A map, not a promotion schedule. Bands describe expected impact; growth is the route, not a timetable.
+    </div>
+  </aside>
+
+  <main class="main" id="main"><!-- view injected --></main>
+</div>
+
+<script>
+/* ============================ DATA ============================ */
+
+// Generic band scope + experience (shared across departments). {dept} replaced at render.
+const BANDS = {
+  b1:{code:"B1", scope:"Executes routine, well-defined {dept} work under supervision — a mix of doing and learning the craft, the tools, and how Pesa's corridors work.", exp:"0–2 years, or a strong graduate / career-changer."},
+  b2:{code:"B2", scope:"Owns a {dept} channel or area and runs it independently against clear goals.", exp:"Roughly 2–4 years in the discipline or a related field."},
+  b3:{code:"B3", scope:"Owns outcomes across a {dept} channel or a whole corridor, with real judgement and initiative. This is the fork band — by the end of it you choose the IC or People track.", exp:"Roughly 4+ years."},
+  b4:{code:"B4", scope:"Sets the approach for a {dept} domain and is accountable for its results.", exp:"Roughly 4–6 years."},
+  b5:{code:"B5", scope:"Authority for a {dept} craft or sub-function; decisions reach adjacent teams and the wider business.", exp:"Roughly 6+ years (People track: 1+ year managing)."},
+  b6:{code:"B6", scope:"Owns a {dept} function, its strategy and multiple teams; part of the broader management group.", exp:"Roughly 8+ years, with 3+ in management."}
+};
+
+// Core competencies — descriptions tuned by tier. tiers: foundation,core,advanced,lead,senior,principal
+const CORE = [
+  ["Craft & Execution",{
+    foundation:"Produces clean, on-brief work to spec with guidance; applies the style guide and filing conventions.",
+    core:"Owns the day-to-day output of a channel or area; work needs little correction.",
+    advanced:"Owns end-to-end output across a channel or corridor and sets the quality bar for it.",
+    lead:"Defines the playbook and standards for a domain; owns the hardest work in it.",
+    senior:"Defines what 'good' means for the whole discipline; work others model themselves on.",
+    principal:"Accountable for the quality of everything the function ships."}],
+  ["Communication & Influence",{
+    foundation:"Communicates clearly, asks good clarifying questions, and flags issues early.",
+    core:"Adapts the message to the audience and makes sound, well-argued recommendations.",
+    advanced:"Tailors and defends ideas while keeping relationships; gains commitment from others.",
+    lead:"Builds buy-in across disciplines and brings contributors along.",
+    senior:"Builds influence strategies that shift senior stakeholders; commands the room.",
+    principal:"Sets a culture of open, honest communication across the function."}],
+  ["Planning & Project Management",{
+    foundation:"Manages own workload to deadlines and follows simple workflows.",
+    core:"Plans and prioritises a varied workload; manages small projects.",
+    advanced:"Leads multi-part projects with several contributors from start to finish.",
+    lead:"Owns the plan for a domain; anticipates risks and dependencies.",
+    senior:"Turns strategy into achievable programmes; manages large, complex work.",
+    principal:"Aligns plans across teams to longer-term business goals."}],
+  ["Problem-Solving & Judgement",{
+    foundation:"Solves clearly defined problems and proposes on-brief solutions.",
+    core:"Weighs options and recognises when to deviate from standard practice.",
+    advanced:"Gets to root causes, spots flaws in data and arguments, and tests new approaches.",
+    lead:"Owns ambiguous problems for a domain and chooses well under uncertainty.",
+    senior:"Takes a systemic view of long-range problems and reshapes process to fix them for good.",
+    principal:"Fosters an owning-outcomes approach to problems across the function."}],
+  ["Collaboration & Teamwork",{
+    foundation:"Collaborates well, is open to feedback, and brings a positive presence.",
+    core:"Actively involves others; requests work from Design, Data and Content clearly and on time.",
+    advanced:"Resolves differences to win-win outcomes; mentors juniors.",
+    lead:"Builds cross-functional relationships with Sales, Support and Product.",
+    senior:"A trusted node in wider decisions across Pesa.",
+    principal:"Builds synergy across teams and geographies."}],
+  ["Data, Measurement & Storytelling",{
+    foundation:"Grasps key metrics and reports with templates and guidance.",
+    core:"Tracks core metrics and explains what happened.",
+    advanced:"Interprets metrics, explains anomalies, and tests on the data.",
+    lead:"Reads a funnel and distinguishes a quick fix from a roadmap item.",
+    senior:"Distils complex data into a narrative that wins support and changes direction.",
+    principal:"Sets the KPIs and reporting plan for the function."}],
+  ["Business & Corridor Acumen",{
+    foundation:"Understands the product and who our senders are; basic corridor awareness.",
+    core:"Connects daily work to a corridor's goals; aware of compliance limits — consent, regional rules, no overpromising on fees or FX.",
+    advanced:"Reads corridor economics and the competitive landscape.",
+    lead:"Weighs corridor levers and ROI when setting the approach.",
+    senior:"Shapes strategy from market insight; weighs corridor ROI against company priorities.",
+    principal:"Sets direction from a deep read of the market and the corridor portfolio."}]
+];
+const TIER = {b1:"foundation",b2:"core",b3:"advanced",b4:"lead",b5:"senior",b6:"principal"};
+
+// Track add-on skills
+const TRACK = {
+  ic_lead:[
+    ["Technical Depth & Standard-Setting","Recognised inside Pesa as an authority; defines best practice and raises the bar."],
+    ["Influence Without Authority","Drives adoption across teams through expertise and credibility, not management."]],
+  ic_senior:[
+    ["Technical Depth & Standard-Setting","A principal craft authority inside and beyond Pesa; defines best practice org-wide."],
+    ["Influence Without Authority","Impact far beyond own projects; lifts the whole team without managing anyone."]],
+  people_lead:[
+    ["People Leadership & Coaching","Runs a small team day-to-day; assigns and reviews work, coaches, supports development with guidance."],
+    ["Finance & Budget","Begins owning a budget line; tracks spend against return."]],
+  people_senior:[
+    ["People Leadership & Coaching","Owns hiring, performance and development for a sub-function's team; may manage Team Leads."],
+    ["Finance & Budget","Owns significant budget; prioritises by ROI and strategy."]],
+  people_b6:[
+    ["People Leadership & Coaching","Manages managers; builds a diverse, high-performing, motivated function."],
+    ["Finance & Budget","Owns the function's budget and champions its priorities with leadership."]]
+};
+
+// Node geometry (same for every department)
+const NODES = [
+  {rung:"b1", band:"b1", track:"shared", x:80,  y:262, lab:["Coordinator"], pos:"above"},
+  {rung:"b2", band:"b2", track:"shared", x:240, y:262, lab:["Specialist"], pos:"above"},
+  {rung:"b3", band:"b3", track:"shared", x:402, y:262, lab:["Senior","Specialist"], pos:"above"},
+  {rung:"b4ic", band:"b4", track:"ic", x:606, y:142, lab:["Manager (IC)"], pos:"above"},
+  {rung:"b5ic", band:"b5", track:"ic", x:784, y:142, lab:["Senior Mgr (IC)"], pos:"above"},
+  {rung:"b4p", band:"b4", track:"people", x:606, y:382, lab:["Team Lead"], pos:"below"},
+  {rung:"b5p", band:"b5", track:"people", x:784, y:382, lab:["Manager"], pos:"below"},
+  {rung:"b6p", band:"b6", track:"people", x:946, y:382, lab:["Senior","Manager"], pos:"below"}
+];
+// map band of a rung -> track-skill key
+function trackSkills(rung){
+  if(rung==="b4ic")return TRACK.ic_lead;
+  if(rung==="b5ic")return TRACK.ic_senior;
+  if(rung==="b4p")return TRACK.people_lead;
+  if(rung==="b5p")return TRACK.people_senior;
+  if(rung==="b6p")return TRACK.people_b6;
+  return [];
+}
+
+// Departments: craft is keyed by band (b1..b6); titles keyed by rung.
+const DEPTS = [
+  {id:"social", name:"Social Media, Community & Influencer", tick:"#E0567A",
+   blurb:"Pesa's voice, community and creator partnerships across social platforms and the diaspora we serve — organic social, community care, and influencer and ambassador programmes.",
+   titles:{b1:"Social Media Coordinator",b2:"Social Media Specialist",b3:"Senior Social Media Specialist",
+     b4ic:"Social Media Manager (IC)",b5ic:"Senior Social Media Manager (IC)",
+     b4p:"Social Media Team Lead",b5p:"Social Media Manager",b6p:"Senior Manager, Social Media"},
+   craft:{
+     b1:{s:"Keeps Pesa's social presence running day-to-day under guidance.",r:["Schedule and publish on-brand posts across platforms.","Reply to comments and DMs; flag anything sensitive.","Pull basic engagement reports."],k:[["Publishing & Moderation","Posts on-brand and moderates community to the guidelines."],["Listening","Notices and logs notable comments and trends."]]},
+     b2:{s:"Owns a platform or community and runs organic posting and community care for it.",r:["Plan and run the content calendar for a platform or region.","Engage and grow the community; surface sentiment.","Report on reach, engagement and follower growth."],k:[["Community Management","Cares for community in one consistent voice with Support."],["Organic Social","Plans and publishes content that fits each platform."]]},
+     b3:{s:"Owns social and community for a corridor or region, across organic and paid social.",r:["Run organic and paid social campaigns end-to-end.","Spot trends and turn them into content opportunities.","Develop creators and ambassadors from the ground up."],k:[["Paid + Organic","Runs both, reads what works, and iterates."],["Creator Programme","Identifies and works with diaspora creators."]]},
+     b4:{s:"Sets social strategy and standards for the discipline and owns channel performance.",r:["Define the social playbook and brand voice online.","Build the creator and ambassador programme.","Own social's contribution to corridor growth."],k:[["Social Strategy","Sets where and how Pesa shows up, and why."],["Programme Building","Stands up scalable creator and community programmes."]]},
+     b5:{s:"The authority for social and community; sets multi-channel strategy across corridors.",r:["Set the cross-corridor social strategy.","Win support with performance narratives.","Raise the bar across the social team."],k:[["Multi-channel Strategy","Aligns social across corridors and goals."],["Performance Storytelling","Turns social data into decisions."]]},
+     b6:{s:"Owns the social and community function, its strategy and teams.",r:["Own social and community strategy and accountability.","Develop the team and its leaders.","Own the function's budget and priorities."],k:[["Function Ownership","Runs social and community as a function."],["Leadership","Builds and grows the team."]]}},
+   subs:[
+    {id:"social", label:"Social & Community"},
+    {id:"influencer", label:"Influencer & Creator Partnerships", name:"Influencer & Creator Partnerships",
+     blurb:"Creator, influencer and ambassador partnerships — sourcing, negotiating, running and measuring campaigns that bring diaspora senders to Pesa. A career track inside Social Media & Community.",
+     titles:{b1:"Influencer Coordinator",b2:"Influencer Marketing Specialist",b3:"Senior Influencer Marketing Specialist",
+       b4ic:"Influencer Marketing Manager (IC)",b5ic:"Senior Influencer Marketing Manager (IC)",
+       b4p:"Influencer & Partnerships Team Lead",b5p:"Influencer & Partnerships Manager",b6p:"Senior Manager, Influencer & Creator Partnerships"},
+     craft:{
+      b1:{s:"Supports creator campaigns day-to-day — sourcing, outreach, briefs and tracking.",r:["Source and vet creators against audience, corridor and brand-safety criteria.","Send briefs, collect drafts, and track deliverables and posting dates.","Log results: reach, clicks, promo-code sign-ups and first sends."],k:[["Creator Sourcing","Finds creators whose audience matches our senders, not just big follower counts."],["Campaign Admin","Keeps trackers, contracts, approvals and payments tidy."]]},
+      b2:{s:"Owns creator campaigns for a corridor or platform end-to-end against clear goals.",r:["Plan and run campaigns from brief to wrap report.","Negotiate rates and deliverables within budget using benchmarks.","Measure through codes and links; report CAC and first sends per creator."],k:[["Campaign Management","Runs creator campaigns end-to-end, on time and on brief."],["Rate Negotiation","Prices deliverables, usage rights and exclusivity fairly."]]},
+      b3:{s:"Owns the creator and ambassador portfolio for a corridor, including paid amplification and rights.",r:["Run always-on creator programmes and ambassador partnerships.","Manage usage rights, whitelisting and Spark/partnership ads to amplify creator content.","Handle contracts, licensing and ad-disclosure compliance with Legal."],k:[["Rights & Licensing","Understands usage terms, exclusivity, work-for-hire vs licence, and music sync."],["Paid Amplification","Turns creator content into paid ads that convert."]]},
+      b4:{s:"Sets influencer strategy and standards and owns creator-led acquisition for a domain.",r:["Define the creator playbook: tiers, rate card, contract templates and disclosure rules.","Build the ambassador programme and long-term creator partnerships.","Own influencer marketing's contribution to corridor CAC and growth."],k:[["Programme Design","Builds tiered creator and ambassador programmes."],["Partnership Strategy","Decides when to go micro, macro or celebrity — and why."]]},
+      b5:{s:"The authority for creator and talent partnerships; shapes multi-corridor talent strategy, including celebrity and music deals.",r:["Set cross-corridor creator and talent strategy.","Lead high-value talent, music sync and brand-ambassador deals.","Win support with creator ROI narratives."],k:[["Talent Deals","Structures multi-party, high-value partnerships."],["Creator ROI","Proves the incremental value of creator spend."]]},
+      b6:{s:"Owns influencer and creator partnerships as a function — its strategy, budget and team.",r:["Own creator and talent strategy and budget.","Develop the team and its leads.","Govern contracts, compliance and brand safety across markets."],k:[["Function Ownership","Runs creator partnerships as a function."],["Leadership","Builds and grows the team."]]}}}
+   ]},
+
+  {id:"design", name:"Design (Brand & Creative)", tick:"#8A63D2",
+   blurb:"Turns briefs and business goals into brand, campaign and product-marketing creative.",
+   titles:{b1:"Junior Designer",b2:"Designer",b3:"Senior Designer",
+     b4ic:"Lead Designer / Art Director (IC)",b5ic:"Principal Designer (IC)",
+     b4p:"Design Team Lead",b5p:"Design Manager",b6p:"Senior Manager, Design"},
+   craft:{
+     b1:{s:"Produces on-brief assets to spec and learns the brand system.",r:["Build assets to brief and spec.","Apply brand guidelines; keep files organised.","Adapt visuals to different formats."],k:[["Design Fundamentals","Composition, type, colour, hierarchy."],["Tooling & File Hygiene","Core tools and clean file structure."]]},
+     b2:{s:"Owns straightforward design tickets end-to-end and pairs type and layout well.",r:["Own tickets from brief to handover.","Keep well-structured files for handover.","Adapt visuals across channels."],k:[["Craft","Clean, on-brief execution."],["File Management","Layers, naming, linked assets."]]},
+     b3:{s:"Owns creative for campaigns, gives clear rationale, and mentors juniors.",r:["Own campaign creative end-to-end.","Provide a clear rationale for choices.","Contribute to the design system."],k:[["Concepting","Translates objectives into visuals."],["System Contribution","Evolves brand elements."]]},
+     b4:{s:"Leads creative direction for a domain and defines the design system.",r:["Lead creative direction for campaigns.","Define and steward the design system.","Art-direct other contributors."],k:[["Art Direction","Sets and holds the creative bar."],["Design System","Owns the system others build on."]]},
+     b5:{s:"Principal creative authority; shapes the brand's visual identity across corridors.",r:["Set creative and visual strategy.","Curate new styles that evolve the brand.","Lift the bar across the team."],k:[["Brand Vision","Guides the visual identity."],["Mastery","Knows when to bend or break guidelines."]]},
+     b6:{s:"Owns the design function, its direction and team.",r:["Own creative direction and standards.","Coach and grow designers.","Own resourcing and budget."],k:[["Function Ownership","Runs design as a function."],["Leadership","Builds and grows the team."]]}}},
+
+  {id:"seo", name:"SEO (Organic Search)", tick:"#2E9E8F",
+   blurb:"Grows qualified organic traffic across the money-movement intents that matter.",
+   titles:{b1:"SEO Coordinator",b2:"SEO Specialist",b3:"Senior SEO Specialist",
+     b4ic:"SEO Manager (IC)",b5ic:"Senior SEO Manager (IC)",
+     b4p:"SEO Team Lead",b5p:"SEO Manager",b6p:"Senior Manager, SEO"},
+   craft:{
+     b1:{s:"Writes optimised content to brief and learns the SEO toolkit.",r:["Write and optimise content to brief.","Apply on-page basics.","Use core tools such as ahrefs."],k:[["On-page Basics","Titles, headings, structure."],["Tooling","Beginner tool use."]]},
+     b2:{s:"Owns keyword and on-page work for a set of corridor topics.",r:["Research keywords and write briefs.","Apply on-page best practice.","Track rankings and traffic."],k:[["Keyword Research","Finds and prioritises intents."],["On-page","Optimises pages reliably."]]},
+     b3:{s:"Owns organic strategy for corridors and executes content and technical work.",r:["Own keyword and topic strategy for corridors.","Execute briefs and technical fixes.","Explain ranking and traffic movements."],k:[["Topic Strategy","Builds clusters around intents."],["Technical SEO","Diagnoses and fixes."]]},
+     b4:{s:"Leads long-term SEO and the cluster and link strategy for a domain.",r:["Lead cluster, linking and promotion strategy.","Set on-page standards.","Tie organic to corridor growth."],k:[["SEO Strategy","Plans the compounding play."],["Standards","Sets best practice for others."]]},
+     b5:{s:"The org-wide SEO authority; sets long-term organic strategy across corridors.",r:["Set long-term SEO direction.","Coach the team on tools and method.","Win support with organic narratives."],k:[["Long-term Strategy","Owns the multi-corridor organic plan."],["Authority","The team's go-to expert."]]},
+     b6:{s:"Owns the SEO function, its strategy and team.",r:["Own organic strategy and KPIs.","Develop the team.","Own budget and tooling."],k:[["Function Ownership","Runs SEO as a function."],["Leadership","Builds the team."]]}}},
+
+  {id:"performance", name:"Performance Marketing (Paid)", tick:"#E08A1E",
+   blurb:"Paid acquisition and remarketing, optimised on cost-to-acquire and downstream value.",
+   titles:{b1:"Performance Coordinator",b2:"Performance Marketing Specialist",b3:"Senior Performance Marketing Specialist",
+     b4ic:"Performance Marketing Manager (IC)",b5ic:"Senior Performance Marketing Manager (IC)",
+     b4p:"Performance Team Lead",b5p:"Performance Marketing Manager",b6p:"Senior Manager, Performance Marketing"},
+   craft:{
+     b1:{s:"Builds and runs campaigns to brief and learns the paid platforms.",r:["Build campaigns to brief.","Monitor and report the basics.","Run simple A/B tests."],k:[["Campaign Build","Sets up clean campaigns."],["Reporting","Pulls core metrics."]]},
+     b2:{s:"Owns paid channels for an area and optimises against clear targets.",r:["Run paid search and social to target.","Test creatives and audiences.","Report on spend and results."],k:[["Channel Ops","Runs and optimises paid channels."],["Testing","Structured A/B testing."]]},
+     b3:{s:"Owns paid for a corridor; optimises on CAC and downstream value.",r:["Own paid channels for a corridor.","Optimise on cost-to-acquire and repeat value.","Manage attribution quality."],k:[["CAC & Value","Optimises beyond clicks to value."],["Attribution","Keeps tracking honest."]]},
+     b4:{s:"Sets paid strategy across geographies and owns budget efficiency for a domain.",r:["Set paid strategy across geographies.","Own attribution and budget efficiency.","Scale what works across corridors."],k:[["Paid Strategy","Plans cross-geo campaign structure."],["Budget Efficiency","Drives efficient spend."]]},
+     b5:{s:"The authority for paid; owns measurement (attribution, MMM) and strategy across corridors.",r:["Own cross-corridor paid strategy.","Own measurement — attribution and media-mix.","Raise the bar across the team."],k:[["Measurement","Attribution and media-mix thinking."],["Scaling","Scales spend without losing efficiency."]]},
+     b6:{s:"Owns the performance function, its strategy and team.",r:["Own paid strategy and budget.","Develop the team.","Partner with Data on measurement."],k:[["Function Ownership","Runs performance as a function."],["Leadership","Builds the team."]]}}},
+
+  {id:"comms", name:"Communications", tick:"#3B82C4",
+   blurb:"Pesa's voice to employees, press and the public — internal comms, external/PR and message consistency. Internal Comms and PR are sub-tracks within the discipline.",
+   titles:{b1:"Comms Coordinator",b2:"Communications Specialist",b3:"Senior Communications Specialist",
+     b4ic:"Communications Manager (IC)",b5ic:"Senior Communications Manager (IC)",
+     b4p:"Comms Team Lead",b5p:"Communications Manager",b6p:"Senior Manager, Communications"},
+   craft:{
+     b1:{s:"Drafts clear internal and external copy to template and learns the comms toolkit.",r:["Draft copy to template.","Help keep the intranet and news current.","Support media monitoring."],k:[["Writing","Clear copy for the channel."],["Tools","Basic comms tools such as Cision."]]},
+     b2:{s:"Writes and ships comms for internal or external audiences with light guidance.",r:["Write and produce comms — intranet, newsletters, releases, bylines.","Build basic media and internal relationships.","Execute small comms projects."],k:[["Content","Simplifies the complex."],["Stakeholders","Balances needs with best practice."]]},
+     b3:{s:"Executes comms with little guidance and manages projects and relationships.",r:["Drive corporate and corridor stories.","Build media and internal relationships.","Manage multi-spoke comms projects."],k:[["Storytelling","Pitches and lands stories."],["Project Management","Runs comms projects end-to-end."]]},
+     b4:{s:"Sets messaging strategy for a domain and leads issues comms.",r:["Set messaging strategy.","Lead issues and early crisis comms.","Keep messaging consistent across regions."],k:[["Messaging","Owns the narrative."],["Issues Management","Handles sensitive moments."]]},
+     b5:{s:"The authority for comms; leads crisis comms and protects reputation across corridors.",r:["Own comms strategy.","Lead crisis communications.","Grow Pesa's profile with press."],k:[["Crisis Comms","Leads high-pressure situations."],["Reputation","Protects and grows the brand."]]},
+     b6:{s:"Owns the comms function, its strategy and team.",r:["Own internal and external comms strategy.","Develop the team.","Advise leadership; own budget."],k:[["Function Ownership","Runs comms as a function."],["Leadership","Builds the team."]]}}},
+
+  {id:"growth", name:"Growth (Corridor Owners)", tick:"#0E8F6E",
+   blurb:"Each Growth marketer owns a remittance corridor end-to-end — acquisition, activation and repeat-send economics. Like Remitly, we go deep into a corridor before scaling.",
+   titles:{b1:"Growth Coordinator",b2:"Growth Specialist (Corridor)",b3:"Senior Growth Specialist (Corridor)",
+     b4ic:"Growth Manager (IC)",b5ic:"Senior Growth Manager (IC)",
+     b4p:"Growth Team Lead",b5p:"Growth Manager",b6p:"Senior Manager, Growth"},
+   craft:{
+     b1:{s:"Supports a corridor's growth tasks and learns the levers and economics.",r:["Support corridor campaigns and experiments.","Pull corridor performance data.","Learn the corridor's audience and levers."],k:[["Corridor Basics","Learns how a corridor grows."],["Experiment Support","Helps run growth tests."]]},
+     b2:{s:"Owns growth tasks for a corridor and runs experiments with autonomy.",r:["Run acquisition and activation experiments.","Coordinate channels for the corridor.","Track corridor KPIs."],k:[["Experimentation","Designs and runs growth tests."],["Channel Coordination","Pulls channels toward a goal."]]},
+     b3:{s:"Owns a corridor end-to-end against targets and reads its microeconomics.",r:["Own a corridor end-to-end to target.","Coordinate Performance, SEO, Design and Lifecycle.","Read corridor unit economics."],k:[["Corridor Ownership","Runs a corridor like a small business."],["Unit Economics","Reads CAC, activation and repeat-send."]]},
+     b4:{s:"Owns a major corridor or set and sets the growth playbook for a domain.",r:["Own a portfolio or major corridor.","Set the growth playbook.","Drive repeat-send economics."],k:[["Growth Playbook","Codifies what scales a corridor."],["ROI","Drives return on corridor spend."]]},
+     b5:{s:"The authority for corridor growth; sets multi-corridor strategy.",r:["Set multi-corridor growth strategy.","Coach corridor owners.","Win support with growth narratives."],k:[["Portfolio Strategy","Prioritises across corridors."],["Scaling","Turns one corridor's win into many."]]},
+     b6:{s:"Owns Growth as a function across corridors, its strategy and teams.",r:["Own growth strategy across corridors.","Develop corridor owners and leads.","Own the growth budget and priorities."],k:[["Function Ownership","Runs growth as a function."],["Leadership","Builds the team."]]}}},
+
+  {id:"pmm", name:"Product Marketing", tick:"#6B7FD7",
+   blurb:"Turns Pesa's products into stories customers understand and choose — positioning, messaging, launches, pricing communication and competitive insight across remittance, cards, multi-currency accounts, savings, eSIM, calling and lending.",
+   titles:{b1:"Product Marketing Coordinator",b2:"Product Marketing Specialist",b3:"Senior Product Marketing Specialist",
+     b4ic:"Product Marketing Manager (IC)",b5ic:"Senior Product Marketing Manager (IC)",
+     b4p:"Product Marketing Team Lead",b5p:"Product Marketing Manager",b6p:"Senior Manager, Product Marketing"},
+   craft:{
+     b1:{s:"Supports launches and product content to brief and learns the product and its customers.",r:["Draft feature copy, FAQs, release notes and app-store text to brief.","Keep launch checklists, asset trackers and help content up to date.","Gather competitor screenshots, fees and FX rates for the team."],k:[["Product Knowledge","Knows how each Pesa product works and who it's for."],["Launch Support","Keeps launch tasks and assets on track."]]},
+     b2:{s:"Owns messaging and go-to-market for a product feature or small launch end-to-end.",r:["Write positioning and messaging for a feature or product.","Run small launches: in-app, email, social, help centre and support briefing.","Track adoption after launch and report what worked."],k:[["Messaging","Turns features into clear customer benefits."],["Launch Execution","Ships coordinated launches across channels."]]},
+     b3:{s:"Owns go-to-market for a product line and is the voice of the customer and competitor for it.",r:["Own positioning and launch plans for a product line (e.g. cards or multi-currency).","Run customer and competitor research; maintain battlecards against other remittance and fintech apps.","Equip Growth, Support and Community with messaging that drives adoption."],k:[["Positioning","Defines who it's for, what it beats, and why it matters."],["Competitive Insight","Knows the market's fees, rates and claims cold."]]},
+     b4:{s:"Sets the product marketing approach for a domain and owns major launches.",r:["Lead tier-1 launches and the launch tiering system.","Own pricing and fee communication — clear, compliant, no overpromising on FX.","Shape the roadmap with Product using market and customer insight."],k:[["Launch Leadership","Runs high-stakes, cross-functional launches."],["Pricing Communication","Explains value and cost without confusion or risk."]]},
+     b5:{s:"The authority for product marketing; shapes how Pesa's whole product ecosystem is positioned across corridors.",r:["Set portfolio positioning — how products work together as one ecosystem.","Lead new-market and new-product go-to-market (e.g. lending, new corridors).","Win support with market narratives that change product direction."],k:[["Portfolio Positioning","Makes many products feel like one brand promise."],["GTM Strategy","Plans market entry and category creation."]]},
+     b6:{s:"Owns product marketing as a function — its strategy, launches and team.",r:["Own product marketing strategy and launch calendar.","Develop the team and its leads.","Partner with Product leadership on roadmap and pricing."],k:[["Function Ownership","Runs product marketing as a function."],["Leadership","Builds and grows the team."]]}}},
+
+  {id:"retention", name:"Retention & Lifecycle (Win-Back)", tick:"#D2574C",
+   blurb:"Re-engages lapsed senders through lifecycle journeys — and by calling churned customers, gathering feedback, and turning it into voice-of-customer research for Growth and Product.",
+   titles:{b1:"Retention Coordinator",b2:"Retention & Lifecycle Specialist",b3:"Senior Retention & Lifecycle Specialist",
+     b4ic:"Lifecycle Manager (IC)",b5ic:"Senior Lifecycle Manager (IC)",
+     b4p:"Retention Team Lead",b5p:"Retention Manager",b6p:"Senior Manager, Retention & Lifecycle"},
+   craft:{
+     b1:{s:"Builds lifecycle journeys to brief, runs outreach calls, and logs feedback.",r:["Build lifecycle flows to brief.","Call lapsed customers and log feedback.","Pull basic cohort and retention reports."],k:[["Lifecycle Basics","Builds journeys in the CRM."],["Customer Outreach","Calls churned senders and records what they say."]]},
+     b2:{s:"Owns reactivation and win-back flows for an area and structures the feedback loop.",r:["Own reactivation and win-back journeys.","Run structured win-back calls.","Read cohort, churn and repeat-rate data."],k:[["Win-Back","Runs flows that recover lapsed senders."],["Voice of Customer","Turns calls into structured insight."]]},
+     b3:{s:"Owns the win-back programme and feeds voice-of-customer research to Growth and Product.",r:["Own win-back and reactivation end-to-end.","Structure voice-of-customer research.","Read cohort and LTV data and act on it."],k:[["Lifecycle Programme","Runs reactivation as a system."],["Research","Synthesises customer feedback into direction."]]},
+     b4:{s:"Sets retention strategy for a domain and owns repeat rate and LTV.",r:["Set the retention and lifecycle strategy.","Own repeat rate and LTV.","Turn insight into product and growth direction."],k:[["Retention Strategy","Owns the lifecycle play."],["LTV Ownership","Drives repeat rate and value."]]},
+     b5:{s:"The authority for retention; sets lifecycle strategy across corridors.",r:["Set cross-corridor retention strategy.","Coach the team on lifecycle and research.","Win support with retention narratives."],k:[["Lifecycle Strategy","Owns the multi-corridor retention plan."],["Insight to Action","Routes customer insight into the business."]]},
+     b6:{s:"Owns the retention and lifecycle function, its strategy and team.",r:["Own retention strategy and KPIs.","Develop the team.","Own budget and tooling."],k:[["Function Ownership","Runs retention as a function."],["Leadership","Builds the team."]]}}}
+];
+
+/* ============================ PESA / FINTECH CONTEXT ============================ */
+// Craft skill context, aligned by index with each department's craft[band].k array.
+const CRAFT_CTX={
+ social:{
+  b1:["Social is often the first place a sender goes when a transfer is late, and in fintech a public reply can read as a promise. Never confirm delivery times, refunds or rates in comments. Move anything account-specific to DMs or Support, and never ask for passwords, OTPs or card details — scammers impersonating support do exactly that.",
+      "Listening is an early-warning system. A spike in 'where's my money' comments is often the first outage signal the business gets. Fake 'Pesa support' accounts, impersonation DMs and posts comparing our rate to a competitor's all need flagging the same day."],
+  b2:["Diaspora communities are tight-knit, and one unresolved complaint can travel across WhatsApp and Telegram groups within hours. Keep one voice with Support, agree escalation times, and remember complaints in financial services follow formal handling rules in each market.",
+      "What works for remittance: rate explainers, honest 'how long will it take' content, scam-safety tips, and cultural moments — December travel and Christmas, Ramadan and Eid, school-fees season. Any post that mentions a rate, fee or promo must match what the app shows at that moment."],
+  b3:["Paid social for a regulated money product carries extra rules: financial-promotion regimes (such as the UK FCA's) and platform policies for financial services. Know which claims need sign-off before you boost — 'best rate', 'no fees', 'instant' — and keep evidence for each.",
+      "Diaspora creators carry trust that ads can't buy, which means their mistakes become ours. Brief them on claims they can't make and disclosure (#ad) rules in their market, and give each a tracked code so you measure first sends rather than views."],
+  b4:["Decide where Pesa shows up per corridor and sender market — what works for Nigerians in the UK may not work for Ghanaians in Canada or senders in the UAE. Social strategy here is as much about trust and reassurance as reach.",
+      "Scalable creator and ambassador programmes need contracts, usage rights, payment schedules and compliance review built in, so the programme survives the person who started it and holds up to scrutiny."],
+  b5:["Align social with Growth's corridor priorities and Performance's paid calendar, so peak moments such as December, Eid and back-to-school are coordinated across channels rather than competing for the same audience.",
+      "Translate social into terms leadership plans with: assisted sign-ups, first sends from social referrals, complaints deflected from Support, and sentiment against competitors."],
+  b6:["Own social as a trust function as well as a growth one — including the crisis playbook for outages, sudden currency moves and fraud waves.",
+      "Build a team that understands the cultural nuance of five markets, so no one person becomes the bottleneck for every region's content."]
+ },
+ design:{
+  b1:["In fintech, visual hierarchy is functional: the rate, the fee and the delivery time must be the clearest things on any asset. A design should never make a number look better than it is.",
+      "Pesa assets are reused across five markets and many sizes. Clean naming and linked components save hours when a rate, fee or legal line changes at short notice."],
+  b2:["'On-brief' at Pesa includes the small print — T&Cs lines, representative examples and regulator wording — laid out so a customer can actually read it.",
+      "When Compliance approves a specific asset, the approved version must be the one that ships. Clear versioning is a compliance control, not just tidiness."],
+  b3:["Concepts that land with diaspora senders start from why people send money home — family, obligations, celebrations, building something at home — and handle culture accurately rather than as stereotype.",
+      "Build templates that make compliant layouts the default: rate cards, promo tiles with a T&Cs slot, corridor currency and flag modules."],
+  b4:["Direct shoots and illustration that reflect real customers across Nigerian, Ghanaian, UK, Canadian and Gulf contexts. Wardrobe, settings, language and skin-tone accuracy all tell senders whether we understand them.",
+      "A good system lets a corridor team ship a localised campaign in a day without breaking brand or compliance rules."],
+  b5:["In money transfer, design is a trust signal. The identity should feel safe and properly regulated, and also warm and culturally fluent.",
+      "Know when localisation should bend the guidelines — festive visuals for a specific market, say — and when consistency is what earns trust."],
+  b6:["Balance campaign demand, product-marketing work and brand stewardship with a clear intake and prioritisation process the rest of marketing trusts.",
+      "Grow designers who understand the business — corridors, CAC, compliance — not just the craft."]
+ },
+ seo:{
+  b1:["Remittance search is high-intent: 'send money to Ghana', 'GBP to NGN rate today', 'how long does a transfer to Nigeria take'. Titles and headings should answer those questions plainly.",
+      "Use Search Console and Ahrefs to see which corridor and currency-pair searches Pesa appears for, and where competitors outrank us."],
+  b2:["Map keywords to the sender's journey: rate checks, fees, speed, safety ('is it legit'), and payout methods such as bank deposit or mobile money.",
+      "Google treats money pages as 'Your Money or Your Life' content. Accuracy, brand credibility and up-to-date rates matter more here than in most industries."],
+  b3:["Build clusters per corridor and currency pair, supported by trust content: how Pesa is regulated, how funds are protected, how to spot scams.",
+      "Rate and corridor pages are usually templated and dynamic. Watch for duplicate content, slow rate widgets and pages Google can't render."],
+  b4:["Organic is the compounding channel that lowers blended CAC in every corridor. The strategy should show that payback, not just traffic.",
+      "Set rules for rate claims, update frequency and compliance review on money pages, so SEO content never contradicts the app."],
+  b5:["Plan for search beyond the classic results page — AI overviews and assistants answering 'cheapest way to send money to Nigeria' — and for new markets before they launch.",
+      "Be the person Product, Growth and Legal consult when a site change could affect organic visibility."],
+  b6:["Own organic's share of new senders by corridor, and its cost compared with paid.",
+      "Build a team spanning content, technical and data SEO across markets."]
+ },
+ performance:{
+  b1:["Financial-services ads face stricter platform policies: advertiser verification, restricted claims and special ad categories. Getting setup right avoids disapprovals in the middle of a peak.",
+      "Report past clicks to sign-ups, KYC completion and first send. A cheap click from someone who can't pass verification isn't cheap."],
+  b2:["Pacing matters around rate moves and seasonal peaks. Know when to push budget and when to hold it.",
+      "Test the messages that matter in remittance — rate versus speed versus safety versus first-send offer — one variable at a time."],
+  b3:["Optimise to first send and repeat sends. Remittance value comes from people who send every month, so a slightly higher CAC with stronger repeat behaviour can be the better buy.",
+      "Diaspora acquisition is heavily word-of-mouth and WhatsApp-driven, which tracking misses. Keep attribution honest and call out 'dark social' effects rather than over-crediting paid."],
+  b4:["Structure campaigns by corridor and sender market (UK, Canada, UAE), with budgets tied to each corridor's targets.",
+      "Watch marginal CAC, not average — the last pound or dollar spent in a corridor usually costs far more than the first."],
+  b5:["Combine attribution, incrementality tests and media-mix modelling so budget decisions survive privacy changes and leadership scrutiny.",
+      "Scale a winning corridor without flooding it with low-quality sign-ups that raise KYC and fraud costs downstream."],
+  b6:["Own the paid budget as an investment portfolio across corridors, reported in payback terms Finance recognises.",
+      "Build a team fluent in platforms, measurement and finance."]
+ },
+ comms:{
+  b1:["In fintech, precision is a legal matter. A loose word about fees, speed or safety can become a complaint or a regulatory question. Write plainly and check every number.",
+      "Media monitoring catches stories about outages, scams or regulation in Pesa's markets before they reach customers."],
+  b2:["Explain complex things simply — FX margins, why a transfer is held for checks, why KYC documents are needed — for staff and customers alike.",
+      "Legal and Compliance review is part of the workflow, not an obstacle. Build it into every timeline."],
+  b3:["Stories that work for Pesa: the diaspora's economic role at home, corridor launches, customer stories told with consent, and company milestones.",
+      "Comms projects span Toronto, London, Lagos, Accra and Dubai. Plan approvals, embargoes and send times across time zones."],
+  b4:["Own the core narrative — why Pesa exists and why it can be trusted with people's money — and keep it consistent across press, product and social.",
+      "Typical fintech issues include payout delays, currency devaluations, regulatory changes and fraud waves. Have holding statements ready before you need them."],
+  b5:["When money is stuck, silence reads as guilt. Lead fast, honest, coordinated communication with Support, Product and Legal.",
+      "Build relationships with fintech and diaspora press in each market, and with industry bodies where relevant."],
+  b6:["Advise leadership on reputational risk while decisions are being made, not only after.",
+      "Build a team that covers internal, external and crisis comms across markets."]
+ },
+ growth:{
+  b1:["Every corridor has its own economics: FX margin, fees, payout-partner costs, competitor pricing and seasonality. Learn yours before anything else.",
+      "Help set tests up cleanly — a clear hypothesis, a control group, and the right success metric (first send, not just sign-up)."],
+  b2:["Common remittance levers: first-send offers, referral rewards, rate promotions, onboarding and KYC friction, and payout options.",
+      "Bring Performance, SEO, Social and Lifecycle together on one corridor goal rather than separate channel goals."],
+  b3:["Run the corridor like a small business: a target, a budget, a set of levers, and a weekly read on what's moving and why.",
+      "Know your corridor's CAC, activation rate, average send value, send frequency, revenue per transfer (fees plus FX margin) and payback period."],
+  b4:["Codify what works so the next corridor launch starts from the playbook rather than from zero.",
+      "Weigh promotions against margin. A generous offer that attracts one-time senders can destroy value even as volume rises."],
+  b5:["Prioritise corridors on size, competition, margin, regulation and Pesa's right to win.",
+      "Take a corridor win into the next market, adjusting for regulation, payout rails and culture."],
+  b6:["Own growth targets across all corridors with Finance-grade forecasting.",
+      "Develop corridor owners into business leaders, not channel managers."]
+ },
+ retention:{
+  b1:["Lifecycle messaging is regulated: consent and anti-spam rules (such as CASL in Canada and PECR/UK GDPR in the UK) apply. Respect opt-outs and preferences every time.",
+      "Lapsed senders may have left after a bad experience, a better rate elsewhere, or a life change. Listen first, never pressure, and handle personal data carefully."],
+  b2:["Effective win-back levers: rate alerts, reminders around sending occasions, fixing what caused the churn, and a well-judged return offer.",
+      "Tag every call consistently so patterns — KYC friction, payout failures in one corridor — become visible."],
+  b3:["Treat the path from first send to habit as one system: onboarding, second send, regular sends and reactivation.",
+      "Customer insight is a strategic asset. Feed Product on friction and Growth on why senders choose competitors."],
+  b4:["In remittance, repeat sending is the business. Retention shapes LTV, which sets how much Growth can afford to spend on acquisition.",
+      "Own repeat rate and LTV by corridor and acquisition channel, and share it with Growth and Performance."],
+  b5:["Coordinate retention across corridors with different sending occasions, payout methods and competitors.",
+      "Make sure customer insight leads to shipped changes, and show the impact."],
+  b6:["Own retention KPIs at company level.",
+      "Build a team strong in CRM, analytics and customer research."]
+ }
+};
+
+// Core competency context + tier examples
+const CORE_CTX={
+ "Craft & Execution":{why:"In fintech, small errors are expensive. A wrong rate, an outdated fee or a missing disclaimer can lead to complaints, refunds or regulatory attention.",
+  ex:{foundation:"A promo tile where the rate, fee and T&Cs line all match the approved brief.",core:"A month running a channel with no corrections from Compliance.",advanced:"Owning all the creative or content for a corridor's December campaign.",lead:"Writing the standard every corridor's rate-promo campaign now follows.",senior:"Your work is what new hires are shown as the example.",principal:"Accountable for zero compliance breaches across everything marketing ships."}},
+ "Communication & Influence":{why:"Work at Pesa crosses markets, time zones and functions — Compliance, Product, Support, Finance. Clear writing and well-argued recommendations are how work gets approved.",
+  ex:{foundation:"Flagging that a scheduled post's rate no longer matches the app.",core:"A one-page recommendation for a corridor promo, trade-offs included.",advanced:"Getting Compliance and Product to agree on a new onboarding message.",lead:"Aligning Growth, Performance and Design behind one corridor plan.",senior:"Shifting leadership's view on budget allocation with a clear case.",principal:"A function where bad news travels up quickly."}},
+ "Planning & Project Management":{why:"Compliance reviews, partner dependencies and seasonal peaks — December, Ramadan and Eid, school fees — make timing critical.",
+  ex:{foundation:"Hitting every deadline on a campaign checklist.",core:"Planning a month's calendar around a cultural moment.",advanced:"Leading a corridor launch campaign with five contributors.",lead:"Building compliance review time and partner dependencies into the domain plan.",senior:"Turning the annual corridor strategy into a quarterly programme.",principal:"Aligning marketing's plans with company targets across functions."}},
+ "Problem-Solving & Judgement":{why:"Remittance data is noisy — FX swings, partner outages, fraud spikes. Good judgement separates the signal from the noise.",
+  ex:{foundation:"Fixing a broken tracking link before launch.",core:"Noticing a cheaper CPA is because sign-ups aren't passing KYC.",advanced:"Tracing a corridor's churn to one payout partner's failures.",lead:"Deciding whether to match a competitor's rate promo with incomplete data.",senior:"Redesigning the approval process so it is both fast and compliant.",principal:"A function that owns its problems rather than escalating them."}},
+ "Collaboration & Teamwork":{why:"Marketing outcomes at Pesa depend on Product, Support, Compliance, Data and payout operations.",
+  ex:{foundation:"Taking Compliance feedback without friction.",core:"Briefing Design with the rate, legal line and deadline included.",advanced:"Resolving a Performance-versus-SEO clash over the same keyword.",lead:"Working with Support on recurring complaint themes.",senior:"Being consulted on product decisions that affect acquisition.",principal:"Teams in Canada, the UK and Africa working as one function."}},
+ "Data, Measurement & Storytelling":{why:"Every claim about marketing impact should connect to sign-ups, KYC completion, first sends, repeat sends and payback.",
+  ex:{foundation:"A clean weekly performance report.",core:"Explaining why sign-ups dipped last week.",advanced:"Spotting a spike came from one referral group and testing why.",lead:"Separating a quick onboarding fix from a roadmap item in a funnel review.",senior:"Telling leadership why a corridor stalled — and what to do about it.",principal:"Setting the KPI tree from sign-up to lifetime value."}},
+ "Business & Corridor Acumen":{why:"Knowing how Pesa makes money (fees and FX margin), what competitors charge in each corridor and what regulators allow is what makes marketing decisions good ones.",
+  ex:{foundation:"Knowing Pesa's corridors and what senders use transfers for.",core:"Knowing which claims you can't make without proof — 'free', 'instant', 'best rate'.",advanced:"Knowing how your corridor's rate compares with two competitors this week.",lead:"Weighing a first-send offer against margin and repeat behaviour.",senior:"Making the case for a new corridor from market and competitor data.",principal:"Setting marketing's direction from the whole corridor portfolio."}}
+};
+
+// Track skill context, aligned by index with TRACK arrays
+const TRACK_CTX={
+ ic_lead:["At Pesa, this might mean being the person who defines how rate claims, creator briefs or attribution work across the team.",
+          "Getting Growth, Product and Compliance to adopt your approach without managing any of them."],
+ ic_senior:["Being the expert other fintechs, partners or industry events want to hear from.",
+            "Changing how the whole marketing function works through the standards you set and the people you teach."],
+ people_lead:["Leading a small team across time zones and cultures, where clarity, fairness and regular 1:1s matter most.",
+              "Tracking spend by corridor and explaining variances to Finance."],
+ people_senior:["Hiring, reviewing and developing people using this GPS as the shared language.",
+                "Making budget trade-offs across corridors and channels based on return."],
+ people_b6:["Building a function that scales with new corridors and products.",
+            "Defending marketing's budget to leadership in payback terms."]
+};
+function trackKey(rung){return {b4ic:"ic_lead",b5ic:"ic_senior",b4p:"people_lead",b5p:"people_senior",b6p:"people_b6"}[rung];}
+
+/* ============================ LEARNING ============================ */
+// Item: [type, title, by, why, url]. Search links are used so people always land on the current edition/version.
+const G=q=>"https://www.goodreads.com/search?q="+encodeURIComponent(q);
+const Y=q=>"https://www.youtube.com/results?search_query="+encodeURIComponent(q);
+const L=q=>"https://www.linkedin.com/learning/search?keywords="+encodeURIComponent(q);
+const W=q=>"https://www.google.com/search?q="+encodeURIComponent(q);
+
+const LTYPES=[
+  ["do","Do this — practice on the job","&#9873;"],
+  ["tool","Tools & templates","&#128295;"],
+  ["book","Books","&#128214;"],
+  ["course","Courses & certifications","&#127891;"],
+  ["li","LinkedIn Learning","in"],
+  ["yt","YouTube","&#9654;"],
+  ["pod","Podcasts","&#127911;"],
+  ["read","Articles, newsletters & reports","&#128240;"]
+];
+// rung -> stage key
+const STAGE={b1:"found",b2:"found",b3:"adv",b4ic:"ic",b5ic:"ic",b4p:"people",b5p:"people",b6p:"people"};
+
+const LEARN={
+ social:{
+  found:[
+   ["do","Weekly comment audit","Practice","Read 100 comments on diaspora pages (Nigerian, Ghanaian, Gulf communities) and log recurring questions about rates, delays and trust. This becomes your content backlog.",""],
+   ["book","Everybody Writes","Ann Handley","Short-form copy that sounds human, not corporate.",G("Everybody Writes Ann Handley")],
+   ["book","Contagious: Why Things Catch On","Jonah Berger","The mechanics of why some posts get shared and most don't.",G("Contagious Jonah Berger")],
+   ["book","Jab, Jab, Jab, Right Hook","Gary Vaynerchuk","Platform-native content — dated examples, durable idea.",G("Jab Jab Jab Right Hook")],
+   ["course","Meta Social Media Marketing Professional Certificate","Coursera","Structured foundation across platforms, scheduling and reporting.",W("Meta Social Media Marketing Professional Certificate Coursera")],
+   ["course","Social Media Marketing Certification","HubSpot Academy","Free; good on calendars and community basics.",W("HubSpot Academy social media marketing certification")],
+   ["li","Social Media Marketing Foundations","LinkedIn Learning","Start here, then the community management courses.",L("social media marketing foundations")],
+   ["li","Community management","LinkedIn Learning","Moderation, escalation and tone.",L("community management")],
+   ["yt","Short-form video craft (Reels / TikTok hooks)","YouTube","Search for hook and editing breakdowns; study the first 2 seconds.",Y("short form video hooks reels tiktok tips")],
+   ["read","TikTok Creative Center","TikTok","Trending sounds, top ads and formats by region.",W("TikTok Creative Center")],
+   ["read","Sprout Social Insights","Sprout Social","Practical how-tos plus the annual Sprout Social Index.",W("Sprout Social Insights blog")]
+  ],
+  adv:[
+   ["do","Run one creator pilot","Practice","One corridor, two or three diaspora creators, unique codes. Measure CAC and first-send rate, not views.",""],
+   ["book","Get Together","Bailey Richardson, Kevin Huynh & Kai Elmer Sotto","How real communities form and keep going.",G("Get Together Bailey Richardson")],
+   ["book","The Business of Belonging","David Spinks","Tying community to business outcomes.",G("The Business of Belonging David Spinks")],
+   ["book","Building a StoryBrand","Donald Miller","Clear messaging frameworks for campaigns.",G("Building a StoryBrand")],
+   ["course","Meta Blueprint certification","Meta","Paid social on Facebook/Instagram, properly.",W("Meta Blueprint certification")],
+   ["course","TikTok Academy","TikTok for Business","Paid and organic TikTok fundamentals.",W("TikTok Academy for Business")],
+   ["li","Influencer marketing strategy","LinkedIn Learning","Briefing, contracting and measuring creators.",L("influencer marketing")],
+   ["li","Paid social advertising","LinkedIn Learning","Bridge from organic to paid.",L("paid social advertising")],
+   ["yt","Creator economy & influencer strategy","YouTube","Case studies on brand–creator partnerships.",Y("creator marketing strategy case study brand")],
+   ["read","ICYMI newsletter","Lia Haberman","Weekly social platform updates and creator-economy news.",W("ICYMI Lia Haberman newsletter")]
+  ],
+  ic:[
+   ["do","Write the social playbook","Practice","Voice, platform roles, escalation, creator standards — written so others actually adopt it.",""],
+   ["book","Buzzing Communities","Richard Millington","Community strategy as a discipline.",G("Buzzing Communities Richard Millington")],
+   ["book","Influence: The Psychology of Persuasion","Robert Cialdini","Social proof and reciprocity — the core of community growth.",G("Influence Cialdini")],
+   ["pod","Social Media Marketing Podcast","Michael Stelzner","Long-form interviews with practitioners.",W("Social Media Marketing Podcast Michael Stelzner")],
+   ["read","CMX Community Industry Report","CMX","Benchmarks for community programmes.",W("CMX community industry report")]
+  ],
+  people:[
+   ["do","Build a creator & ambassador operating rhythm","Practice","Briefing templates, approval SLAs, payment and contract hygiene — so the programme runs without you.",""],
+   ["book","The Art of Community","Jono Bacon","Running community as a team and a function.",G("The Art of Community Jono Bacon")],
+   ["read","Sprout Social Index","Sprout Social","Annual consumer/social benchmarks for planning and budgeting.",W("Sprout Social Index report")]
+  ]
+ },
+ influencer:{
+  found:[
+   ["do","Price five real creators","Practice","Use the rate calculator on five creators we'd actually book, then compare with what they quote. Explain the gap.",""],
+   ["book","Influencer: Building Your Personal Brand in the Age of Social Media","Brittany Hennessy","How brand–creator deals work from both sides.",G("Influencer Brittany Hennessy")],
+   ["book","The Age of Influence","Neal Schaffer","Practical influencer marketing for brands.",G("The Age of Influence Neal Schaffer")],
+   ["li","Influencer marketing","LinkedIn Learning","Sourcing, briefing and measuring creators.",L("influencer marketing")],
+   ["yt","Writing a creator brief","YouTube","What creators wish brands put in briefs.",Y("influencer campaign brief tips brands")],
+   ["read","Disclosure rules by market","FTC (US), ASA/CAP (UK), Ad Standards (Canada), ARCON (Nigeria)","Know how ads must be labelled in every corridor we run creators in.",W("influencer ad disclosure guidelines FTC ASA Ad Standards Canada ARCON")],
+   ["read","Influencer Marketing Hub benchmark report","Influencer Marketing Hub","Annual rates, platforms and spend benchmarks.",W("Influencer Marketing Hub benchmark report")]
+  ],
+  adv:[
+   ["do","Run a whitelisted creator test","Practice","Put one creator's content behind paid spend with usage rights; compare CAC against our own creative.",""],
+   ["book","Contagious: Why Things Catch On","Jonah Berger","Why creator content spreads.",G("Contagious Jonah Berger")],
+   ["course","Branded content & partnership ads","Meta","Running creator content as ads on Facebook/Instagram.",W("Meta partnership ads branded content guide")],
+   ["course","Spark Ads","TikTok for Business","Boosting creator posts on TikTok.",W("TikTok Spark Ads guide")],
+   ["read","Music sync licensing for brands","Various","Master vs publishing rights, writer splits, term and territory.",W("music sync licensing for brand advertising explained")]
+  ],
+  ic:[
+   ["do","Publish the creator rate card & contract kit","Practice","Tiers, usage and exclusivity pricing, templates — adopted by the whole team.",""],
+   ["book","Never Split the Difference","Chris Voss","Negotiation for high-stakes talent deals.",G("Never Split the Difference")],
+   ["book","Getting to Yes","Roger Fisher & William Ury","Principled negotiation with agents and labels.",G("Getting to Yes")]
+  ],
+  people:[
+   ["do","Build the talent CRM","Practice","One source of truth for creators, rates, contracts, rights expiry and performance.",""],
+   ["book","Never Split the Difference","Chris Voss","Coach the team through negotiations.",G("Never Split the Difference")]
+  ]
+ },
+ pmm:{
+  found:[
+   ["do","Write a one-page message house","Practice","For one Pesa product: audience, core promise, three proof points, and what we never say. Review it with Support.",""],
+   ["book","Obviously Awesome","April Dunford","The practical positioning method.",G("Obviously Awesome April Dunford")],
+   ["book","Loved","Martina Lauchengco","The modern guide to what product marketing is.",G("Loved Martina Lauchengco")],
+   ["course","Product Marketing Core","Product Marketing Alliance","The standard PMM certification.",W("Product Marketing Alliance Product Marketing Core certification")],
+   ["li","Product marketing foundations","LinkedIn Learning","Messaging, launches and enablement.",L("product marketing")],
+   ["yt","April Dunford on positioning","YouTube","Talks and interviews on the positioning method.",Y("April Dunford positioning talk")],
+   ["read","Product Marketing Alliance blog","Product Marketing Alliance","Templates, launch plans and case studies.",W("Product Marketing Alliance blog")]
+  ],
+  adv:[
+   ["do","Build the competitor battlecard","Practice","Fees, FX margin, speed, payout options and claims for our main rivals per corridor. Refresh it monthly.",""],
+   ["book","Sales Pitch","April Dunford","Turning positioning into a story that converts.",G("Sales Pitch April Dunford")],
+   ["book","Crossing the Chasm","Geoffrey Moore","Taking a product from early adopters to the mainstream.",G("Crossing the Chasm")],
+   ["book","Competing Against Luck","Clayton Christensen","Jobs-to-be-done for messaging and launches.",G("Competing Against Luck")],
+   ["course","Pragmatic Institute","Pragmatic Institute","Market-driven product and pricing frameworks.",W("Pragmatic Institute product marketing")],
+   ["read","Competitive intelligence playbooks","Klue / Crayon","How to run competitive programmes.",W("competitive intelligence program guide product marketing")]
+  ],
+  ic:[
+   ["do","Own the launch tiering system","Practice","Define what makes a tier-1, 2 or 3 launch and what each gets — adopted by Product and Growth.",""],
+   ["book","Play Bigger","Al Ramadan, Dave Peterson, Christopher Lochhead & Kevin Maney","Category design for a multi-product ecosystem.",G("Play Bigger category design")],
+   ["book","Positioning: The Battle for Your Mind","Al Ries & Jack Trout","The original positioning classic.",G("Positioning The Battle for Your Mind")]
+  ],
+  people:[
+   ["do","Run a quarterly launch retro","Practice","Adoption vs target for every launch, what to repeat, what to stop.",""],
+   ["book","Inspired","Marty Cagan","How great product teams work — and how PMM partners with them.",G("Inspired Marty Cagan")]
+  ]
+ },
+ design:{
+  found:[
+   ["do","Rebuild competitor ads in our system","Practice","Recreate three ads from other remittance brands using Pesa's grid and type — the fastest way to learn the system's limits.",""],
+   ["book","The Non-Designer's Design Book","Robin Williams","Contrast, repetition, alignment, proximity — fundamentals, fast.",G("The Non-Designer's Design Book")],
+   ["book","Thinking with Type","Ellen Lupton","The type book every designer should own.",G("Thinking with Type Ellen Lupton")],
+   ["book","Steal Like an Artist","Austin Kleon","Building a creative practice and a reference library.",G("Steal Like an Artist")],
+   ["course","Figma Learn","Figma","Official tutorials — components, auto layout, variables.",W("Figma Learn help tutorials")],
+   ["course","Canva Design School","Canva","Useful for fast social and template work.",W("Canva Design School")],
+   ["li","Graphic Design Foundations","LinkedIn Learning","Layout, colour, typography series.",L("graphic design foundations")],
+   ["li","Figma essential training","LinkedIn Learning","Tooling and file hygiene.",L("Figma essential training")],
+   ["yt","The Futur","Chris Do","Design thinking, critique and the business of creative work.",Y("The Futur Chris Do design")],
+   ["read","Brand New","UnderConsideration","Daily rebrand reviews — trains your eye and your rationale.",W("Brand New UnderConsideration")]
+  ],
+  adv:[
+   ["do","Ship one design-system contribution","Practice","A component or template with documentation and usage rules, reviewed by peers.",""],
+   ["book","Designing Brand Identity","Alina Wheeler","The reference for brand systems end-to-end.",G("Designing Brand Identity Alina Wheeler")],
+   ["book","Hey Whipple, Squeeze This","Luke Sullivan","Concepting great advertising.",G("Hey Whipple Squeeze This")],
+   ["book","Grid Systems in Graphic Design","Josef Müller-Brockmann","The classic on structure.",G("Grid Systems in Graphic Design")],
+   ["li","Art direction","LinkedIn Learning","Leading a shoot and directing others' work.",L("art direction")],
+   ["li","Design systems","LinkedIn Learning","Building and governing systems.",L("design systems")],
+   ["yt","Config talks on design systems","Figma","Conference talks from teams running systems at scale.",Y("Figma Config design systems talk")],
+   ["read","AIGA Eye on Design","AIGA","Contemporary design culture and criticism.",W("AIGA Eye on Design")]
+  ],
+  ic:[
+   ["do","Define the visual language for one corridor launch","Practice","Show how the brand flexes for a market without breaking.",""],
+   ["book","A Smile in the Mind","Beryl McAlhone & David Stuart","Wit and ideas in graphic design.",G("A Smile in the Mind")],
+   ["book","Interaction of Color","Josef Albers","Colour, deeply.",G("Interaction of Color Albers")],
+   ["book","Creative Selection","Ken Kocienda","How taste and critique work inside a demanding culture.",G("Creative Selection Ken Kocienda")],
+   ["yt","D&AD talks and masterclasses","D&AD","Craft at the top of the industry.",Y("D&AD talk creative")]
+  ],
+  people:[
+   ["do","Run a weekly crit","Practice","Structured critique with a clear brief-first format; track turnaround and rework.",""],
+   ["book","Creativity, Inc.","Ed Catmull","Managing creative people without killing the work.",G("Creativity Inc Ed Catmull")],
+   ["book","Org Design for Design Orgs","Peter Merholz & Kristin Skinner","Structuring and scaling a design team.",G("Org Design for Design Orgs")]
+  ]
+ },
+ seo:{
+  found:[
+   ["do","Weekly SERP diary","Practice","Search 'send money to Nigeria from Canada' (and your corridor's equivalents) in incognito each week; screenshot and note who ranks and why.",""],
+   ["read","SEO Starter Guide","Google Search Central","The source of truth, straight from Google.",W("Google Search Central SEO starter guide")],
+   ["book","They Ask, You Answer","Marcus Sheridan","Answer-the-question content — perfect for fee/rate/delay intents.",G("They Ask You Answer Marcus Sheridan")],
+   ["course","SEO Course for Beginners","Ahrefs Academy","Free; pairs with the tool you'll use daily.",W("Ahrefs Academy SEO course for beginners")],
+   ["course","Semrush Academy","Semrush","Free certifications on keyword research and on-page.",W("Semrush Academy")],
+   ["li","SEO Foundations","LinkedIn Learning","Solid end-to-end primer.",L("SEO foundations")],
+   ["yt","Ahrefs","YouTube","Clear, practical SEO tutorials.",Y("Ahrefs SEO tutorial")],
+   ["yt","Google Search Central","YouTube","Official office hours and explainers.",Y("Google Search Central")],
+   ["read","Search Engine Land","Search Engine Land","Industry news and algorithm updates.",W("Search Engine Land")],
+   ["read","Backlinko","Brian Dean","Well-structured guides on on-page and links.",W("Backlinko SEO guides")]
+  ],
+  adv:[
+   ["do","Build one corridor topic cluster","Practice","Pillar + supporting pages for a corridor's rate, fees, speed and safety intents; measure assisted sign-ups.",""],
+   ["book","The Art of SEO","Eric Enge, Stephan Spencer & Jessie Stricchiola","The comprehensive reference.",G("The Art of SEO")],
+   ["book","Product-Led SEO","Eli Schwartz","SEO as a product strategy, not a checklist.",G("Product-Led SEO Eli Schwartz")],
+   ["course","Screaming Frog SEO Spider training","Screaming Frog","Crawling and technical audits.",W("Screaming Frog SEO Spider user guide")],
+   ["li","Technical SEO","LinkedIn Learning","Indexing, rendering, site architecture.",L("technical SEO")],
+   ["yt","Technical SEO talks","YouTube","Search for Aleyda Solis and other practitioner talks.",Y("Aleyda Solis technical SEO")],
+   ["read","SEOFOMO","Aleyda Solis","Weekly SEO newsletter.",W("SEOFOMO newsletter Aleyda Solis")],
+   ["read","Growth Memo","Kevin Indig","Strategic SEO and the shift to AI search.",W("Growth Memo Kevin Indig")]
+  ],
+  ic:[
+   ["do","Design a programmatic page system","Practice","Currency-pair and corridor pages (rates, fees, delivery times) built from data, with quality controls.",""],
+   ["read","Search Quality Rater Guidelines","Google","What 'helpful, trustworthy' means — vital for a money (YMYL) brand.",W("Google Search Quality Rater Guidelines")],
+   ["book","Content Strategy for the Web","Kristina Halvorson","Governance and long-term content thinking.",G("Content Strategy for the Web Halvorson")],
+   ["pod","Search Off the Record","Google Search Central","Inside view from Google's search team.",W("Search Off the Record podcast Google")],
+   ["read","AI search & answer engines","Various","Track how AI overviews and assistants cite sources; adjust strategy.",W("AI overviews impact on SEO 2026")]
+  ],
+  people:[
+   ["do","Own an SEO forecast","Practice","A quarterly traffic-to-sign-up forecast by corridor that leadership can plan against.",""],
+   ["book","Lean Analytics","Alistair Croll & Benjamin Yoskovitz","Choosing the one metric that matters for the team.",G("Lean Analytics")]
+  ]
+ },
+ performance:{
+  found:[
+   ["do","Rebuild a live campaign on paper","Practice","Redraw the structure (campaign → ad set → ad), targeting and naming; explain every choice to your lead.",""],
+   ["course","Google Ads certifications","Google Skillshop","Free; Search, Display, Video, Measurement.",W("Google Skillshop Google Ads certification")],
+   ["course","Google Analytics certification","Google Skillshop","GA4 fundamentals.",W("Google Skillshop Google Analytics certification")],
+   ["course","Meta Blueprint","Meta","Facebook/Instagram ads, officially.",W("Meta Blueprint")],
+   ["book","Ogilvy on Advertising","David Ogilvy","Direct response wisdom that still holds.",G("Ogilvy on Advertising")],
+   ["li","Google Ads essential training","LinkedIn Learning","Platform walkthrough.",L("Google Ads essential training")],
+   ["li","Facebook / Meta advertising","LinkedIn Learning","Setup, optimisation and creative testing.",L("Facebook advertising")],
+   ["yt","Google Ads tutorials","YouTube","Search walkthroughs for current UI.",Y("Google Ads tutorial 2026")],
+   ["read","Think with Google","Google","Consumer insight and campaign case studies.",W("Think with Google")]
+  ],
+  adv:[
+   ["do","Run a geo holdout test","Practice","Pause or dark one region in a corridor to measure true incrementality.",""],
+   ["book","Trustworthy Online Controlled Experiments","Ron Kohavi, Diane Tang & Ya Xu","The bible of A/B testing.",G("Trustworthy Online Controlled Experiments")],
+   ["book","How Brands Grow","Byron Sharp","Evidence-based marketing — reach vs targeting.",G("How Brands Grow Byron Sharp")],
+   ["book","Lean Analytics","Alistair Croll & Benjamin Yoskovitz","Metrics by business stage.",G("Lean Analytics")],
+   ["course","CXL conversion optimisation","CXL","Rigorous CRO and testing methods.",W("CXL conversion optimization course")],
+   ["li","Marketing attribution","LinkedIn Learning","Attribution models and their blind spots.",L("marketing attribution")],
+   ["yt","Incrementality testing explained","YouTube","Geo tests, lift studies, holdouts.",Y("incrementality testing marketing explained")]
+  ],
+  ic:[
+   ["do","Build the corridor LTV:CAC model","Practice","With Data, by channel and corridor, including repeat-send value — and get it adopted in planning.",""],
+   ["book","The Long and the Short of It","Les Binet & Peter Field","Balancing brand and activation spend.",G("The Long and the Short of It Binet Field")],
+   ["book","Alchemy","Rory Sutherland","Behavioural thinking beyond the spreadsheet.",G("Alchemy Rory Sutherland")],
+   ["read","Meridian (open-source MMM)","Google","Media-mix modelling, documented.",W("Google Meridian marketing mix model")],
+   ["read","Robyn (open-source MMM)","Meta","An alternative MMM approach.",W("Meta Robyn MMM")]
+  ],
+  people:[
+   ["do","Own the spend reallocation ritual","Practice","Monthly review moving budget between corridors and channels on marginal CAC.",""],
+   ["book","Thinking in Bets","Annie Duke","Budget decisions under uncertainty.",G("Thinking in Bets Annie Duke")],
+   ["book","Measure What Matters","John Doerr","OKRs for a performance team.",G("Measure What Matters John Doerr")]
+  ]
+ },
+ comms:{
+  found:[
+   ["do","One update, three audiences","Practice","Rewrite a single product update for staff, press and customers. Compare what changes.",""],
+   ["book","On Writing Well","William Zinsser","Clear, simple non-fiction writing.",G("On Writing Well Zinsser")],
+   ["book","Made to Stick","Chip & Dan Heath","Why some messages survive and others die.",G("Made to Stick Heath")],
+   ["li","Public relations foundations","LinkedIn Learning","Releases, pitching, media basics.",L("public relations foundations")],
+   ["li","Internal communications","LinkedIn Learning","Intranet, all-hands, change comms.",L("internal communications")],
+   ["yt","How to write a press release","YouTube","Structure and examples.",Y("how to write a press release")],
+   ["read","PR Daily","Ragan","Daily PR and comms craft.",W("PR Daily Ragan")],
+   ["read","Muck Rack blog","Muck Rack","Journalist relationships and pitching.",W("Muck Rack blog")]
+  ],
+  adv:[
+   ["do","Build a four-market media list","Practice","Fintech and diaspora reporters in the UK, Canada, Nigeria and Ghana, with beats and recent stories.",""],
+   ["book","Spin Sucks","Gini Dietrich","Modern, honest PR.",G("Spin Sucks Gini Dietrich")],
+   ["book","Trust Me, PR Is Dead","Robert Phillips","Trust and transparency over spin.",G("Trust Me PR Is Dead")],
+   ["book","Writing for Busy Readers","Todd Rogers & Jessica Lasky-Fink","Evidence-based rules for messages people actually read.",G("Writing for Busy Readers")],
+   ["li","Media relations","LinkedIn Learning","Pitching and interviews.",L("media relations")],
+   ["read","PRWeek","PRWeek","Industry news and campaigns.",W("PRWeek")]
+  ],
+  ic:[
+   ["do","Run a crisis tabletop","Practice","Simulate a payout delay, FX spike or data incident; time the holding statement.",""],
+   ["book","Ongoing Crisis Communication","W. Timothy Coombs","The academic standard on crisis response.",G("Ongoing Crisis Communication Coombs")],
+   ["book","Crisis Ready","Melissa Agnes","Practical crisis preparedness.",G("Crisis Ready Melissa Agnes")],
+   ["read","Edelman Trust Barometer","Edelman","Annual data on trust in business and finance.",W("Edelman Trust Barometer")]
+  ],
+  people:[
+   ["do","Set the comms calendar & approvals","Practice","One calendar across internal and external, with sign-off rules leadership trusts.",""],
+   ["book","Crucial Conversations","Patterson, Grenny, McMillan & Switzler","High-stakes conversations, internally and externally.",G("Crucial Conversations")],
+   ["book","The Culture Code","Daniel Coyle","Internal comms as culture-building.",G("The Culture Code Daniel Coyle")]
+  ]
+ },
+ growth:{
+  found:[
+   ["do","Map your corridor funnel","Practice","Visit → sign-up → KYC → first send → second send. Find the biggest drop and bring one hypothesis.",""],
+   ["book","Traction","Gabriel Weinberg & Justin Mares","The 19 channels and how to test them.",G("Traction Weinberg Mares")],
+   ["book","Hacking Growth","Sean Ellis & Morgan Brown","Experiment cadence and the growth process.",G("Hacking Growth Sean Ellis")],
+   ["course","Google Data Analytics Certificate","Coursera","Spreadsheets, SQL and analysis basics.",W("Google Data Analytics Professional Certificate Coursera")],
+   ["li","SQL for data analysis","LinkedIn Learning","So you can pull your own corridor data.",L("SQL data analysis")],
+   ["li","Growth marketing","LinkedIn Learning","Experiment design and funnel thinking.",L("growth marketing")],
+   ["yt","Lenny's Podcast","YouTube","Interviews with growth leaders.",Y("Lenny's Podcast growth")],
+   ["read","Lenny's Newsletter","Lenny Rachitsky","Benchmarks and frameworks for growth and product.",W("Lenny's Newsletter")]
+  ],
+  adv:[
+   ["do","Write a one-page corridor P&L","Practice","CAC, FX margin, fees, repeat-send and payback for your corridor. Review it with Finance.",""],
+   ["book","The Cold Start Problem","Andrew Chen","Network effects and referral loops.",G("The Cold Start Problem Andrew Chen")],
+   ["book","Obviously Awesome","April Dunford","Positioning against Wise, Remitly and others.",G("Obviously Awesome April Dunford")],
+   ["course","Growth Series","Reforge","The deepest structured growth programme around.",W("Reforge growth series")],
+   ["course","Growth Marketing Minidegree","CXL","Broad, rigorous growth curriculum.",W("CXL growth marketing minidegree")],
+   ["read","Remittance Prices Worldwide","World Bank","Fees and FX costs by corridor — know your competitive price position.",W("World Bank Remittance Prices Worldwide")],
+   ["read","Remitly & Wise investor reports","Remitly / Wise","How public peers talk about corridors, CAC and retention.",W("Remitly investor relations quarterly results")]
+  ],
+  ic:[
+   ["do","Codify the corridor launch playbook","Practice","What worked in one corridor, written so the next launch is faster.",""],
+   ["book","Good Strategy Bad Strategy","Richard Rumelt","Diagnosis, guiding policy, coherent action.",G("Good Strategy Bad Strategy")],
+   ["book","7 Powers","Hamilton Helmer","Durable advantage — useful for portfolio bets.",G("7 Powers Hamilton Helmer")],
+   ["book","Playing to Win","A.G. Lafley & Roger Martin","Where to play, how to win — per corridor.",G("Playing to Win Lafley Martin")],
+   ["read","Andrew Chen's essays","Andrew Chen","Growth loops, CAC and marketplace dynamics.",W("Andrew Chen essays growth")]
+  ],
+  people:[
+   ["do","Run a corridor portfolio review","Practice","Quarterly: rank corridors on growth, margin and payback; decide where to double down.",""],
+   ["book","Measure What Matters","John Doerr","OKRs across corridor owners.",G("Measure What Matters John Doerr")]
+  ]
+ },
+ retention:{
+  found:[
+   ["do","Shadow five win-back calls","Practice","Then run five yourself. Log a reason code for each: price, speed, trust, KYC, life change.",""],
+   ["book","The Mom Test","Rob Fitzpatrick","How to ask customers questions that get honest answers.",G("The Mom Test Rob Fitzpatrick")],
+   ["book","Hooked","Nir Eyal","Habit loops — use ethically for repeat sending.",G("Hooked Nir Eyal")],
+   ["course","Braze certifications","Braze","CRM journeys and messaging.",W("Braze Learning certification")],
+   ["course","Email Marketing Certification","HubSpot Academy","Free; segmentation and lifecycle basics.",W("HubSpot Academy email marketing certification")],
+   ["li","Email marketing","LinkedIn Learning","Lifecycle and automation fundamentals.",L("email marketing")],
+   ["li","Customer research interviews","LinkedIn Learning","Interviewing technique.",L("user interviews research")],
+   ["yt","Lifecycle marketing","YouTube","Journeys, triggers and win-back examples.",Y("lifecycle marketing win back campaign")],
+   ["read","Really Good Emails","Really Good Emails","Library of real lifecycle emails for inspiration.",W("Really Good Emails")]
+  ],
+  adv:[
+   ["do","Build the churn-reason taxonomy","Practice","Turn call notes into a coded dataset Growth and Product can query.",""],
+   ["book","Continuous Discovery Habits","Teresa Torres","Weekly customer touchpoints that feed decisions.",G("Continuous Discovery Habits")],
+   ["book","Competing Against Luck","Clayton Christensen","Jobs-to-be-done — why people really send money.",G("Competing Against Luck")],
+   ["book","Interviewing Users","Steve Portigal","Interview craft, in depth.",G("Interviewing Users Steve Portigal")],
+   ["course","Retention & Engagement","Reforge","Retention curves, engagement loops, resurrection.",W("Reforge retention engagement program")],
+   ["read","What is good retention","Lenny's Newsletter","Benchmarks by business type.",W("Lenny's Newsletter what is good retention")]
+  ],
+  ic:[
+   ["do","Own the cohort LTV model","Practice","Repeat-rate and LTV by corridor and acquisition channel, refreshed monthly.",""],
+   ["book","Just Enough Research","Erika Hall","Research that changes decisions.",G("Just Enough Research Erika Hall")],
+   ["book","Intercom on Jobs-to-be-Done","Intercom","Free, practical JTBD.",W("Intercom on Jobs-to-be-Done book")],
+   ["book","Customer Success","Nick Mehta, Dan Steinman & Lincoln Murphy","Proactive retention thinking.",G("Customer Success Mehta Steinman Murphy")]
+  ],
+  people:[
+   ["do","Run a monthly voice-of-customer readout","Practice","Top churn reasons, what changed, what Product and Growth committed to.",""],
+   ["book","The Effortless Experience","Matthew Dixon, Nick Toman & Rick DeLisi","Reducing customer effort to keep customers.",G("The Effortless Experience")]
+  ]
+ }
+};
+
+// Department-wide picks shown on every role in that department
+const PESA_PICKS=[
+ ["course","Customer Acquisition Masterclass","Milton Tutu (Mainstack)","Practical masterclass on attracting, converting and retaining customers without guesswork.","https://mainstack.com/p/customer-acquisition"],
+ ["course","How to Build GTM for Nigerians and African Ecosystems","Semiloore Akoni (Selar)","Free downloadable guide written for African markets: channels like WhatsApp and SMS, pricing for price-sensitive customers, payment drop-off, and acquisition-to-reactivation loops.","https://selar.com/semilooregtm"]
+];
+const LIFECYCLE_AF=["course","How to Build a Lifecycle System for Africans","Semiloore Akoni (Selar)","Lifecycle flows across WhatsApp, email and SMS; messaging for low-trust, high-friction payment environments; segmentation and win-back for Nigerian audiences; a 120-day implementation plan and a Moniepoint fintech case study.","https://selar.com/semilooreakoni"];
+const RATE_CAL=["tool","Brand Partnerships Rate Calculator","Tosin Olaniyi","Price creator bundles across Instagram, TikTok, YouTube and LinkedIn — including niche, usage rights, exclusivity, whitelisting and rush fees. Quotes in CAD, USD or GBP.","https://www.tosinolaniyi.com/rate-cal"];
+const LEARN_DEPT_ALL={
+ social:[RATE_CAL],
+ influencer:[RATE_CAL,
+  ["yt","FREE Influencer Masterclass (15-video playlist)","Tosin Olaniyi","A free 15-part series on influencer marketing and creator partnerships.","https://www.youtube.com/playlist?list=PL5sEntYyfGnQsmWUUr0lxtlBbj-WyAlj1"],
+  ["yt","How to Create a Successful Influencer Marketing Campaign","Latasha James","A walkthrough of planning and running an influencer campaign from the brand side.","https://www.youtube.com/watch?v=HcJPRIo9eYo"]
+ ],
+ retention:[LIFECYCLE_AF],
+ social:[
+  ["course","Creator Rate Calculator","Tosin Olaniyi","Pesa's own tool for pricing influencer and creator partnerships — use it before you brief or negotiate.","https://www.tosinolaniyi.com/rate-cal"]
+ ],
+ growth:PESA_PICKS.concat([LIFECYCLE_AF,
+  ["pod","Growth Marketing Masterclass: Communities, Revenue, and Startup Mistakes","Feranmi Ajetomobi on POK Experience (Ep. 131)","From digital marketer to growth marketer: building high-ROI communities, scaling startups, and why many dollar-card fintechs fail.","https://open.spotify.com/episode/5KYmPKBCAHHP143gcSP96g"]
+ ]),
+ performance:PESA_PICKS};
+
+// Shared track lists
+const LEARN_TRACK={
+ ic:[
+  ["do","Teach one internal session a quarter","Practice","Influence without authority is built in rooms like this.",""],
+  ["book","Influence Without Authority","Allan Cohen & David Bradford","The core skill of the IC track.",G("Influence Without Authority Cohen Bradford")],
+  ["book","The Staff Engineer's Path","Tanya Reilly","Written for engineers; the senior-IC lessons transfer directly to marketing.",G("The Staff Engineer's Path")],
+  ["course","Mini MBA in Marketing","Mark Ritson / Marketing Week","Strategy, segmentation and brand fundamentals for senior marketers.",W("Mini MBA in Marketing Mark Ritson")],
+  ["li","Influencing others","LinkedIn Learning","Stakeholder strategy.",L("influencing others")]
+ ],
+ people:[
+  ["do","Weekly 1:1s and a written growth plan per report","Practice","Use this GPS as the shared language for every development conversation.",""],
+  ["book","The Making of a Manager","Julie Zhuo","The best first-time manager book.",G("The Making of a Manager Julie Zhuo")],
+  ["book","Radical Candor","Kim Scott","Feedback that is caring and direct.",G("Radical Candor Kim Scott")],
+  ["book","High Output Management","Andy Grove","Leverage, meetings, output.",G("High Output Management")],
+  ["book","Who: The A Method for Hiring","Geoff Smart & Randy Street","Structured hiring.",G("Who The A Method for Hiring")],
+  ["li","New manager foundations","LinkedIn Learning","Start here.",L("new manager foundations")],
+  ["li","Coaching skills for leaders","LinkedIn Learning","Coaching conversations.",L("coaching skills for leaders")],
+  ["li","Budgeting for managers","LinkedIn Learning","For the Finance & Budget competency.",L("budgeting for managers")],
+  ["pod","Manager Tools","Manager Tools","Practical management, one topic at a time.",W("Manager Tools podcast")]
+ ],
+ b6p:[
+  ["book","Multipliers","Liz Wiseman","Leading managers so the whole function gets smarter.",G("Multipliers Liz Wiseman")],
+  ["book","The First 90 Days","Michael Watkins","For taking on a new function or scope.",G("The First 90 Days Watkins")]
+ ]
+};
+
+// Africa & diaspora — every role
+const LEARN_AFRICA=[
+ ["book","Africa Rising: How 900 Million African Consumers Offer More Than You Think","Vijay Mahajan & Robert E. Gunther","The classic on African consumer markets (2008 — read for the frameworks).",G("Africa Rising Vijay Mahajan")],
+ ["book","Africa's Business Revolution","Acha Leke, Mutsa Chironga & Georges Desvaux","McKinsey's view of how to build and win in African markets.",G("Africa's Business Revolution")],
+ ["book","The Next Africa","Jake Bright & Aubrey Hruby","Tech, diaspora and the new African economy.",G("The Next Africa Bright Hruby")],
+ ["book","Africa Is Not a Country","Dipo Faloyin","Essential corrective to flattening 54 countries into one audience.",G("Africa Is Not a Country Dipo Faloyin")],
+ ["book","Marketing to South African Consumers","James Lappeman et al. (UCT)","Free open textbook — consumer marketing written with local context at the centre.","https://openbooks.uct.ac.za/uct/catalog/book/29"],
+ ["book","Contemporary Marketing Practices in Africa, Vol. 1","Palgrave","Recent scholarship on digital inclusion and reaching African consumers.","https://link.springer.com/book/10.1007/978-3-032-27126-6"],
+ ["book","The Fortune at the Bottom of the Pyramid","C.K. Prahalad","Designing for value-conscious consumers.",G("The Fortune at the Bottom of the Pyramid")],
+ ["book","The Pay Off","Gottfried Leibbrandt & Natasha de Terán","How payments really work — great context for any fintech marketer.",G("The Pay Off Leibbrandt de Teran")],
+ ["read","Remittances in West Africa (policy paper)","UN Office of the Special Adviser on Africa","Flows, diaspora role and policy context for Nigeria, Ghana and the region.","https://www.un.org/osaa/sites/www.un.org.osaa/files/files/documents/2024/publications/23343_un_policypaper_remittanceswestafrica_v04.pdf"],
+ ["read","Nigerian Diasporas in the South","IOM / ACP Observatory on Migration","Survey data on diaspora remittance behaviour and ties to home.","https://publications.iom.int/system/files/pdf/nigeria_diasporas.pdf"],
+ ["read","Migration and Development Briefs","World Bank / KNOMAD","The standard remittance flow data, updated regularly.",W("World Bank KNOMAD Migration and Development Brief remittances")],
+ ["read","State of the Industry Report on Mobile Money","GSMA","Annual — how money moves on the receiving end.",W("GSMA State of the Industry Report Mobile Money")],
+ ["read","Lions on the Move","McKinsey Global Institute","Africa's growth and consumer outlook.",W("McKinsey Lions on the Move")],
+ ["read","TechCabal & Rest of World","TechCabal / Rest of World","African and global-south tech and fintech news.",W("TechCabal fintech")],
+ ["read","Africa: The Big Deal","Max Cuvellier & Maxime Bayen","Newsletter tracking African startup funding.",W("Africa The Big Deal newsletter")],
+ ["yt","Peace Itimi — Founders Connect","Peace Itimi","Interviews with Black and African founders, creators and operators on how they built — plus marketing and personal-branding content.","https://www.youtube.com/@peaceitimiofficial"],
+ ["pod","The Flip","Justin Norman","Long-form stories from African tech and business.",W("The Flip podcast African tech")]
+];
+
+function learnHTML(d,rung){
+  const stage=STAGE[rung];
+  let items=[].concat(LEARN[d.id][stage]||[], LEARN_DEPT_ALL[d.id]||[]);
+  if(stage==="ic")items=items.concat(LEARN_TRACK.ic);
+  if(stage==="people")items=items.concat(LEARN_TRACK.people);
+  if(rung==="b6p")items=items.concat(LEARN_TRACK.b6p);
+  const card=it=>{
+    const [t,n,b,w,u]=it;
+    let host="";try{host=new URL(u).hostname.replace(/^www\./,"");}catch(_){}
+    const inner='<span class="ln">'+esc(n)+'</span><span class="lb">'+esc(b)+'</span><span class="lw">'+esc(w)+'</span>'+
+      (u?'<span class="lu">&#8599; '+esc(host)+'</span>':'');
+    const cls='litem'+(t==="do"?' do':'');
+    return u?'<a class="'+cls+'" href="'+u+'" target="_blank" rel="noopener">'+inner+'</a>':'<div class="'+cls+'">'+inner+'</div>';
+  };
+  const groups=list=>LTYPES.map(([k,label,icon])=>{
+    const g=list.filter(x=>x[0]===k); if(!g.length)return "";
+    return '<div class="lgrp"><h4><span class="ic">'+icon+'</span>'+label+'</h4>'+g.map(card).join("")+'</div>';
+  }).join("");
+  const stageNote={found:"Foundation reading for Coordinators and Specialists.",adv:"For Senior Specialists approaching the fork.",
+    ic:"Department depth plus the shared IC-track list.",people:"Department essentials plus the shared people-leadership list."}[stage];
+  return '<p class="learn-note">'+stageNote+' Links open a search so you always land on the current edition or version.</p>'+
+    groups(items)+
+    '<div class="africa"><h4 class="ah">Selling to Africans &amp; the diaspora</h4>'+
+    '<p class="as">Required reading for every role at Pesa — our customers, their corridors, and how money moves home.</p>'+
+    groups(LEARN_AFRICA)+'</div>';
+}
+
+/* ============================ STATE / RENDER ============================ */
+const main = document.getElementById("main");
+const nav = document.getElementById("nav");
+let state = {view:"overview", dept:null, rung:"b2"};
+
+// build dept nav
+DEPTS.forEach(d=>{
+  const b=document.createElement("button");
+  b.dataset.view="dept"; b.dataset.dept=d.id;
+  b.innerHTML='<span class="tick" style="background:'+d.tick+'"></span>'+d.name;
+  nav.appendChild(b);
+});
+nav.addEventListener("click",e=>{
+  const btn=e.target.closest("button"); if(!btn)return;
+  if(btn.dataset.view==="overview"){state={view:"overview"};}
+  else{state={view:"dept",dept:btn.dataset.dept,rung:"b2",sub:null};}
+  syncNav(); render();
+});
+function syncNav(){
+  [...nav.querySelectorAll("button")].forEach(b=>{
+    const on=(state.view==="overview"&&b.dataset.view==="overview")||
+             (state.view==="dept"&&b.dataset.dept===state.dept);
+    b.classList.toggle("active",on);
+  });
+}
+
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+const TRACKCOLOR={shared:"var(--shared)",ic:"var(--ic)",people:"var(--people)"};
+const TRACKHEX={shared:"#0E7D68",ic:"#5B6B78",people:"#DA5247"};
+const TRACKNAME={shared:"Shared",ic:"IC track",people:"People track"};
+
+function render(){
+  if(state.view==="overview"){main.innerHTML=overviewHTML();bindAcc();return;}
+  const d0=DEPTS.find(x=>x.id===state.dept);
+  const d=effDept(d0);
+  main.innerHTML=
+    '<div class="topline">Marketing &middot; Department pathway</div>'+
+    '<h1 class="dept">'+esc(d0.name)+'</h1>'+
+    '<p class="blurb">'+esc(d.blurb)+'</p>'+
+    subsHTML(d0)+
+    legendHTML()+
+    '<div class="mapwrap"><div class="mapinner">'+mapSVG(d)+'</div></div>'+
+    '<div id="detail">'+detailHTML(d,state.rung)+'</div>';
+  bindMap(d); bindAcc();
+  main.querySelectorAll(".subs button").forEach(b=>b.addEventListener("click",()=>{state.sub=b.dataset.sub;render();}));
+}
+function effDept(d0){
+  if(!d0.subs)return d0;
+  const sub=d0.subs.find(x=>x.id===state.sub)||d0.subs[0];
+  state.sub=sub.id;
+  if(sub.id===d0.id)return d0;
+  return Object.assign({},d0,{id:sub.id,name:sub.name,blurb:sub.blurb,titles:sub.titles,craft:sub.craft});
+}
+function subsHTML(d0){
+  if(!d0.subs)return "";
+  return '<div class="subs-lab">Career track</div><div class="subs">'+
+    d0.subs.map(s=>'<button type="button" data-sub="'+s.id+'" class="'+(s.id===state.sub?'on':'')+'">'+esc(s.label)+'</button>').join("")+
+    '</div>';
+}
+
+function legendHTML(){
+  return '<div class="legend">'+
+    '<span><i style="background:#0E7D68"></i>Shared foundation</span>'+
+    '<span><i style="background:#5B6B78"></i>IC track — go deep</span>'+
+    '<span><i style="background:#DA5247"></i>People track — lead a team</span>'+
+    '<span><i style="background:#C7CFCB"></i>Beyond the GPS — appointed</span>'+
+    '</div>';
+}
+
+function mapSVG(d){
+  const r=38;
+  let lines="";
+  // shared horizontal
+  lines+=line(80,262,402,262,"#0E7D68",3);
+  // junction spine + branches
+  lines+=line(402,262,470,262,"#9AA8A2",3);
+  lines+=line(470,142,470,382,"#9AA8A2",3);
+  lines+=line(470,142,606,142,"#5B6B78",3);
+  lines+=line(470,382,606,382,"#DA5247",3);
+  // IC line
+  lines+=line(606,142,784,142,"#5B6B78",3);
+  // People line
+  lines+=line(606,382,946,382,"#DA5247",3);
+  // beyond dashed tail
+  lines+='<line x1="946" y1="382" x2="1040" y2="382" stroke="#C7CFCB" stroke-width="3" stroke-dasharray="5 6" />';
+  // equivalence verticals (faint dotted) at b4 and b5 columns
+  lines+='<line x1="606" y1="180" x2="606" y2="344" stroke="#D7DDD9" stroke-width="2" stroke-dasharray="2 6" />';
+  lines+='<line x1="784" y1="180" x2="784" y2="344" stroke="#D7DDD9" stroke-width="2" stroke-dasharray="2 6" />';
+  // track labels
+  let labs='<text class="tracklab" x="503" y="118" text-anchor="middle" fill="#5B6B78">IC path</text>'+
+           '<text class="tracklab" x="503" y="414" text-anchor="middle" fill="#DA5247">People path</text>';
+  // beyond marker (drawn lock)
+  let beyond='<circle cx="1062" cy="382" r="16" fill="#EDEFEC" stroke="#C7CFCB" stroke-width="1.5"/>'+
+             '<path d="M1058,381 v-3 a4,4 0 0 1 8,0 v3" fill="none" stroke="#8B968F" stroke-width="2"/>'+
+             '<rect x="1056" y="381" width="12" height="9" rx="2" fill="#8B968F"/>'+
+             '<text class="beyondlab" x="1062" y="350" text-anchor="middle">Beyond</text>'+
+             '<text class="beyondlab" x="1062" y="364" text-anchor="middle">the GPS</text>';
+  // nodes
+  let nodes="";
+  NODES.forEach(n=>{
+    const sel=(n.rung===state.rung);
+    const fill=TRACKHEX[n.track];
+    const labY=n.pos==="above"?(n.y-r-12):(n.y+r+20);
+    let labTxt="";
+    n.lab.forEach((ln,i)=>{labTxt+='<tspan x="'+n.x+'" dy="'+(i===0?0:15)+'">'+esc(ln)+'</tspan>';});
+    nodes+='<g class="node" data-rung="'+n.rung+'" role="button" tabindex="0" aria-label="'+esc(d.titles[n.rung])+'">';
+    if(sel)nodes+='<circle class="ring" cx="'+n.x+'" cy="'+n.y+'" r="'+(r+6)+'" stroke="'+fill+'"/>';
+    nodes+='<circle cx="'+n.x+'" cy="'+n.y+'" r="'+r+'" fill="'+fill+'"/>';
+    nodes+='<text class="code" x="'+n.x+'" y="'+(n.y+4)+'" text-anchor="middle">'+BANDS[n.band].code+'</text>';
+    nodes+='<text class="label" x="'+n.x+'" y="'+labY+'" text-anchor="middle">'+labTxt+'</text>';
+    nodes+='</g>';
+  });
+  return '<svg viewBox="0 0 1120 470" width="100%" role="img" aria-label="'+esc(d.name)+' career pathway">'+
+         lines+labs+beyond+nodes+'</svg>';
+}
+function line(x1,y1,x2,y2,c,w){return '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+c+'" stroke-width="'+w+'" stroke-linecap="round"/>';}
+
+function bindMap(d){
+  main.querySelectorAll(".node").forEach(g=>{
+    const pick=()=>{state.rung=g.dataset.rung;
+      document.getElementById("detail").innerHTML=detailHTML(d,state.rung);
+      // refresh selection ring without full rerender
+      main.querySelector(".mapinner").innerHTML=mapSVG(d); bindMap(d); bindAcc();
+      document.getElementById("detail").scrollIntoView({behavior:prefersReduced()?"auto":"smooth",block:"nearest"});
+    };
+    g.addEventListener("click",pick);
+    g.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();pick();}});
+  });
+}
+function prefersReduced(){return window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;}
+
+function detailHTML(d,rung){
+  const node=NODES.find(n=>n.rung===rung);
+  const band=node.band, tier=TIER[band];
+  const craft=d.craft[band];
+  const title=d.titles[rung];
+  const scope=BANDS[band].scope.replace("{dept}",d.name.split(" (")[0]);
+  // skills chips: craft + track + core
+  const ts=trackSkills(rung);
+  const craftSk=craft.k, coreSk=CORE.map(c=>[c[0],c[1][tier]]);
+  const allChips=[].concat(craftSk.map(x=>x[0]),ts.map(x=>x[0]),coreSk.map(x=>x[0]));
+  let chips=allChips.map(n=>'<span class="skchip">'+esc(n)+'</span>').join("");
+  // detailed accordion: craft, then track, then core
+  let acc="";
+  const tk=trackKey(rung);
+  const craftItems=craftSk.map((x,i)=>[x[0],x[1],(CRAFT_CTX[d.id]&&CRAFT_CTX[d.id][band]||[])[i]||"",""]);
+  const trackItems=ts.map((x,i)=>[x[0],x[1],tk?TRACK_CTX[tk][i]:"",""]);
+  const coreItems=coreSk.map(x=>[x[0],x[1],CORE_CTX[x[0]].why,CORE_CTX[x[0]].ex[tier]]);
+  const add=(arr,src)=>{arr.forEach(it=>{acc+=
+    '<div class="acc"><button type="button">'+esc(it[0])+'<span class="src">'+src+'</span><span class="arw">&#9656;</span></button>'+
+    '<div class="panel"><p>'+esc(it[1])+'</p>'+
+    (it[2]?'<div class="ctx"><b>At Pesa &middot; in fintech</b>'+esc(it[2])+'</div>':'')+
+    (it[3]?'<div class="ex"><b>What it looks like at this band</b>'+esc(it[3])+'</div>':'')+
+    '</div></div>';});};
+  add(craftItems,"craft");
+  if(trackItems.length)add(trackItems,node.track==="ic"?"IC track":"People track");
+  add(coreItems,"core");
+  // responsibilities
+  const own=craft.r.map(x=>'<li>'+esc(x)+'</li>').join("");
+  const trackTag='<span class="chip track" style="background:'+TRACKHEX[node.track]+'">'+TRACKNAME[node.track]+'</span>';
+  return ''+
+  '<div class="detail">'+
+    '<div class="d-head">'+
+      '<div class="d-meta"><span class="chip band" style="background:'+TRACKHEX[node.track]+'">'+BANDS[band].code+'</span>'+trackTag+
+        '<span class="chip">'+esc(d.name)+'</span></div>'+
+      '<h2 class="d-title">'+esc(title)+'</h2>'+
+    '</div>'+
+    '<div class="d-body">'+
+      '<div class="sec"><h3>Job summary</h3><p>'+esc(craft.s)+' '+esc(scope)+'</p></div>'+
+      '<div class="sec"><h3>What you own</h3><ul class="own">'+own+'</ul></div>'+
+      '<div class="sec"><h3>Experience</h3><p>'+esc(BANDS[band].exp)+'</p></div>'+
+      '<div class="sec"><h3>Skills</h3><div class="chips">'+chips+'</div></div>'+
+      '<div class="sec"><h3>Detailed skill description</h3>'+acc+'</div>'+
+      '<div class="sec"><h3>Recommended learning</h3>'+learnHTML(d,rung)+'</div>'+
+    '</div>'+
+  '</div>';
+}
+
+function bindAcc(){
+  main.querySelectorAll(".acc>button").forEach(b=>{
+    b.addEventListener("click",()=>b.parentElement.classList.toggle("open"));
+  });
+}
+
+/* ----- overview ----- */
+function overviewHTML(){
+  const bandRow=(code,ic,ppl,scope,col)=>'<tr><td class="code">'+code+'</td><td>'+ic+'</td><td>'+ppl+'</td><td>'+scope+'</td></tr>';
+  return ''+
+  '<div class="topline">Marketing &middot; How the GPS works</div>'+
+  '<h1 class="dept">The Career GPS</h1>'+
+  '<p class="blurb">A single map for everyone in Pesa marketing. It shows where you are, what the next band expects, and the two directions of travel — go deep as an individual contributor, or multiply through others as a people leader. Pick a department on the left to see its pathway and open any role.</p>'+
+  '<div class="ov-grid">'+
+    '<div class="ov-card"><h3>Two tracks, one map</h3>'+
+      '<p>Everyone starts on a shared foundation: <b>Coordinator &rarr; Specialist &rarr; Senior Specialist</b>. At the end of Senior Specialist the road forks.</p>'+
+      '<p><b style="color:#5B6B78">IC track</b> — master the craft and set the standard, no direct reports. <b style="color:#DA5247">People track</b> — grow outcomes by leading a team.</p>'+
+      '<p>The tracks are parallel, not a hierarchy: a Senior Manager (IC) is a peer of a People Manager, at equal band and reward.</p></div>'+
+    '<div class="ov-card"><h3>How you move</h3>'+
+      '<p>Promotion is earned on two tests, not on tenure:</p>'+
+      '<ol class="two-tests"><li><b>Threshold</b> — sustained strong performance and enough time to show the next band is your new normal.</li>'+
+      '<li><b>Demonstration</b> — a real body of work proving you already operate at the next band: a corridor driven to target, a campaign owned end-to-end, a standard others adopted, or a person you grew.</li></ol></div>'+
+    '<div class="ov-card span"><h3>The band map</h3>'+
+      '<table class="bandtable"><thead><tr><th>Band</th><th>IC track</th><th>People track</th><th>Scope in one line</th></tr></thead><tbody>'+
+      bandRow("B1","Coordinator","—","Executes defined tasks with supervision; learning the craft and the business.")+
+      bandRow("B2","Specialist","—","Owns a channel or area and runs it independently against clear goals.")+
+      bandRow("B3","Senior Specialist","—","Owns outcomes across a channel or corridor; mentors juniors. Fork point.")+
+      bandRow("B4","Manager (IC)","Team Lead","Sets the approach for a domain. IC: deep expert. Lead: runs a small team.")+
+      bandRow("B5","Senior Manager (IC)","Manager","Authority for a craft / sub-function. Manager owns a sub-function and its people.")+
+      bandRow("B6","—","Senior Manager","Owns a marketing function, its strategy and multiple teams.")+
+      '</tbody></table></div>'+
+    '<div class="ov-card span gate"><h3>&#128274;&nbsp; Beyond the GPS</h3>'+
+      '<p>Director, Head of Corridors, Head of Marketing and VP sit <b>above</b> this map. Reaching Band 6 does not entitle anyone to them — these roles are <b>appointed, not promoted into</b>, based on whether the business needs the seat, C-suite judgement on readiness and team shape, character and leadership, and strategic need in a corridor or function.</p>'+
+      '<p style="margin-bottom:0;color:#6E7B76">In short: the GPS guarantees a fair, defined path up to Senior Manager. Beyond it, the path opens only when the business, the seat and the person all line up.</p></div>'+
+  '</div>';
+}
+
+// Links: open in a new tab; if a viewer blocks pop-ups (file previews, chat apps), open in this tab instead.
+document.addEventListener("click",e=>{
+  const a=e.target.closest("a.litem"); if(!a)return;
+  e.preventDefault();
+  let w=null;
+  try{w=window.open(a.href,"_blank");if(w)w.opener=null;}catch(_){}
+  if(!w){try{window.top.location.href=a.href;}catch(_){window.location.href=a.href;}}
+});
+
+syncNav(); render();
+</script>
+</body>
+</html>
