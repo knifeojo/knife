@@ -1,0 +1,133 @@
+import { describe, expect, it } from "vitest";
+import { GTBANK_FIXTURES as F } from "@/core/fixtures/gtbank-alerts";
+import { GTBankParser } from "@/core/parsers/gtbank";
+import { parseEmail } from "@/core/parsers";
+import { htmlToText, parseBankDate } from "@/core/parsers/text";
+import { parseAmountToMinor } from "@/lib/money";
+
+const parser = new GTBankParser();
+
+describe("GTBankParser: GeNS HTML layout", () => {
+  it("parses a debit transfer", () => {
+    const tx = parser.parse(F.gensDebitTransfer)!;
+    expect(tx).not.toBeNull();
+    expect(tx.type).toBe("DEBIT");
+    expect(tx.amountMinor).toBe(25_000_000n);
+    expect(tx.currency).toBe("NGN");
+    expect(tx.balanceAfterMinor).toBe(450_000_000n);
+    expect(tx.reference).toBe("000013260925101452001");
+    expect(tx.accountLast4).toBe("4521");
+    expect(tx.description).toContain("OLUWASEUN ADEYEMI");
+    // 10:14:52 Lagos = 09:14:52 UTC
+    expect(tx.transactionDate.toISOString()).toBe("2026-09-25T09:14:52.000Z");
+    expect(tx.confidence).toBe(1);
+  });
+
+  it("parses a salary credit", () => {
+    const tx = parser.parse(F.gensCreditSalary)!;
+    expect(tx.type).toBe("CREDIT");
+    expect(tx.amountMinor).toBe(198_361_100n);
+    expect(tx.description).toContain("SALARY");
+  });
+
+  it("keeps kobo on decimal amounts", () => {
+    expect(parser.parse(F.gensPosShoprite)!.amountMinor).toBe(4_525_050n);
+  });
+
+  it("parses small fee debits", () => {
+    const tx = parser.parse(F.gensSmsFee)!;
+    expect(tx.type).toBe("DEBIT");
+    expect(tx.amountMinor).toBe(2_400n);
+  });
+
+  it("parses non-NGN domiciliary alerts with ISO dates", () => {
+    const tx = parser.parse(F.usdCredit)!;
+    expect(tx.currency).toBe("USD");
+    expect(tx.amountMinor).toBe(120_000n);
+    expect(tx.accountLast4).toBe("9901");
+    expect(tx.transactionDate.toISOString()).toBe("2026-09-10T10:00:00.000Z");
+  });
+});
+
+describe("GTBankParser: plaintext prose layout", () => {
+  it("parses 'your account has been debited with'", () => {
+    const tx = parser.parse(F.proseDebit)!;
+    expect(tx).toMatchObject({ type: "DEBIT", amountMinor: 8_500_000n, currency: "NGN", reference: "ABC123" });
+    expect(tx.balanceAfterMinor).toBe(276_638_900n);
+    expect(tx.description).toBe("POS/BOLT TECHNOLOGY OU/LAGOS NG");
+    // dd/mm/yyyy: 22 September, not month 22
+    expect(tx.transactionDate.toISOString().slice(0, 10)).toBe("2026-09-22");
+  });
+
+  it("parses 'your account has been credited with'", () => {
+    const tx = parser.parse(F.proseCreditPesa)!;
+    expect(tx).toMatchObject({ type: "CREDIT", amountMinor: 66_680_000n, reference: "PSA7781204" });
+  });
+
+  it("handles missing optional fields with lower confidence and email date fallback", () => {
+    const tx = parser.parse(F.missingOptionalFields)!;
+    expect(tx.type).toBe("DEBIT");
+    expect(tx.amountMinor).toBe(500_000n);
+    expect(tx.reference).toBeUndefined();
+    expect(tx.balanceAfterMinor).toBeUndefined();
+    expect(tx.transactionDate).toEqual(F.missingOptionalFields.date);
+    expect(tx.confidence).toBeLessThan(0.7);
+  });
+});
+
+describe("GTBankParser: recognition and failure", () => {
+  it("does not claim other banks' alerts", () => {
+    expect(parser.canParse(F.otherBank)).toBe(false);
+    expect(parseEmail(F.otherBank).status).toBe("skipped");
+  });
+
+  it("returns failed, not a guessed transaction, for malformed alerts", () => {
+    expect(parseEmail(F.malformedAlert).status).toBe("failed");
+  });
+
+  it("does not create transactions from marketing email", () => {
+    expect(parseEmail(F.marketing).status).toBe("skipped");
+  });
+
+  it("refuses to guess direction when neither debit nor credit is stated", () => {
+    const tx = parser.parse({
+      id: "x",
+      from: "gens@gtbank.com",
+      subject: "GeNS Transaction Alert",
+      date: new Date(),
+      text: "Guaranty Trust Bank GeNS\nAmount : NGN 1,000.00\nDescription : SOMETHING",
+    });
+    expect(tx).toBeNull();
+  });
+
+  it("recognises every GTBank transaction fixture", () => {
+    const ok = [F.gensDebitTransfer, F.gensCreditSalary, F.proseDebit, F.proseCreditPesa, F.gensPosShoprite, F.gensNetflix, F.gensSmsFee, F.missingOptionalFields, F.usdCredit];
+    for (const e of ok) expect(parseEmail(e).status, e.id).toBe("parsed");
+  });
+});
+
+describe("helpers", () => {
+  it("parses amounts to minor units without floats", () => {
+    expect(parseAmountToMinor("1,983,611.00")).toBe(198_361_100n);
+    expect(parseAmountToMinor("0.1")).toBe(10n);
+    expect(parseAmountToMinor("5000")).toBe(500_000n);
+    expect(parseAmountToMinor(".75")).toBe(75n);
+    expect(parseAmountToMinor("12.345")).toBeNull();
+    expect(parseAmountToMinor("abc")).toBeNull();
+  });
+
+  it("parses Nigerian date formats as Lagos time", () => {
+    expect(parseBankDate("05/09/2026")!.toISOString().slice(0, 10)).toBe("2026-09-05");
+    expect(parseBankDate("25-Sep-2026")!.toISOString().slice(0, 10)).toBe("2026-09-25");
+    expect(parseBankDate("25 September 2026")!.toISOString().slice(0, 10)).toBe("2026-09-25");
+    expect(parseBankDate("Sep 25, 2026")!.toISOString().slice(0, 10)).toBe("2026-09-25");
+    expect(parseBankDate("25-Sep-26")!.toISOString().slice(0, 10)).toBe("2026-09-25");
+    expect(parseBankDate("31/02/2026")).toBeUndefined();
+    expect(parseBankDate("not a date")).toBeUndefined();
+  });
+
+  it("flattens HTML tables into label : value lines", () => {
+    const text = htmlToText("<table><tr><td>Amount</td><td>NGN&nbsp;5,000.00</td></tr></table>");
+    expect(text).toBe("Amount : NGN 5,000.00");
+  });
+});

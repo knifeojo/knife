@@ -1,0 +1,225 @@
+// SQLite locally. For Postgres: change provider to "postgresql" and set DATABASE_URL.
+// Enums are stored as strings so the schema stays portable across providers.
+// Money is stored in integer minor units (kobo for NGN).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  googleSub    String?  @unique
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  aiConsent    Boolean  @default(false)
+
+  sessions     Session[]
+  evalRuns     EvalRun[]
+  connections  FinancialConnection[]
+  accounts     Account[]
+  transactions Transaction[]
+  syncRuns     SyncRun[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// One row per data source a user has connected (gmail, fixture, demo, later mono/statement/sms).
+model FinancialConnection {
+  id                     String    @id @default(cuid())
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider               String // gmail | fixture | demo
+  providerAccountId      String? // e.g. the Gmail address
+  status                 String    @default("active") // active | revoked | error
+  encryptedRefreshToken  String?
+  encryptedAccessToken   String?
+  accessTokenExpiresAt   DateTime?
+  scope                  String?
+  gmailHistoryId         String?
+  lastSyncedAt           DateTime?
+  lastProcessedMessageId String?
+  lastError              String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  syncRuns        SyncRun[]
+  processedEmails ProcessedEmail[]
+
+  @@unique([userId, provider])
+}
+
+model Account {
+  id                  String    @id @default(cuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  institution         String
+  accountName         String
+  maskedAccountNumber String // only last 4 digits are ever stored, e.g. "****1234"
+  holderName          String? // account holder, used to spot transfers between the user's own accounts
+  currency            String    @default("NGN")
+  balanceMinor        BigInt?
+  balanceUpdatedAt    DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  transactions Transaction[]
+
+  @@unique([userId, institution, maskedAccountNumber])
+}
+
+model Transaction {
+  id                       String   @id @default(cuid())
+  userId                   String
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId                String
+  account                  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  source                   String // first source that created the row: gmail | statement | mono | sms | fixture | demo
+  sourceTransactionId      String
+  fingerprint              String
+  transactionDate          DateTime
+  type                     String // CREDIT | DEBIT (extensible: REVERSAL, REFUND, FEE, ...)
+  amountMinor              BigInt
+  currency                 String
+  balanceAfterMinor        BigInt?
+  description              String
+  reference                String?
+  counterparty             String?
+  merchantName             String?
+  category                 String
+  subcategory              String?
+  classificationSource     String // rule | user | ai | default
+  classificationConfidence Float
+  parseConfidence          Float    @default(1)
+  // The other leg when money moved between two of the user's own accounts (both legs point at each other).
+  transferPairId           String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  sources TransactionSource[]
+
+  @@unique([userId, fingerprint])
+  @@index([userId, transactionDate])
+  @@index([userId, category])
+}
+
+// Every observation of a transaction from any source. Enables dedup audit and future reconciliation.
+model TransactionSource {
+  id                  String      @id @default(cuid())
+  userId              String
+  transactionId       String
+  transaction         Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  source              String
+  sourceTransactionId String
+  matchType           String // created | exact | fuzzy
+  createdAt           DateTime    @default(now())
+
+  @@unique([userId, source, sourceTransactionId])
+}
+
+// Merchant normalization. userId null = global rule; user rows are learned from corrections.
+model MerchantAlias {
+  id            String   @id @default(cuid())
+  userId        String?
+  pattern       String // lowercase substring matched against normalized description
+  canonicalName String
+  category      String?
+  subcategory   String?
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, pattern])
+}
+
+// Metadata only. Email bodies are never persisted.
+model ProcessedEmail {
+  id            String              @id @default(cuid())
+  userId        String
+  connectionId  String
+  connection    FinancialConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messageId     String
+  sender        String
+  subject       String
+  receivedAt    DateTime
+  status        String // parsed | duplicate | skipped | failed
+  parser        String?
+  transactionId String?
+  createdAt     DateTime            @default(now())
+
+  @@unique([userId, messageId])
+}
+
+model SyncRun {
+  id             String              @id @default(cuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId   String
+  connection     FinancialConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  status         String // running | success | failed
+  startedAt      DateTime            @default(now())
+  finishedAt     DateTime?
+  emailsScanned  Int                 @default(0)
+  parsed         Int                 @default(0)
+  created        Int                 @default(0)
+  duplicates     Int                 @default(0)
+  parseFailures  Int                 @default(0)
+  skipped        Int                 @default(0)
+  avgConfidence  Float?
+  error          String?
+  label          String? // what was imported, e.g. "statement.pdf · GTBank ••3533"
+  linked         Int                 @default(0) // transfers between the user's own accounts linked by this import
+  balanceBreaks  Int                 @default(0) // rows where running balance did not follow from the previous row
+  gapMinor       BigInt? // money unaccounted for by the imported rows (statement balance vs imported amounts)
+  seenAt         DateTime? // when the user dismissed the result banner
+}
+
+// Accuracy snapshots: how often automatic categorization matches what the user said.
+model EvalRun {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  method        String // rules | rules+ai
+  labelled      Int
+  correct       Int
+  labelledMinor BigInt
+  correctMinor  BigInt
+  coverage      Float // share of spending (by value) in a specific category, not Transfers/Other
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Rows a statement contained but Ledger could not read. Nothing is silently dropped: the user can add
+// each one to the ledger (prefilled) or mark it as not a transaction.
+model ImportIssue {
+  id         String    @id @default(cuid())
+  userId     String
+  syncRunId  String
+  fileLabel  String
+  rowNumber  Int
+  reason     String
+  rawText    String // the row as printed on the statement
+  accountId  String?
+  status     String    @default("open") // open | added | ignored
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, status])
+}

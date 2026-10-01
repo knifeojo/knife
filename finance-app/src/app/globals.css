@@ -1,0 +1,177 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #f1f1ec;
+  --border: #e4e3dc;
+  --ink: #0f1110;
+  --ink-2: #52514e;
+  --ink-3: #8a8983;
+  --accent: #0b6e4f;
+  --accent-ink: #ffffff;
+  --accent-soft: #e3f1ea;
+  --credit: #0b6e4f;
+  --debit: #0f1110;
+  --warn-bg: #fff4d6;
+  --warn-ink: #6b4a00;
+  --danger: #b42318;
+  /* chart roles (validated reference palette) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --grid: #ecebe6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111211;
+    --surface: #1a1b1a;
+    --surface-2: #232422;
+    --border: #2e2f2c;
+    --ink: #f4f4f1;
+    --ink-2: #c3c2b7;
+    --ink-3: #8f8e86;
+    --accent: #3fb68b;
+    --accent-ink: #06150f;
+    --accent-soft: #173327;
+    --credit: #5cc99e;
+    --debit: #f4f4f1;
+    --warn-bg: #3a2e0c;
+    --warn-ink: #f5d78a;
+    --danger: #f97066;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --grid: #2a2b28;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-credit: var(--credit);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-ink: var(--warn-ink);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-feature-settings: "tnum" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-weight: 500;
+  font-size: 14px;
+  transition: opacity 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.btn-primary:hover {
+  opacity: 0.9;
+}
+.btn-secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover {
+  background: var(--surface-2);
+}
+.btn-ghost {
+  color: var(--ink-2);
+}
+.btn-ghost:hover {
+  background: var(--surface-2);
+}
+.btn-danger {
+  color: var(--danger);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.input {
+  height: 40px;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0 12px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Chart hover tooltip: native-feeling, no JS */
+.viz-mark {
+  position: relative;
+}
+.viz-mark .viz-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+.viz-mark:hover .viz-tip,
+.viz-mark:focus-visible .viz-tip {
+  display: block;
+}
