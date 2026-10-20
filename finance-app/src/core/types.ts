@@ -28,6 +28,13 @@ export interface ParsedTransaction {
   accountLast4?: string;
   /** Account holder's name when the source states or implies it (statements). */
   accountHolder?: string;
+  /**
+   * Settlement quoted by the source in another currency. A Deel withdrawal of USD 1,250
+   * at an NGN exchange rate stores the naira proceeds here so FX learning does not have
+   * to wait for the matching bank credit.
+   */
+  fxQuoteCurrency?: string;
+  fxQuoteMinor?: bigint;
   /** 0..1, how many expected fields the parser found */
   confidence: number;
 }

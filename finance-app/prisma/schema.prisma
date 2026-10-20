@@ -111,6 +111,10 @@ model Transaction {
   parseConfidence          Float    @default(1)
   // The other leg when money moved between two of the user's own accounts (both legs point at each other).
   transferPairId           String?
+  // Quoted proceeds in another currency (a Deel USD withdrawal that states the NGN received).
+  // Feeds FX learning before the matching bank credit is imported.
+  fxQuoteCurrency          String?
+  fxQuoteMinor             BigInt?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 

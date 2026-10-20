@@ -155,6 +155,8 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
         amountMinor: tx.amountMinor,
         currency: tx.currency,
         balanceAfterMinor: tx.balanceAfterMinor,
+        fxQuoteCurrency: tx.fxQuoteCurrency,
+        fxQuoteMinor: tx.fxQuoteMinor,
         description: tx.description,
         reference: tx.reference,
         counterparty: c.counterparty,

@@ -230,11 +230,7 @@ export interface PdfSection {
   otherText: string;
 }
 
-/**
- * Rebuilds statement tables. One PDF can hold several accounts (e.g. a current account followed by a
- * savings account): a page that restates an account header for a different account starts a new section.
- */
-export async function pdfToSections(bytes: Buffer, password?: string): Promise<PdfSection[]> {
+async function loadPageItems(bytes: Buffer, password?: string): Promise<Item[][]> {
   let pdf;
   try {
     pdf = await getDocumentProxy(new Uint8Array(bytes), password ? { password } : {});
@@ -247,12 +243,28 @@ export async function pdfToSections(bytes: Buffer, password?: string): Promise<P
     }
     throw new PdfStatementError("Could not open this PDF. It may be damaged.", "unreadable");
   }
-
   const pages: Item[][] = [];
   for (let n = 1; n <= pdf.numPages; n++) pages.push(await pageItems((await pdf.getPage(n)) as unknown as PdfPageLike));
   if (!pages.some((page) => page.length)) {
     throw new PdfStatementError("This PDF has no readable text (it looks scanned). Download the e-statement from your bank app or internet banking instead.", "scanned");
   }
+  return pages;
+}
+
+/** Reading-order text, one visual line per row. Formats that wrap mid-cell (Pesa) parse this directly. */
+export async function pdfToPlainText(bytes: Buffer, password?: string): Promise<string> {
+  const pages = await loadPageItems(bytes, password);
+  return pages
+    .map((items) => toLines(items).map((l) => spans(l.items).map((s) => s.text).filter(Boolean).join(" ")).join("\n"))
+    .join("\n");
+}
+
+/**
+ * Rebuilds statement tables. One PDF can hold several accounts (e.g. a current account followed by a
+ * savings account): a page that restates an account header for a different account starts a new section.
+ */
+export async function pdfToSections(bytes: Buffer, password?: string): Promise<PdfSection[]> {
+  const pages = await loadPageItems(bytes, password);
 
   const sections: { rows: Cell[][]; other: string[]; account?: string }[] = [];
   let current: (typeof sections)[number] | undefined;

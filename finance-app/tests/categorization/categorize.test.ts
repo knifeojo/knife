@@ -65,6 +65,67 @@ describe("categorize", () => {
 describe("wallet apps", () => {
   it("treats funding one of your wallets from another as your own transfer", () => {
     expect(categorize({ description: "Money transfer to 12.50 CAD debited from CAD wallet to fund GHS wallet (101.20 GHS)", type: "DEBIT" })).toMatchObject({ category: "Own transfer", subcategory: "Between your wallets" });
+    expect(categorize({ description: "Money transfer to 5.00 CAD debited from CAD wallet to fund GBP wallet (2.70 GBP)", type: "DEBIT" })).toMatchObject({ category: "Own transfer", subcategory: "Between your wallets" });
+  });
+
+  it("treats a Deel card withdrawal as a move onto the user's own card", () => {
+    expect(categorize({ description: "Deel card withdrawal", type: "DEBIT" })).toMatchObject({ category: "Own transfer", subcategory: "Between your wallets" });
+  });
+});
+
+describe("lenders (FairMoney and Renmoney are loans, not wallets)", () => {
+  it("classifies repayments as debt service and disbursements as loan proceeds, not income", () => {
+    expect(categorize({ description: "NIP TRANSFER TO FAIRMONEY", type: "DEBIT" }, [], ["JANE ADA DOE"])).toMatchObject({
+      category: "Debt",
+      subcategory: "Loan repayment",
+      merchantName: "FairMoney",
+    });
+    expect(categorize({ description: "TRANSFER FROM FAIRMONEY DISBURSEMENT", type: "CREDIT" })).toMatchObject({
+      category: "Debt",
+      subcategory: "Loan proceeds",
+      merchantName: "FairMoney",
+    });
+    expect(categorize({ description: "TRANSFER FROM FAIRMONEY DISBURSEMENT", type: "CREDIT" }).category).not.toBe("Income");
+    expect(categorize({ description: "NIP TO RENMONEY MFB LOAN", type: "DEBIT" })).toMatchObject({
+      category: "Debt",
+      subcategory: "Loan repayment",
+      merchantName: "Renmoney",
+    });
+    expect(categorize({ description: "NIP FROM RENMONEY", type: "CREDIT" })).toMatchObject({
+      category: "Debt",
+      subcategory: "Loan proceeds",
+      merchantName: "Renmoney",
+    });
+    expect(categorize({ description: "NIP FROM RENMONEY", type: "CREDIT" }).category).not.toBe("Income");
+  });
+});
+
+describe("Deel and Pesa narrations", () => {
+  it("does not leave a Deel withdrawal in Other", () => {
+    const c = categorize({ description: "Money transfer to your bank / Deel withdrawal / NGN", type: "DEBIT" });
+    expect(c.category).toBe("Transfers");
+    expect(c.category).not.toBe("Other");
+  });
+
+  it("treats a withdrawal to the account holder's own name as an own-account transfer", () => {
+    expect(categorize({ description: "Money transfer to DOE JANE ADA / Deel withdrawal / GTBank / NGN", type: "DEBIT" }, [], ["JANE ADA DOE"]).category).toBe("Own transfer");
+    expect(categorize({ description: "Money transfer to DOE JANE ADA", type: "DEBIT" }, [], ["JANE ADA DOE"]).category).toBe("Own transfer");
+    expect(categorize({ description: "Money transfer to John Smith", type: "DEBIT" }, [], ["JANE ADA DOE"]).category).not.toBe("Own transfer");
+  });
+
+  it("keeps cash withdrawals out of the transfer bucket", () => {
+    expect(categorize({ description: "CASH WITHDRAWAL LEKKI", type: "DEBIT" })).toMatchObject({ category: "Other", subcategory: "Cash" });
+  });
+
+  it("classifies payroll, client payments, reversed payouts and Deel advances", () => {
+    expect(categorize({ description: "ACME INC / Payroll for Oct 2025", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Salary" });
+    expect(categorize({ description: "ACME INC / Deel client payment", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Consulting" });
+    expect(categorize({ description: "Payout of $50.00 was successfully reversed", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Refund" });
+    expect(categorize({ description: "ACME INC / Team offsite trip reimbursement", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Refund" });
+    expect(categorize({ description: "Deel advance", type: "CREDIT" })).toMatchObject({ category: "Debt", subcategory: "Loan proceeds" });
+    expect(categorize({ description: "Deel advance", type: "CREDIT" }).category).not.toBe("Income");
+    expect(categorize({ description: "Deel advance fee", type: "DEBIT" })).toMatchObject({ category: "Fees", subcategory: "Advance fee" });
+    expect(categorize({ description: "Deel advance repayment", type: "DEBIT" })).toMatchObject({ category: "Debt", subcategory: "Loan repayment" });
   });
 });
 

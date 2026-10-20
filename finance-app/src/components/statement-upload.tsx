@@ -3,7 +3,7 @@
 import { useActionState, useRef, useState, startTransition } from "react";
 import { importStatementsAction, type StatementState } from "@/app/app/actions";
 
-const BANKS = ["GTBank", "Access Bank", "Zenith Bank", "UBA", "First Bank", "Kuda", "OPay", "Moniepoint", "Other"];
+const BANKS = ["GTBank", "Access Bank", "Zenith Bank", "UBA", "First Bank", "Kuda", "OPay", "Moniepoint", "Pesa", "Deel", "Other"];
 
 export function StatementUpload({ compact = false }: { compact?: boolean }) {
   const [state, action, pending] = useActionState<StatementState, FormData>(importStatementsAction, undefined);

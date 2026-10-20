@@ -25,7 +25,7 @@ const RULES: Rule[] = [
   { match: /upwork/, merchant: "Upwork", category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /deel|remote\.com|payoneer|fiverr|toptal/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /invoice|consult/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
-  { match: /refund|reversal|\brvsl\b|\brev\//, category: INCOME_CATEGORY, subcategory: "Refund", only: "CREDIT" },
+  { match: /refund|reversal|reversed|reimburs|\brvsl\b|\brev\//, category: INCOME_CATEGORY, subcategory: "Refund", only: "CREDIT" },
   { match: /interest capitali[sz]ed|interest run|int\.? ?pd|interest paid|credit interest/, merchant: "Interest", category: INCOME_CATEGORY, subcategory: "Interest", only: "CREDIT" },
   { match: /\bpesa\b(?!peer)| pesa payments/, merchant: "Pesa", category: INCOME_CATEGORY, subcategory: "Transfer", only: "CREDIT" },
 
@@ -33,8 +33,10 @@ const RULES: Rule[] = [
   // PDFs sometimes glue words ("VATCHARGES", "TransferCHARGES"), so these avoid leading word boundaries.
   { match: /sms alert|alert charge|commission|stamp duty|\bvat|maintenance fee|card maint|\bcot\b|nip charge|transfer charge|charges?\b|transfer levy|\bemtl\b/, merchant: "Bank charges", category: "Fees" },
 
-  // Cash
+  // Cash. "cash withdrawal" must stay above the general withdrawal rule.
   { match: /\batm\b|cash wdl|cash withdrawal|\bwdl\b/, merchant: "Cash withdrawal", category: "Other", subcategory: "Cash" },
+  // Deel (and similar) withdrawals are money leaving a wallet for a bank, not uncategorized spend.
+  { match: /\bwithdraw(?:al|als)?\b/, category: "Transfers", subcategory: "Withdrawal", only: "DEBIT" },
 
   // Transport
   { match: /\buber\b/, merchant: "Uber", category: "Transport", subcategory: "Ride hailing" },
@@ -83,7 +85,8 @@ const RULES: Rule[] = [
   // Travel
   { match: /air peace|arik|ibom air|united nigeria|emirates|qatar airways|british airways|booking\.com|airbnb|hotel/, category: "Travel" },
 
-  // Debt
+  // Debt. FairMoney and Renmoney are loan apps the user is repaying, not wallets he holds.
+  // Credits from these lenders are loan proceeds (see lenderMerchant), not income.
   { match: /loan repay|carbon|fairmoney|palmcredit|renmoney|\bremb\b|credit card/, merchant: undefined, category: "Debt", subcategory: "Loan repayment" },
 
   // Family / education
@@ -129,6 +132,15 @@ export function normalizeMerchant(description: string): string | undefined {
 }
 
 const TRANSFER_MARKER = /\b(trf|nip|fip|transfer|mob\/utu|ussd)\b|instant payment|outward|inward/;
+
+/** Loan apps the user repays. A credit from one of these is disbursement, not salary or business income. */
+function lenderMerchant(desc: string): string | undefined {
+  if (/\bfairmoney\b/.test(desc)) return "FairMoney";
+  if (/\brenmoney\b|\bremb\b/.test(desc)) return "Renmoney";
+  if (/\bpalmcredit\b/.test(desc)) return "PalmCredit";
+  if (/\bcarbon\b/.test(desc)) return "Carbon";
+  return undefined;
+}
 
 function titleCase(s: string): string {
   return s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase()).trim();
@@ -352,12 +364,29 @@ export function categorize(
     }
   }
 
-  // Wallet apps move money between the user's own currency wallets: "… debited from CAD wallet to fund GHS wallet".
-  if (/debited from \w+ wallet to fund \w+ wallet|wallet to wallet|fund(ed)? (my )?\w+ wallet/.test(desc)) {
+  // Wallet apps move money between the user's own currency wallets: "… debited from CAD wallet to fund GBP wallet".
+  // A Deel card withdrawal is the same kind of move, onto the user's own card.
+  if (/debited from \w+ wallet to fund \w+ wallet|wallet to wallet|fund(ed)? (my )?\w+ wallet|deel card withdrawal/.test(desc)) {
     return { category: OWN_TRANSFER, subcategory: "Between your wallets", merchantName: merchant, counterparty: undefined, source: "rule", confidence: 0.95 };
   }
   if (isSelf(counterparty, owners)) {
     return { category: OWN_TRANSFER, subcategory: "Between own accounts", merchantName: counterparty, counterparty, source: "rule", confidence: 0.9 };
+  }
+
+  // Lender disbursements are loan proceeds, not income. Repayments stay on the debt rule below.
+  const lender = lenderMerchant(desc);
+  if (lender && input.type === "CREDIT") {
+    return { category: "Debt", subcategory: "Loan proceeds", merchantName: lender, counterparty: lender, source: "rule", confidence: 0.9 };
+  }
+  // Deel earned-wage advances: the advance is a loan in, the fee is an expense, repayment goes out.
+  if (/\bdeel advance fee\b/.test(desc)) {
+    return { category: "Fees", subcategory: "Advance fee", merchantName: "Deel", counterparty, source: "rule", confidence: 0.95 };
+  }
+  if (/\bdeel advance repayment\b/.test(desc)) {
+    return { category: "Debt", subcategory: "Loan repayment", merchantName: "Deel", counterparty, source: "rule", confidence: 0.95 };
+  }
+  if (input.type === "CREDIT" && /\bdeel advance\b/.test(desc)) {
+    return { category: "Debt", subcategory: "Loan proceeds", merchantName: "Deel", counterparty, source: "rule", confidence: 0.95 };
   }
 
   for (const rule of RULES) {
