@@ -150,7 +150,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   }
 
   // 2. Where income comes from (biggest first).
-  const credits = groupByName(tx.filter((t) => t.type === "CREDIT" && t.category !== OWN_TRANSFER));
+  const credits = groupByName(tx.filter((t) => t.type === "CREDIT" && t.category !== OWN_TRANSFER && t.category !== "Debt"));
   for (const g of credits.filter((g) => g.total >= QUESTION_MIN_MINOR && !answered(g.key)).slice(0, 4)) {
     questions.push({
       kind: "income", key: g.key, title: `What is the money from ${g.display}?`,

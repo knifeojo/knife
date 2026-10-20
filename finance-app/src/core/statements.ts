@@ -126,7 +126,7 @@ export const BANKS: [RegExp, string][] = [
   [/stanbic/i, "Stanbic IBTC"], [/sterling/i, "Sterling Bank"], [/wema|alat/i, "Wema Bank"], [/union bank/i, "Union Bank"],
   [/fcmb|first city monument/i, "FCMB"], [/ecobank/i, "Ecobank"], [/polaris/i, "Polaris Bank"], [/keystone/i, "Keystone Bank"],
   [/providus/i, "Providus Bank"], [/kuda/i, "Kuda"], [/opay/i, "OPay"], [/moniepoint/i, "Moniepoint"], [/palmpay/i, "PalmPay"],
-  [/\bpesa\b|pesapeer/i, "Pesa"],
+  [/\bpesa\b|pesapeer/i, "Pesa"], [/\bdeel\b/i, "Deel"],
 ];
 
 export function detectStatementMeta(rows: Cell[][], fileName = "", otherText = ""): { institution?: string; currency?: string } {

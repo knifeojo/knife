@@ -1,11 +1,13 @@
 import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { ingestTransaction, loadOwners, loadUserRules } from "./ledger";
-import { detectStatementMeta, moneyCell, parseCsv, parseStatementRows, reconcile, type Cell } from "./statements";
+import { detectStatementMeta, moneyCell, parseCsv, parseStatementRows, reconcile, type Cell, type StatementParseResult } from "./statements";
 import { parseBankDate } from "./parsers/text";
+import { parseDeelCsv } from "./parsers/deel";
+import { parsePesaStatement } from "./parsers/pesa";
 import { parseAmountToMinor } from "@/lib/money";
 import { formatMoney } from "@/lib/money";
-import { PdfStatementError, pdfToSections } from "./pdf-statement";
+import { PdfStatementError, pdfToPlainText, pdfToSections } from "./pdf-statement";
 import { pairOwnTransfers } from "./transfers";
 
 export const MAX_STATEMENT_BYTES = 5 * 1024 * 1024;
@@ -31,19 +33,39 @@ export interface StatementImportSummary {
 
 export class StatementFormatError extends Error {}
 
-type Section = { rows: Cell[][]; otherText?: string };
+type Section = {
+  rows: Cell[][];
+  otherText?: string;
+  /** Set when a format-specific parser already produced transactions (Pesa PDF, Deel CSV). */
+  direct?: StatementParseResult;
+  institution?: string;
+  currency?: string;
+};
+
+function deelSection(rows: Cell[][]): Section | undefined {
+  const deel = parseDeelCsv(rows);
+  if (!deel) return undefined;
+  return { rows: [], direct: deel.result, institution: "Deel", currency: deel.currency };
+}
 
 /** A file yields one section per account (PDFs can hold several accounts). */
 async function readSections(fileName: string, bytes: Buffer, password?: string): Promise<Section[]> {
   const ext = fileName.toLowerCase().split(".").pop();
-  if (ext === "csv" || ext === "txt") return [{ rows: parseCsv(bytes.toString("utf8")) }];
+  if (ext === "csv" || ext === "txt") {
+    const rows = parseCsv(bytes.toString("utf8"));
+    return [deelSection(rows) ?? { rows }];
+  }
   if (ext === "xlsx") {
     const { readSheet } = await import("read-excel-file/node");
-    return [{ rows: (await readSheet(bytes)) as Cell[][] }];
+    const rows = (await readSheet(bytes)) as Cell[][];
+    return [deelSection(rows) ?? { rows }];
   }
   if (ext === "xls") throw new StatementFormatError("Old .xls files are not supported. Open it in Excel or Google Sheets and save as .xlsx or .csv.");
   if (ext === "pdf") {
     try {
+      const text = await pdfToPlainText(bytes, password);
+      const pesa = parsePesaStatement(text);
+      if (pesa) return [{ rows: [], direct: pesa.result, institution: "Pesa", currency: pesa.currency }];
       return await pdfToSections(bytes, password);
     } catch (e) {
       if (e instanceof PdfStatementError) throw new StatementFormatError(e.message);
@@ -67,7 +89,16 @@ export async function importStatement(
   const allFooter = sections.map((x) => x.otherText ?? "").join("\n");
   const summaries: StatementImportSummary[] = [];
   for (const section of sections) {
-    if (section.rows.length > MAX_ROWS) throw new StatementFormatError(`Statement has more than ${MAX_ROWS.toLocaleString()} rows. Split it by date range.`);
+    const size = section.direct ? section.direct.transactions.length + section.direct.errors.length : section.rows.length;
+    if (size > MAX_ROWS) throw new StatementFormatError(`Statement has more than ${MAX_ROWS.toLocaleString()} rows. Split it by date range.`);
+    if (section.direct) {
+      summaries.push(await persistParsed(userId, section.direct, {
+        institution: section.institution ?? opts.institution ?? "Unknown bank",
+        currency: section.currency ?? opts.currency ?? "NGN",
+        fileName: file.name,
+      }));
+      continue;
+    }
     const meta = detectStatementMeta(section.rows, file.name, allFooter);
     summaries.push(await importRows(userId, section.rows, {
       institution: meta.institution ?? opts.institution ?? "Unknown bank",
@@ -84,8 +115,11 @@ export async function importStatement(
   return others.length ? { ...first, others } : first;
 }
 
-async function importRows(userId: string, rows: Cell[][], { institution, currency, fileName }: { institution: string; currency: string; fileName: string }): Promise<StatementImportSummary> {
-  const parsed = parseStatementRows(rows, { institution, currency });
+async function importRows(userId: string, rows: Cell[][], meta: { institution: string; currency: string; fileName: string }): Promise<StatementImportSummary> {
+  return persistParsed(userId, parseStatementRows(rows, { institution: meta.institution, currency: meta.currency }), meta);
+}
+
+async function persistParsed(userId: string, parsed: StatementParseResult, { institution, currency, fileName }: { institution: string; currency: string; fileName: string }): Promise<StatementImportSummary> {
   const conn = await db.financialConnection.upsert({
     where: { userId_provider: { userId, provider: "statement" } },
     update: { status: "active" },

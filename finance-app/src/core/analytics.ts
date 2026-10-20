@@ -46,23 +46,41 @@ const countable = { category: notOwn, transferPairId: null };
 export interface FxRate { currency: string; rate: number; conversions: number }
 
 /**
- * Exchange rates learned from the user's own conversions (e.g. CAD sent from a Pesa wallet, naira
- * received at GTBank on the same day): naira per unit, median of linked pairs. No outside rate feed.
+ * Exchange rates learned from the user's own conversions: naira per foreign unit, median.
+ * Sources, in order: a linked pair (CAD/USD sent, naira received the same day), and a rate the
+ * source itself quoted (a Deel withdrawal that states the NGN proceeds). A quoted rate is skipped
+ * once that row is paired, so the bank credit is not counted twice. No outside rate feed.
  */
 export async function fxRates(userId: string): Promise<Map<string, FxRate>> {
   const legs = await db.transaction.findMany({
     where: { userId, transferPairId: { not: null }, currency: { not: BASE_CURRENCY } },
     select: { amountMinor: true, currency: true, transferPairId: true },
   });
+  const partnerIds = legs.map((l) => l.transferPairId!);
   const partners = new Map(
-    (await db.transaction.findMany({ where: { id: { in: legs.map((l) => l.transferPairId!) }, currency: BASE_CURRENCY }, select: { id: true, amountMinor: true } }))
-      .map((p) => [p.id, p.amountMinor]),
+    partnerIds.length
+      ? (await db.transaction.findMany({ where: { id: { in: partnerIds }, currency: BASE_CURRENCY }, select: { id: true, amountMinor: true } }))
+          .map((p) => [p.id, p.amountMinor] as const)
+      : [],
   );
   const byCur = new Map<string, number[]>();
+  const add = (currency: string, rate: number) => {
+    if (!Number.isFinite(rate) || rate <= 0) return;
+    byCur.set(currency, [...(byCur.get(currency) ?? []), rate]);
+  };
   for (const l of legs) {
     const ngn = partners.get(l.transferPairId!);
     if (!ngn || l.amountMinor === 0n) continue;
-    byCur.set(l.currency, [...(byCur.get(l.currency) ?? []), Number(ngn) / Number(l.amountMinor)]);
+    add(l.currency, Number(ngn) / Number(l.amountMinor));
+  }
+  const quotes = await db.transaction.findMany({
+    where: { userId, currency: { not: BASE_CURRENCY }, fxQuoteCurrency: BASE_CURRENCY, fxQuoteMinor: { not: null } },
+    select: { amountMinor: true, currency: true, fxQuoteMinor: true, transferPairId: true },
+  });
+  for (const q of quotes) {
+    if (!q.fxQuoteMinor || q.amountMinor === 0n) continue;
+    if (q.transferPairId && partners.has(q.transferPairId)) continue;
+    add(q.currency, Number(q.fxQuoteMinor) / Number(q.amountMinor));
   }
   const out = new Map<string, FxRate>();
   for (const [currency, rates] of byCur) {
@@ -101,7 +119,8 @@ export async function summary(userId: string, p: Period) {
     countableInNaira(userId, p),
     db.transaction.count({ where: { userId, transactionDate: range(p) } }),
   ]);
-  const inc = rows.filter((r) => r.type === "CREDIT");
+  // Loan proceeds (FairMoney, Renmoney, a Deel advance) are credits in Debt, not income.
+  const inc = rows.filter((r) => r.type === "CREDIT" && r.category !== "Debt");
   const exp = rows.filter((r) => r.type === "DEBIT");
   const income = inc.reduce((s, r) => s + r.naira, 0n);
   const expenses = exp.reduce((s, r) => s + r.naira, 0n);
@@ -144,7 +163,14 @@ export async function incomeBySubcategory(userId: string, p: Period) {
 
 export async function largest(userId: string, p: Period, type: "DEBIT" | "CREDIT", take = 5) {
   return db.transaction.findMany({
-    where: { userId, type, currency: BASE_CURRENCY, ...countable, transactionDate: range(p) },
+    where: {
+      userId,
+      type,
+      currency: BASE_CURRENCY,
+      transferPairId: null,
+      category: type === "CREDIT" ? { notIn: [OWN_TRANSFER, "Debt"] } : { not: OWN_TRANSFER },
+      transactionDate: range(p),
+    },
     orderBy: { amountMinor: "desc" },
     take,
   });
@@ -214,6 +240,7 @@ export async function recurring(userId: string, now: Date, type: "DEBIT" | "CRED
   const groups: { key: string; display: string; isPerson: boolean; rows: Row[] }[] = [];
   for (const r of rows) {
     if (r.category === "Fees") continue;
+    if (type === "CREDIT" && r.category === "Debt") continue;
     const person = r.counterparty && r.counterparty.split(/\s+/).length >= 2 ? r.counterparty : undefined;
     let g = person ? groups.find((x) => x.isPerson && sameName(x.display, person)) : undefined;
     const fallbackKey = (r.merchantName ?? memoOf(r.description) ?? learningKey(r.description, null, null)).toLowerCase();
@@ -350,6 +377,7 @@ export async function incomeSources(userId: string, p: Period, take = 6) {
   const { rows } = await countableInNaira(userId, p, { type: "CREDIT" });
   const by = new Map<string, { name: string; kind: string; total: bigint; count: number; currency: string }>();
   for (const r of rows) {
+    if (r.category === "Debt") continue;
     const name = r.merchantName ?? r.counterparty ?? "Unnamed transfers";
     const g = by.get(name) ?? { name, kind: r.subcategory ?? "Other income", total: 0n, count: 0, currency: r.currency };
     g.total += r.naira;

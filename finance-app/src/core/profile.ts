@@ -26,7 +26,7 @@ export async function buildProfile(userId: string, now = new Date()): Promise<Pr
     db.account.findMany({ where: { userId } }),
     db.merchantAlias.findMany({ where: { userId, category: { not: null } } }),
     db.transaction.findMany({
-      where: { userId, type: "CREDIT", category: { not: OWN_TRANSFER }, transferPairId: null },
+      where: { userId, type: "CREDIT", category: { notIn: [OWN_TRANSFER, "Debt"] }, transferPairId: null },
       select: { counterparty: true, merchantName: true, subcategory: true, amountMinor: true, transactionDate: true, currency: true },
     }),
     db.transaction.findFirst({ where: { userId }, orderBy: { transactionDate: "asc" }, select: { transactionDate: true } }),
