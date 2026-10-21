@@ -1,7 +1,43 @@
 import { describe, expect, it } from "vitest";
 import { parsePesaStatement, pesaCurrency } from "@/core/parsers/pesa";
 import { pdfToPlainText } from "@/core/pdf-statement";
-import { makePesaPdf } from "../fixtures/pesa-pdf";
+import { reconcile } from "@/core/statements";
+import { makePesaPdf, makeTextPdf } from "../fixtures/pesa-pdf";
+
+// Made-up wallet text. Page breaks glue the repeated header into a row, split a date from its
+// year, and leave a balance on the next page's first line. Digits are real here so the running
+// balance can be checked; the shapes match statement rows that failed import.
+const PAGE_BREAK_TEXT = `Account Statement
+JANE ADA
+DOE
+Email: jane@example.com
+Date Issued: Oct 20, 2026
+Period: Oct 20, 2025 - Oct 20, 2026
+Wallet: CAOO123456789
+Balance: $100.00
+Date Transaction Details Amount($) Balance($)
+Oct 25,
+2025 ACME INC / Payroll for Oct 2025 1,000.00 1,100.00
+Oct 26, 2025 Money transfer to JOHN DOE (200.00) 900.00
+Date Transaction Details Amount($) Balance($)
+Oct 27, Money transfer to JOHN DOE (
+Continued on next page
+Page 1 of 3
+\fDate Transaction Details Amount($) Balance($)
+2025 (50.00) 850.00
+Nov 3, 2025 Payout of $40.00 was successfully reversed 40.00 890.00
+Page 2 of 3
+Date Transaction Details Amount($) Balance($)
+Nov 4, 2025 Money transfer to PAYSTACK CHECKOUT / 1234567890 /
+TITAN-PAYSTACKMicrofinance (15.00)
+\fNov 5, 2025 875.00 Money transfer to JOHN DOE / 0987654321 /
+GuarantyTrust Bank (25.00) 850.00
+Dec 1,
+2025 700.00
+Date Transaction Details Amount($) Balance($)
+Money transfer to JOHN DOE (150.00)
+Dec 2, 2025 ACME INC / Bonus 100.00 800.00
+`;
 
 // Synthetic Pesa wallet text. Names, the email and the amounts are made up.
 const PESA_TEXT = `Account Statement
@@ -70,6 +106,32 @@ describe("Pesa wallet text", () => {
   it("ignores a bank statement that is not a Pesa wallet", () => {
     expect(parsePesaStatement("Guaranty Trust Bank\nAccount No: 0123454521\nCurrency: NGN")).toBeNull();
   });
+
+  it("stitches rows split by a page header and keeps the running balance", () => {
+    const parsed = parsePesaStatement(PAGE_BREAK_TEXT.replaceAll("\f", "\n"));
+    expect(parsed).not.toBeNull();
+    expect(parsed!.result.errors).toEqual([]);
+    const rows = parsed!.result.transactions;
+    expect(rows.map((t) => [t.transactionDate.toISOString().slice(0, 10), t.type, t.amountMinor, t.balanceAfterMinor])).toEqual([
+      ["2025-10-25", "CREDIT", 100_000n, 110_000n],
+      ["2025-10-26", "DEBIT", 20_000n, 90_000n],
+      ["2025-10-27", "DEBIT", 5_000n, 85_000n],
+      ["2025-11-03", "CREDIT", 4_000n, 89_000n],
+      ["2025-11-04", "DEBIT", 1_500n, 87_500n],
+      ["2025-11-05", "DEBIT", 2_500n, 85_000n],
+      ["2025-12-01", "DEBIT", 15_000n, 70_000n],
+      ["2025-12-02", "CREDIT", 10_000n, 80_000n],
+    ]);
+    const payout = rows[3];
+    expect(payout.description).toContain("reversed");
+    expect(payout.description).toContain("$40.00");
+    expect(payout.type).toBe("CREDIT");
+    expect(rows[2].description).toBe("Money transfer to JOHN DOE");
+    expect(rows[4].description).toBe("Money transfer to PAYSTACK CHECKOUT / 1234567890 / TITAN-PAYSTACKMicrofinance");
+    expect(rows[5].description).toBe("Money transfer to JOHN DOE / 0987654321 / GuarantyTrust Bank");
+    expect(rows[6].description).toBe("Money transfer to JOHN DOE");
+    expect(reconcile(rows)).toMatchObject({ breaks: 0, gapMinor: 0n });
+  });
 });
 
 describe("Pesa wallet PDF", () => {
@@ -88,5 +150,24 @@ describe("Pesa wallet PDF", () => {
     ]);
     expect(parsed!.result.transactions[2].description).toContain("fund GBP wallet");
     expect(parsed!.result.transactions[2].description).toContain("GBP");
+  });
+
+  it("reads a row that starts on one page and finishes after the next page's header", async () => {
+    const text = await pdfToPlainText(await makeTextPdf(PAGE_BREAK_TEXT));
+    const parsed = parsePesaStatement(text);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.result.errors).toEqual([]);
+    expect(parsed!.result.transactions.map((t) => [t.type, t.amountMinor, t.balanceAfterMinor])).toEqual([
+      ["CREDIT", 100_000n, 110_000n],
+      ["DEBIT", 20_000n, 90_000n],
+      ["DEBIT", 5_000n, 85_000n],
+      ["CREDIT", 4_000n, 89_000n],
+      ["DEBIT", 1_500n, 87_500n],
+      ["DEBIT", 2_500n, 85_000n],
+      ["DEBIT", 15_000n, 70_000n],
+      ["CREDIT", 10_000n, 80_000n],
+    ]);
+    expect(parsed!.result.transactions[3].type).toBe("CREDIT");
+    expect(reconcile(parsed!.result.transactions)).toMatchObject({ breaks: 0, gapMinor: 0n });
   });
 });

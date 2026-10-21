@@ -157,6 +157,25 @@ describe("statement narration quirks (from a real GTBank PDF audit)", () => {
     expect(categorize({ description, type: "DEBIT" }).category).toBe(category);
   });
 
+  it("nets a reversed GTBank fee against Fees and still treats real charges as fees", () => {
+    expect(categorize({ description: "REVERSED : Commission on NIP TransferCHARGES", type: "CREDIT" })).toMatchObject({
+      category: "Fees",
+      subcategory: "Refund",
+      merchantName: "Bank charges",
+    });
+    expect(categorize({ description: "REVERSAL OF VAT CHARGE", type: "CREDIT" })).toMatchObject({ category: "Fees", subcategory: "Refund" });
+    expect(categorize({ description: "RVSL SMS ALERT CHARGE", type: "CREDIT" })).toMatchObject({ category: "Fees", subcategory: "Refund" });
+    expect(categorize({ description: "REVERSED : STAMP DUTY CHARGE", type: "CREDIT" }).category).toBe("Fees");
+    for (const description of ["Commission on NIP TransferCHARGES", "VATCHARGES", "STAMP DUTY CHARGE", "SMS ALERT CHARGE"]) {
+      const c = categorize({ description, type: "DEBIT" });
+      expect(c.category).toBe("Fees");
+      expect(c.subcategory).toBeUndefined();
+      expect(c.merchantName).toBe("Bank charges");
+    }
+    expect(categorize({ description: "Payout of $50.00 was successfully reversed", type: "CREDIT" }).category).toBe("Income");
+    expect(categorize({ description: "REVERSAL/POS PURCHASE SHOPRITE LEKKI", type: "CREDIT" }).category).toBe("Income");
+  });
+
   it("classifies savings interest", () => {
     expect(categorize({ description: "INTEREST CAPITALISED 0008853557:Int.Pd:01-09-2026 to 30-09-2026 Interest run", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Interest", source: "rule" });
   });

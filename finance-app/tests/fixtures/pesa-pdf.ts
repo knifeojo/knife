@@ -1,5 +1,21 @@
 import { PDFDocument, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
 
+/** One visual line per row. A form-feed starts a new page, matching a statement that breaks mid-row. */
+export async function makeTextPdf(text: string): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const pageText of text.split("\f")) {
+    const page = doc.addPage([595, 842]);
+    let y = 810;
+    for (const line of pageText.split("\n")) {
+      if (y < 36) break;
+      if (line.trim()) page.drawText(line, { x: 36, y, size: 9, font });
+      y -= 16;
+    }
+  }
+  return Buffer.from(await doc.save());
+}
+
 // Synthetic Pesa wallet PDF. The date and the CAD->GBP narration wrap across lines.
 // Running balances follow the amounts so the statement self-check can pass.
 export async function makePesaPdf(): Promise<Buffer> {

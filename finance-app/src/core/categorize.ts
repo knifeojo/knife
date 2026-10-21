@@ -332,14 +332,22 @@ export function categorize(
   owners: string[] = [],
 ): Classification {
   const desc = input.description.toLowerCase();
+  const collapsed = desc.replace(/\s+/g, " ");
   const rawCounterparty = extractCounterparty(input.description, input.type);
   // A recipient that is a known business gets its proper name ("Remb" -> "Renmoney").
   const counterparty = rawCounterparty ? (normalizeMerchant(rawCounterparty) ?? rawCounterparty) : undefined;
   const merchant = normalizeMerchant(input.description);
 
+  // "REVERSED : Commission on NIP TransferCHARGES" is the bank giving a fee back. It stays in Fees
+  // so it nets against fee spend, and it is a credit — not another fee debit and not income.
+  const feeReversal = /\b(?:reversed|reversal|rvsl)\b|\brev\//.test(collapsed)
+    && /commission|stamp dut|sms alert|alert charge|\bvat|vatcharges|valueaddedtax|value added tax|charges?\b|nip charge|transfer levy|\bemtl\b|maintenance fee|transfer charge/.test(collapsed);
+  if (input.type === "CREDIT" && feeReversal) {
+    return { category: "Fees", subcategory: "Refund", merchantName: "Bank charges", counterparty: undefined, source: "rule", confidence: 0.95 };
+  }
   // Bank charges are always fees, even when they name the person the transfer went to
   // ("Commission on NIP Transfer TO ABENA MENSAH CHARGES" is a ₦50 fee, not a payment to Abena).
-  if (/commission on nip|nip transfer charge|vat charge|valueaddedtax|value added tax|stamp dut|sms alert charge|^vatcharges|transfer levy|\bemtl\b/.test(desc.replace(/\s+/g, " "))) {
+  if (/commission on nip|nip transfer charge|vat charge|valueaddedtax|value added tax|stamp dut|sms alert charge|^vatcharges|transfer levy|\bemtl\b/.test(collapsed)) {
     return { category: "Fees", subcategory: undefined, merchantName: "Bank charges", counterparty: undefined, source: "rule", confidence: 0.95 };
   }
   // What the user taught about a PURPOSE ("rent and dd", "monthly") beats what they taught about a PERSON
