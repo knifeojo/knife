@@ -40,6 +40,7 @@ export const BENCHMARK: BenchCase[] = [
   { description: "W5WM-MONIE MFB-DEEL INC", type: "CREDIT", expected: "Income" },
   { description: "TRANSFER BETWEEN CUSTOMERS 0001-ADA BELLO EZE-110059-PESAPEER LTD .", type: "CREDIT", expected: "Income" },
   { description: "REVERSAL/POS PURCHASE SHOPRITE LEKKI", type: "CREDIT", expected: "Income" },
+  { description: "REVERSED : Commission on NIP TransferCHARGES", type: "CREDIT", expected: "Fees" },
   // Hard: need context or common sense the rules don't have
   { description: "Instant Payment Outward 0914 SCHOOL FEES 1ST TERM TO FCMB - GREENSPRINGS SCHOOL", type: "DEBIT", expected: "Family" },
   { description: "Instant Payment Outward 0915 DSTV COMPACT TO GTB - MULTICHOICE NIGERIA", type: "DEBIT", expected: "Utilities" },

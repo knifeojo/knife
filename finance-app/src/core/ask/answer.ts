@@ -65,10 +65,15 @@ export async function computeFacts(userId: string, intent: Intent, now = new Dat
     }
     case "spend_category": {
       const r = await sumWhere(userId, intent.period, { type: "DEBIT", category: intent.category });
+      // Fee reversals are credits in Fees. They reduce the cost of fees instead of adding spend.
+      const refunded = intent.category === "Fees"
+        ? await sumWhere(userId, intent.period, { type: "CREDIT", category: "Fees" })
+        : { total: 0n, count: 0 };
+      const net = r.total - refunded.total;
       return {
         intent: intent.kind, period: intent.period.label,
-        headline: `You spent ${fmt(r.total)} on ${intent.category} in ${intent.period.label} (${r.count} transactions).`,
-        facts: [fact(`${intent.category} spend`, r.total)],
+        headline: `You spent ${fmt(net)} on ${intent.category} in ${intent.period.label} (${r.count} transactions).`,
+        facts: [fact(`${intent.category} spend`, net)],
       };
     }
     case "spend_top_categories": {

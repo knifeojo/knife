@@ -120,10 +120,13 @@ export async function summary(userId: string, p: Period) {
     db.transaction.count({ where: { userId, transactionDate: range(p) } }),
   ]);
   // Loan proceeds (FairMoney, Renmoney, a Deel advance) are credits in Debt, not income.
-  const inc = rows.filter((r) => r.type === "CREDIT" && r.category !== "Debt");
+  // A reversed bank charge is a credit in Fees: it is not income, and it reduces what fees cost.
+  const feeCredit = (r: { type: string; category: string }) => r.type === "CREDIT" && r.category === "Fees";
+  const inc = rows.filter((r) => r.type === "CREDIT" && r.category !== "Debt" && r.category !== "Fees");
   const exp = rows.filter((r) => r.type === "DEBIT");
+  const refunds = rows.filter(feeCredit);
   const income = inc.reduce((s, r) => s + r.naira, 0n);
-  const expenses = exp.reduce((s, r) => s + r.naira, 0n);
+  const expenses = exp.reduce((s, r) => s + r.naira, 0n) - refunds.reduce((s, r) => s + r.naira, 0n);
   return {
     income, expenses, net: income - expenses, count, incomeCount: inc.length, expenseCount: exp.length,
     /** Foreign-currency rates used, so the UI can say "CAD at your rate of ₦964". */
@@ -152,8 +155,19 @@ function groupSum<T extends { naira: bigint }>(rows: T[], key: (r: T) => string)
 }
 
 export async function spendingByCategory(userId: string, p: Period) {
-  const { rows } = await countableInNaira(userId, p, { type: "DEBIT" });
-  return groupSum(rows, (r) => r.category).map(([category, g]) => ({ category, ...g }));
+  const [{ rows }, { rows: refunds }] = await Promise.all([
+    countableInNaira(userId, p, { type: "DEBIT" }),
+    countableInNaira(userId, p, { type: "CREDIT", category: "Fees" }),
+  ]);
+  const grouped = groupSum(rows, (r) => r.category).map(([category, g]) => ({ category, ...g }));
+  const refundTotal = refunds.reduce((s, r) => s + r.naira, 0n);
+  if (refundTotal !== 0n) {
+    const fees = grouped.find((g) => g.category === "Fees");
+    if (fees) fees.total -= refundTotal;
+    else grouped.push({ category: "Fees", total: -refundTotal, count: 0 });
+    grouped.sort((a, b) => (b.total > a.total ? 1 : a.total > b.total ? -1 : 0));
+  }
+  return grouped;
 }
 
 export async function incomeBySubcategory(userId: string, p: Period) {
@@ -377,7 +391,7 @@ export async function incomeSources(userId: string, p: Period, take = 6) {
   const { rows } = await countableInNaira(userId, p, { type: "CREDIT" });
   const by = new Map<string, { name: string; kind: string; total: bigint; count: number; currency: string }>();
   for (const r of rows) {
-    if (r.category === "Debt") continue;
+    if (r.category === "Debt" || r.category === "Fees") continue;
     const name = r.merchantName ?? r.counterparty ?? "Unnamed transfers";
     const g = by.get(name) ?? { name, kind: r.subcategory ?? "Other income", total: 0n, count: 0, currency: r.currency };
     g.total += r.naira;
