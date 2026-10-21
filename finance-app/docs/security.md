@@ -28,6 +28,17 @@
 - Every query filters on `userId`. `recategorize` looks up by `id AND userId` and throws `NotFoundError` otherwise. Tested in `tests/transactions/pipeline.test.ts` (user A cannot read or modify user B).
 - Server actions get Next.js origin checks. The Gmail connect endpoint is POST-only.
 
+### Mobile API (`/api/v1`)
+
+- The phone uses the same session row as the web, but sends `Authorization: Bearer`. The API does not accept the cookie, so a browser page cannot call it with the web session by CSRF.
+- The database stores SHA-256 of the token. Logout deletes only that token. A second session (the laptop browser) stays valid.
+- Login returns the same 401 for an unknown email, a wrong password, a Google-only account, and malformed input. When there is no password hash, a dummy bcrypt compare runs so the response is not obviously faster.
+- Signup and login are rate-limited in memory (8 logins per 15 minutes per IP and email, 5 signups per hour per IP). This resets on restart and is not shared across processes. The IP is the first `X-Forwarded-For` value, which a client can spoof unless a reverse proxy overwrites it.
+- Statement uploads go through `importStatement`. The file and any PDF password are not stored or logged. The body is rejected when `Content-Length` is more than 6 MB, and each file still has to be under 5 MB.
+- Responses send `Cache-Control: no-store`. Money is a string of minor units.
+- No CORS headers are set. The client is the native app, not a browser.
+- Signup still says when an email is already registered, matching the web form. Login does not.
+
 ## OAuth flow
 
 1. POST `/api/gmail/connect` sets a 10-minute httpOnly `state.userId` cookie scoped to `/api/gmail`, redirects to Google with `access_type=offline`, `prompt=consent`.
@@ -42,7 +53,10 @@
 ## Known gaps (Phase 2)
 
 - Email sender authenticity: a spoofed "GTBank" email that passes Gmail's filters could be ingested. Mitigation: check `Authentication-Results` (DKIM for gtbank.com) before parsing.
-- No rate limiting on login or signup.
+- Web login and signup are not rate-limited. The mobile API is, but only inside one process.
 - No MFA, no email verification, no password reset.
+- The Android app stores the bearer token in the app's private SharedPreferences, not the Android keystore. A rooted device or a backup of app data can read it. The token lasts 30 days.
+- The debug APK allows cleartext HTTP so it can call a laptop over Tailscale. The tailnet encrypts that path. A release build does not allow cleartext; use HTTPS (`tailscale serve`) for a build you keep installed.
+- No certificate pinning. A token sent to the wrong server URL is a password-equivalent secret for 30 days.
 - `ENCRYPTION_KEY` rotation is not implemented (ciphertext is versioned `v1.` to allow it).
 - Google restricted-scope verification (CASA assessment) is required before public launch.

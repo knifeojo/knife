@@ -14,7 +14,7 @@ npm run dev            # http://localhost:3000
 ```
 
 ```bash
-npm test               # 178 tests: parsers, statements (PDF/CSV/XLSX), transfer pairing, AI categorizer and assistant (simulated model), benchmark, dedup, pipeline, authz, Google sign-in, AI facts
+npm test               # parsers, statements (PDF/CSV/XLSX), transfer pairing, AI categorizer and assistant (simulated model), benchmark, dedup, pipeline, authz, Google sign-in, mobile API, AI facts
 npm run build
 ```
 
@@ -41,9 +41,37 @@ Ways to get data in:
 | `src/core/statement-import.ts` | Statement upload into the ledger (xlsx via `read-excel-file`) |
 | `src/core/demo.ts` | Demo data generator (goes through the real pipeline) |
 | `src/app/` | Next.js 16 App Router pages, server actions, Gmail OAuth routes |
+| `src/app/api/v1/` | JSON API for the Android app (bearer tokens) |
 | `tests/` | Vitest suites |
+| `../ledger_mobile/` | Flutter Android client |
 
 Docs: [implementation plan and MVP exclusions](docs/implementation-plan.md) · [architecture](docs/architecture.md) · [security](docs/security.md) · [Gmail OAuth setup](docs/gmail-oauth.md)
+
+## Mobile API
+
+The Android app talks to `/api/v1`. The web app is unchanged: it still signs in with the httpOnly cookie and server actions. Mobile sessions are rows in the same `sessions` table, but the phone sends `Authorization: Bearer` and the API does not read the cookie.
+
+Money is a string of minor units (`"198361100"` is ₦1,983,611.00). Dates are ISO-8601.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/health` | no | Check a server URL. `{ ok, service: "ledger", version: 1 }` |
+| POST | `/api/v1/auth/signup` | no | `{ email, password, name? }` → `{ token, expiresAt, user }` |
+| POST | `/api/v1/auth/login` | no | `{ email, password }` → `{ token, expiresAt, user }` |
+| POST | `/api/v1/auth/logout` | bearer | Revokes that token only |
+| GET | `/api/v1/auth/session` | bearer | Current user and expiry |
+| GET | `/api/v1/accounts` | bearer | Accounts, masked numbers, balances |
+| GET | `/api/v1/transactions` | bearer | Paged ledger. Filters: `category`, `type`, `accountId`, `q`, `from`, `to`, `page`, `pageSize` |
+| GET | `/api/v1/summary` | bearer | Month income, expenses, net, category totals, recent rows. `month=YYYY-MM` or `offset=-1` |
+| POST | `/api/v1/statements` | bearer | Multipart PDF, CSV or XLSX (`file` or `files`). Optional `password` for a PDF, used once in memory |
+
+Run the server so a phone on the same tailnet can reach it:
+
+```bash
+npx next dev -H 0.0.0.0 -p 3000
+```
+
+How to build the app and point it at this machine: [../ledger_mobile/README.md](../ledger_mobile/README.md).
 
 ## Environment
 
