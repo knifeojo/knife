@@ -1,20 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { createSession, destroySession, hashPassword, verifyPassword } from "@/lib/auth";
+import { credentials } from "@/lib/credentials";
 import { randomToken } from "@/lib/crypto";
 import { seedDemoUser } from "@/core/demo";
 import { log } from "@/lib/log";
 
 export type AuthState = { error?: string } | undefined;
-
-const credentials = z.object({
-  email: z.string().trim().toLowerCase().email("Enter a valid email"),
-  password: z.string().min(8, "Password must be at least 8 characters").max(200),
-  name: z.string().trim().max(80).optional(),
-});
 
 export async function signup(_: AuthState, form: FormData): Promise<AuthState> {
   const parsed = credentials.safeParse({ email: form.get("email"), password: form.get("password"), name: form.get("name") || undefined });
