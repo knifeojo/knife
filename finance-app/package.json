@@ -10,7 +10,8 @@
     "test": "vitest run",
     "db:push": "prisma db push",
     "postinstall": "prisma generate",
-    "setup": "prisma db push"
+    "setup": "prisma db push",
+    "recategorize": "tsx src/scripts/recategorize.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseAmountToMinor } from "@/lib/money";
+import { lagosDay } from "../dedup";
 import type { CanonicalTransaction, TransactionType } from "../types";
 import type { StatementParseResult } from "../statements";
 import { parseBankDate } from "./text";
@@ -126,6 +127,7 @@ function continues(prev: bigint, type: TransactionType, amount: bigint, balance:
   return diff <= 1n;
 }
 
+/** Column order on a normal row: the last two money tokens are amount, then balance. */
 function interpret(tokens: Tok[]): { amount: Tok; balance: Tok } | { error: string } {
   if (tokens.length < 2) return { error: "No debit or credit amount" };
   const last = tokens[tokens.length - 1];
@@ -137,32 +139,235 @@ function interpret(tokens: Tok[]): { amount: Tok; balance: Tok } | { error: stri
   return { error: "Unreadable amount" };
 }
 
+interface Reading { amount: Tok; balance: Tok }
+
+function readingScore(reading: Reading, tokens: Tok[]): number {
+  let score = 0;
+  if (reading.balance === tokens[tokens.length - 1]) score += 4;
+  if (reading.amount.paren) score += 2;
+  if (reading.amount === tokens[tokens.length - 2]) score += 1;
+  return score;
+}
+
+/**
+ * Every way to read a parenthetical debit plus a plain balance out of a row that also picked up
+ * the next row's balance. The standard "last two tokens" reading is preferred when it continues.
+ */
+function alternateReadings(tokens: Tok[]): Reading[] {
+  const out: Reading[] = [];
+  for (const amount of tokens) {
+    if (!amount.paren) continue;
+    for (const balance of tokens) {
+      if (balance.paren || balance === amount) continue;
+      out.push({ amount, balance });
+    }
+  }
+  return out;
+}
+
 function tidyDescription(desc: string): string {
   return desc.replace(/(?:\s*\()+\s*$/g, "").replace(/\s+/g, " ").trim();
 }
 
-function parseTail(raw: string, prevBalance?: bigint): { description: string; type: TransactionType; amount: bigint; balance: bigint } | { error: string } {
-  const flat = flatten(raw);
-  if (!flat) return { error: "No debit or credit amount" };
-  const untagged = columnTokens(flat);
-  const picked = interpret(untagged);
-  if ("error" in picked) return picked;
-  const type: TransactionType = picked.amount.paren ? "DEBIT" : "CREDIT";
-  // Only the out-of-order reading is checked. A normal "amount then balance" row is kept even when
-  // the statement's balance resets (a new period), which is what the synthetic wallet fixture does.
-  const scrambled = picked.amount === untagged[untagged.length - 1] && picked.amount.paren;
-  if (scrambled && prevBalance !== undefined && !continues(prevBalance, type, picked.amount.minor, picked.balance.minor)) {
-    return { error: "Unreadable amount" };
-  }
-  const cuts = [picked.amount, picked.balance].sort((a, b) => a.start - b.start);
+interface Tail {
+  description: string;
+  type: TransactionType;
+  amount: bigint;
+  balance: bigint;
+  /** Balance was not printed; it was inferred from the previous row and checked against the next one. */
+  inferred: boolean;
+  /** Money tokens that belong to the following row (its balance landed before the next date). */
+  spill: string;
+}
+
+function describe(flat: string, drop: Tok[]): string {
   let desc = "";
   let cursor = 0;
-  for (const c of cuts) {
+  for (const c of [...drop].sort((a, b) => a.start - b.start)) {
     desc += flat.slice(cursor, c.start);
     cursor = c.end;
   }
   desc += flat.slice(cursor);
-  return { description: tidyDescription(desc), type, amount: picked.amount.minor, balance: picked.balance.minor };
+  return tidyDescription(desc);
+}
+
+const REVERSAL = /\b(?:reversed|reversal|rvsl)\b|\brev\//i;
+
+function structuralReading(chunk: string): { type: TransactionType; amount: bigint; balance: bigint } | undefined {
+  const tokens = columnTokens(flatten(chunk));
+  const picked = interpret(tokens);
+  if ("error" in picked) return undefined;
+  return {
+    type: picked.amount.paren ? "DEBIT" : "CREDIT",
+    amount: picked.amount.minor,
+    balance: picked.balance.minor,
+  };
+}
+
+function fitsNext(balance: bigint, next: { type: TransactionType; amount: bigint; balance: bigint } | undefined): boolean {
+  if (!next) return false;
+  return continues(balance, next.type, next.amount, next.balance);
+}
+
+function parseTail(raw: string, prevBalance?: bigint, nextChunk?: string): Tail | { error: string } {
+  const flat = flatten(raw);
+  if (!flat) return { error: "No debit or credit amount" };
+  const untagged = columnTokens(flat);
+  // The amount column was captured and the balance column was not. Parentheses are a debit unless
+  // the following row only continues when this one is a credit (a payout reversal).
+  if (untagged.length === 1 && untagged[0].paren && prevBalance !== undefined) {
+    const amount = untagged[0];
+    const next = nextChunk ? structuralReading(nextChunk) : undefined;
+    const debitBalance = prevBalance - amount.minor;
+    const creditBalance = prevBalance + amount.minor;
+    const debitFits = fitsNext(debitBalance, next);
+    const creditFits = fitsNext(creditBalance, next);
+    const reversal = REVERSAL.test(flat);
+    const type: TransactionType = creditFits && !debitFits ? "CREDIT" : debitFits && !creditFits ? "DEBIT" : reversal && !debitFits ? "CREDIT" : "DEBIT";
+    const balance = type === "CREDIT" ? creditBalance : debitBalance;
+    return { description: describe(flat, [amount]), type, amount: amount.minor, balance, inferred: true, spill: "" };
+  }
+  const standard = interpret(untagged);
+  if ("error" in standard) return standard;
+  let chosen = standard;
+  const standardType: TransactionType = standard.amount.paren ? "DEBIT" : "CREDIT";
+  const standardContinues = prevBalance !== undefined && continues(prevBalance, standardType, standard.amount.minor, standard.balance.minor);
+  // A following balance glued onto this row makes the last two tokens a huge false credit. Prefer the
+  // parenthetical debit whose plain balance actually follows from the previous row.
+  if (prevBalance !== undefined && !standardContinues) {
+    const better = alternateReadings(untagged)
+      .filter((r) => continues(prevBalance, "DEBIT", r.amount.minor, r.balance.minor))
+      .sort((a, b) => readingScore(b, untagged) - readingScore(a, untagged));
+    if (better[0]) chosen = better[0];
+  }
+  const type: TransactionType = chosen.amount.paren ? "DEBIT" : "CREDIT";
+  // Only the out-of-order reading is checked. A normal "amount then balance" row is kept even when
+  // the statement's balance resets (a new period), which is what the synthetic wallet fixture does.
+  const scrambled = chosen.amount === untagged[untagged.length - 1] && chosen.amount.paren;
+  if (scrambled && prevBalance !== undefined && !continues(prevBalance, type, chosen.amount.minor, chosen.balance.minor)) {
+    return { error: "Unreadable amount" };
+  }
+  const letter = flat.search(/[A-Za-z]/);
+  const unused = untagged.filter((t) => t !== chosen.amount && t !== chosen.balance);
+  const trailing = unused.filter((t) => t.start >= chosen.balance.end).sort((a, b) => a.start - b.start);
+  const leading = unused.filter((t) => !trailing.includes(t) && (letter < 0 || t.start < letter));
+  const spill = trailing.map((t) => flat.slice(t.start, t.end)).join(" ");
+  return {
+    description: describe(flat, [chosen.amount, chosen.balance, ...leading, ...trailing]),
+    type,
+    amount: chosen.amount.minor,
+    balance: chosen.balance.minor,
+    inferred: false,
+    spill,
+  };
+}
+
+interface Draft {
+  date: Date;
+  description: string;
+  type: TransactionType;
+  amount: bigint;
+  balance: bigint;
+  inferred: boolean;
+}
+
+/** Assign debit/credit to rows whose balance was not printed, so the next printed balance still follows. */
+function settleInferred(rows: Draft[]) {
+  let i = 0;
+  while (i < rows.length) {
+    if (!rows[i].inferred) { i++; continue; }
+    let j = i;
+    while (j < rows.length && rows[j].inferred) j++;
+    const prev = i > 0 ? rows[i - 1].balance : undefined;
+    const run = rows.slice(i, j);
+    const anchor = rows[j];
+    if (prev === undefined) { i = j; continue; }
+    // No later printed balance to judge against: keep the debit-or-reversal choice made while parsing.
+    if (!anchor) {
+      let bal = prev;
+      for (const row of run) {
+        bal = row.type === "CREDIT" ? bal + row.amount : bal - row.amount;
+        row.balance = bal;
+        row.inferred = false;
+      }
+      i = j;
+      continue;
+    }
+    let best: number | undefined;
+    let bestScore = Infinity;
+    const limit = run.length <= 8 ? 1 << run.length : 0;
+    for (let mask = 0; mask < limit; mask++) {
+      let bal = prev;
+      let credits = 0;
+      let oddCredits = 0;
+      for (let k = 0; k < run.length; k++) {
+        const credit = (mask >> k) & 1;
+        if (credit) {
+          credits++;
+          if (!REVERSAL.test(run[k].description)) oddCredits++;
+          bal += run[k].amount;
+        } else bal -= run[k].amount;
+      }
+      const expected = anchor.type === "CREDIT" ? bal + anchor.amount : bal - anchor.amount;
+      const diff = expected > anchor.balance ? expected - anchor.balance : anchor.balance - expected;
+      if (diff > 1n) continue;
+      const score = credits + oddCredits * 10;
+      if (score < bestScore) { bestScore = score; best = mask; }
+    }
+    let bal = prev;
+    for (let k = 0; k < run.length; k++) {
+      const credit = best !== undefined && ((best >> k) & 1) === 1;
+      const type: TransactionType = best === undefined ? run[k].type : credit ? "CREDIT" : "DEBIT";
+      bal = type === "CREDIT" ? bal + run[k].amount : bal - run[k].amount;
+      run[k].type = type;
+      run[k].balance = bal;
+      run[k].inferred = false;
+    }
+    i = j;
+  }
+}
+
+function forwardBreaks(prev: bigint | undefined, rows: Draft[]): number {
+  let breaks = 0;
+  let cursor = prev;
+  for (const row of rows) {
+    if (cursor !== undefined && !continues(cursor, row.type, row.amount, row.balance)) breaks++;
+    cursor = row.balance;
+  }
+  return breaks;
+}
+
+/**
+ * Same-day rows share one timestamp, and a page break can emit them out of balance order.
+ * Within one Lagos day, pull forward the unused row that follows from the running balance.
+ * Keep the extracted order when that does not remove a break.
+ */
+function reorderSameDay(rows: Draft[]) {
+  const next: Draft[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const day = lagosDay(rows[i].date);
+    let j = i + 1;
+    while (j < rows.length && lagosDay(rows[j].date) === day) j++;
+    const group = rows.slice(i, j);
+    const prev = next.length ? next[next.length - 1].balance : undefined;
+    if (group.length < 2 || prev === undefined || group.some((r) => r.inferred)) {
+      next.push(...group);
+    } else {
+      const pool = [...group];
+      const arranged: Draft[] = [];
+      let cursor = prev;
+      while (pool.length) {
+        const fit = pool.findIndex((t) => continues(cursor, t.type, t.amount, t.balance));
+        const [take] = pool.splice(fit >= 0 ? fit : 0, 1);
+        arranged.push(take);
+        cursor = take.balance;
+      }
+      next.push(...(forwardBreaks(prev, arranged) < forwardBreaks(prev, group) ? arranged : group));
+    }
+    i = j;
+  }
+  rows.splice(0, rows.length, ...next);
 }
 
 interface Piece { label: string; chunk: string }
@@ -213,8 +418,7 @@ export function parsePesaStatement(text: string): { result: StatementParseResult
   }
 
   const errors: StatementParseResult["errors"] = [];
-  const transactions: CanonicalTransaction[] = [];
-  const seen = new Map<string, number>();
+  const drafts: Draft[] = [];
   if (!dates.length) {
     errors.push({ row: 0, reason: "Could not find any dated transactions in this Pesa statement." });
   }
@@ -234,14 +438,30 @@ export function parsePesaStatement(text: string): { result: StatementParseResult
       errors.push({ row, reason: "Unreadable date", raw });
       return;
     }
-    const tail = parseTail(piece.chunk, prevBalance);
+    const tail = parseTail(piece.chunk, prevBalance, pieces[i + 1]?.chunk);
     if ("error" in tail) {
       errors.push({ row, reason: tail.error, raw });
       return;
     }
+    if (tail.spill && pieces[i + 1]) pieces[i + 1].chunk = `${tail.spill} ${pieces[i + 1].chunk}`.trim();
     prevBalance = tail.balance;
-    const description = (tail.description || "Pesa transaction").slice(0, 280);
-    const key = ["Pesa", accountLast4 ?? "", date.toISOString().slice(0, 10), description, tail.type, tail.amount.toString(), tail.balance.toString()].join("|");
+    drafts.push({
+      date,
+      description: (tail.description || "Pesa transaction").slice(0, 280),
+      type: tail.type,
+      amount: tail.amount,
+      balance: tail.balance,
+      inferred: tail.inferred,
+    });
+  });
+
+  reorderSameDay(drafts);
+  settleInferred(drafts);
+
+  const transactions: CanonicalTransaction[] = [];
+  const seen = new Map<string, number>();
+  for (const draft of drafts) {
+    const key = ["Pesa", accountLast4 ?? "", draft.date.toISOString().slice(0, 10), draft.description, draft.type, draft.amount.toString(), draft.balance.toString()].join("|");
     const n = (seen.get(key) ?? 0) + 1;
     seen.set(key, n);
     const sourceTransactionId = createHash("sha256").update(`${key}#${n}`).digest("hex").slice(0, 32);
@@ -249,17 +469,17 @@ export function parsePesaStatement(text: string): { result: StatementParseResult
       institution: "Pesa",
       source: "statement",
       sourceTransactionId,
-      type: tail.type,
-      amountMinor: tail.amount,
+      type: draft.type,
+      amountMinor: draft.amount,
       currency,
-      transactionDate: date,
-      description,
-      balanceAfterMinor: tail.balance,
+      transactionDate: draft.date,
+      description: draft.description,
+      balanceAfterMinor: draft.balance,
       accountLast4,
       accountHolder: holder,
       confidence: 1,
     });
-  });
+  }
 
   return {
     currency,

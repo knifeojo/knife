@@ -300,22 +300,53 @@ export function parseStatementRows(
  * Checks imported rows against the statement's own running balance. Banks list rows oldest-first or
  * newest-first, so both orders are tried and the better fit is used. Returns how many rows broke the
  * chain and the total money the imported rows fail to account for.
+ *
+ * A bad middle balance (or a row read out of order) makes one link miss by D and the next link miss
+ * by −D once the printed balance is right again. That is one discontinuity of |D|, not two.
  */
 export function reconcile(transactions: { type: string; amountMinor: bigint; balanceAfterMinor?: bigint }[]): { breaks: number; gapMinor: bigint; checked: number } {
   const check = (txs: typeof transactions) => {
     let breaks = 0, gap = 0n, checked = 0;
+    let open: bigint | null = null;
+    const commit = (signed: bigint) => {
+      const abs = signed < 0n ? -signed : signed;
+      if (abs <= 1n) return;
+      breaks++;
+      gap += abs;
+    };
+    const closeOpen = () => {
+      if (open === null) return;
+      commit(open);
+      open = null;
+    };
     for (let i = 1; i < txs.length; i++) {
       const prev = txs[i - 1].balanceAfterMinor, cur = txs[i].balanceAfterMinor;
-      if (prev === undefined || cur === undefined) continue;
+      if (prev === undefined || cur === undefined) {
+        closeOpen();
+        continue;
+      }
       checked++;
       const expected = prev + (txs[i].type === "CREDIT" ? txs[i].amountMinor : -txs[i].amountMinor);
-      const diff = cur > expected ? cur - expected : expected - cur;
+      const signed = cur - expected;
+      const abs = signed < 0n ? -signed : signed;
       // A 1-minor-unit difference is the bank's own rounding (e.g. FX conversion), not missing money.
-      if (diff > 1n) {
-        breaks++;
-        gap += diff;
+      if (abs <= 1n) {
+        closeOpen();
+        continue;
       }
+      if (open !== null) {
+        const cancel = open + signed;
+        const cancelAbs = cancel < 0n ? -cancel : cancel;
+        if (cancelAbs <= 1n) {
+          commit(open);
+          open = null;
+          continue;
+        }
+        commit(open);
+      }
+      open = signed;
     }
+    closeOpen();
     return { breaks, gapMinor: gap, checked };
   };
   const forward = check(transactions);
