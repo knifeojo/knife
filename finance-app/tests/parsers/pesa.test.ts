@@ -171,3 +171,76 @@ describe("Pesa wallet PDF", () => {
     expect(reconcile(parsed!.result.transactions)).toMatchObject({ breaks: 0, gapMinor: 0n });
   });
 });
+
+// The balance column of a row can land on the previous row, leaving this one as
+// "Money transfer to JOHN DOE (9.99)" with no amount column of its own. The parenthesis is the
+// amount. A same-day pair is listed backwards. Digits are made up; the shapes match the rows that
+// still failed after page-break stitching. Reading the leaked 10,100.00 as a credit would report a
+// gap of about $10,100 for a $200 transfer.
+const PAREN_ONLY_TEXT = `Account Statement
+JANE ADA
+DOE
+Email: jane@example.com
+Date Issued: Oct 20, 2026
+Period: Oct 20, 2025 - Oct 20, 2026
+Wallet: CAOO123456789
+Balance: $0.00
+Date Transaction Details Amount($) Balance($)
+Oct 25, 2025 ACME INC / Payroll for Oct 2025 10,300.00 10,300.00
+Oct 26, 2025 Money transfer to JANE SMITH (200.00) 10,100.00
+10,090.01
+Oct 27, 2025 Money transfer to JOHN DOE (9.99)
+Oct 28, 2025 Money transfer to JOHN DOE (999.99)
+Oct 29, 2025 Money transfer to PAYSTACK CHECKOUT / 1234567890 /
+TITAN-PAYSTACKMicrofinance (99.99) 8,990.03
+Oct 30, 2025 ACME INC / Bonus 50.00 9,030.03
+Oct 30, 2025 Money transfer to JOHN DOE (10.00) 8,980.03
+Oct 31, 2025 Payout of $20.00 was successfully reversed 20.00 9,050.03
+Nov 1, 2025 Payout of $15.00 was successfully reversed (15.00)
+Nov 2, 2025 ACME INC / Payroll top up 100.00 9,165.03
+`;
+
+describe("Pesa rows whose balance column landed elsewhere", () => {
+  it("uses the parenthetical as the amount and orders same-day rows by the running balance", () => {
+    const parsed = parsePesaStatement(PAREN_ONLY_TEXT);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.result.errors).toEqual([]);
+    const rows = parsed!.result.transactions;
+    expect(rows.map((t) => [t.transactionDate.toISOString().slice(0, 10), t.type, t.amountMinor, t.balanceAfterMinor])).toEqual([
+      ["2025-10-25", "CREDIT", 1_030_000n, 1_030_000n],
+      ["2025-10-26", "DEBIT", 20_000n, 1_010_000n],
+      ["2025-10-27", "DEBIT", 999n, 1_009_001n],
+      ["2025-10-28", "DEBIT", 99_999n, 909_002n],
+      ["2025-10-29", "DEBIT", 9_999n, 899_003n],
+      ["2025-10-30", "DEBIT", 1_000n, 898_003n],
+      ["2025-10-30", "CREDIT", 5_000n, 903_003n],
+      ["2025-10-31", "CREDIT", 2_000n, 905_003n],
+      ["2025-11-01", "CREDIT", 1_500n, 906_503n],
+      ["2025-11-02", "CREDIT", 10_000n, 916_503n],
+    ]);
+    expect(rows.map((t) => t.description)).toEqual([
+      "ACME INC / Payroll for Oct 2025",
+      "Money transfer to JANE SMITH",
+      "Money transfer to JOHN DOE",
+      "Money transfer to JOHN DOE",
+      "Money transfer to PAYSTACK CHECKOUT / 1234567890 / TITAN-PAYSTACKMicrofinance",
+      "Money transfer to JOHN DOE",
+      "ACME INC / Bonus",
+      "Payout of $20.00 was successfully reversed",
+      "Payout of $15.00 was successfully reversed",
+      "ACME INC / Payroll top up",
+    ]);
+    expect(reconcile(rows)).toMatchObject({ breaks: 0, gapMinor: 0n });
+  });
+
+  it("reads the same rows from a PDF text layer", async () => {
+    const text = await pdfToPlainText(await makeTextPdf(PAREN_ONLY_TEXT));
+    const parsed = parsePesaStatement(text);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.result.errors).toEqual([]);
+    expect(reconcile(parsed!.result.transactions)).toMatchObject({ breaks: 0, gapMinor: 0n });
+    expect(parsed!.result.transactions).toHaveLength(10);
+    expect(parsed!.result.transactions[2]).toMatchObject({ type: "DEBIT", amountMinor: 999n, description: "Money transfer to JOHN DOE" });
+    expect(parsed!.result.transactions[8].type).toBe("CREDIT");
+  });
+});

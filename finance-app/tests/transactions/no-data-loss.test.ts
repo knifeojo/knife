@@ -20,6 +20,16 @@ describe("reconcile", () => {
     expect(reconcile([...oldest].reverse())).toMatchObject({ breaks: 1, gapMinor: 5n });
     expect(reconcile([tx("CREDIT", 100, 100), tx("DEBIT", 20, 80)])).toMatchObject({ breaks: 0, gapMinor: 0n });
   });
+
+  it("counts a balance that is wrong in the middle and right again on the next row once", () => {
+    // 1,030,000 − 10,000 = 1,020,000, but the middle balance says 900,000 (off by 120,000).
+    // The following row is back on the real chain (1,020,000 − 5,000 = 1,015,000), so the gap is
+    // 120,000 once, not 240,000.
+    const chain = [tx("CREDIT", 1_030_000, 1_030_000), tx("DEBIT", 10_000, 900_000), tx("DEBIT", 5_000, 1_015_000)];
+    expect(reconcile(chain)).toMatchObject({ breaks: 1, gapMinor: 120_000n });
+    const twoHoles = [tx("CREDIT", 100, 100), tx("DEBIT", 10, 80), tx("DEBIT", 10, 60)];
+    expect(reconcile(twoHoles)).toMatchObject({ breaks: 2, gapMinor: 20n });
+  });
 });
 
 describe("no silent data loss", () => {
