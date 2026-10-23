@@ -10,9 +10,9 @@ The server URL is not compiled into the app. You set it on the first screen, so 
 |---|---|
 | Server | Checks `GET /api/v1/health`, then saves the origin |
 | Sign in | Email and password, or create an account |
-| Home | This month’s balance, income, expenses, net, categories, and recent rows |
+| Home | This month’s balance, income, expenses, net, recurring vs one-off split, categories, and recent rows |
 | Accounts | Each account, its masked number, and its balance |
-| Activity | Transactions with categories, plus search and a category filter |
+| Activity | Transactions with categories and Recurring / One-off chips, plus search, a category filter and a pattern filter |
 | Upload | Pick a PDF or CSV on the phone and send it to `POST /api/v1/statements` |
 | Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with what would help (loans to clear, spending to cut, one-offs) and the figures behind it, recurring bills and one-offs shown apart |
 | Settings | Shows the server, signs out, or forgets the server |
@@ -77,7 +77,7 @@ flutter analyze
 flutter test
 ```
 
-`flutter test` covers money formatting (minor units, no floats), the server URL rules, JSON parsing, the HTTP client (bearer token and multipart upload), and the screens for server setup, sign-in, the home summary, accounts, categories, and the affordability answer (verdict, what would help, recurring bills and one-off spends).
+`flutter test` covers money formatting (minor units, no floats), the server URL rules, JSON parsing, the HTTP client (bearer token and multipart upload), and the screens for server setup, sign-in, the home summary, accounts, categories, recurring and one-off chips, and the affordability answer (verdict, what would help, recurring bills and one-off spends).
 
 ## Security notes
 

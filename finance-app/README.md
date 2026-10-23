@@ -62,8 +62,8 @@ Money is a string of minor units (`"198361100"` is ₦1,983,611.00). Dates are I
 | POST | `/api/v1/auth/logout` | bearer | Revokes that token only |
 | GET | `/api/v1/auth/session` | bearer | Current user and expiry |
 | GET | `/api/v1/accounts` | bearer | Accounts, masked numbers, balances |
-| GET | `/api/v1/transactions` | bearer | Paged ledger. Filters: `category`, `type`, `accountId`, `q`, `from`, `to`, `page`, `pageSize` |
-| GET | `/api/v1/summary` | bearer | Month income, expenses, net, category totals, recent rows. `month=YYYY-MM` or `offset=-1` |
+| GET | `/api/v1/transactions` | bearer | Paged ledger. Filters: `category`, `type`, `accountId`, `q`, `from`, `to`, `cadence` (`recurring` \| `one_off`), `page`, `pageSize`. Each row has `cadence` (`"recurring"`, `"one_off"` or `null`) and `recurringBill`; the page has `oneOffMinMinor` and `cadenceSince` |
+| GET | `/api/v1/summary` | bearer | Month income, expenses, net, category totals (with `recurringMinor`, `oneOffMinor`), recent rows (with `cadence`), and `spendingSplit`: `{ recurringBillsMinor, recurringOtherMinor, oneOffMinor, everydayMinor, oneOffMinMinor, labelled, oneOffs[] }`. `month=YYYY-MM` or `offset=-1` |
 | POST | `/api/v1/statements` | bearer | Multipart PDF, CSV or XLSX (`file` or `files`). Optional `password` for a PDF, used once in memory |
 | POST | `/api/v1/affordability` | bearer | `{ amountMinor: "250000000", description?, horizon?: "month_end" \| 1..120 (days), bufferMinor? }` → `{ verdict: "yes" \| "stretch" \| "no", headline, detail, notes, inputs, projection, monthsToSave, advice }`. `advice[]`: `{ kind: "debt" \| "cut" \| "one_off" \| "none", text, subject, monthlyMinor, openMinor }`. `inputs.obligations[].kind` is `"recurring"`; `inputs.oneOffs[]` (`kind: "one_off"`), `oneOffsTotalMinor`, `oneOffMinMinor`, `oneOffsSince`. 409 until the user has transactions |
 
@@ -116,9 +116,37 @@ Under the verdict, a short list of next steps. Rule-based, built only from ledge
 
 The breakdown labels monthly obligations **Recurring bills** (rent, family support, loan instalments, utilities, subscriptions) and lists **One-off spends** in their own card, with the threshold. One-offs are already in past spending; they are not counted as recurring. Debt rows whose memo only says "loan", "lend" or "borrow" are not named as a loan to clear, because the narration cannot say which way the money went.
 
-Known limits, left for the categorization follow-up: a transfer to a person who banks with Carbon ("TO CARBON - JOHN SMITH") is categorized as a Carbon loan repayment, and a savings-app deposit not in the user's own name ("TO PIGGYVEST SAVINGS") lands in Transfers, so it counts as spending and can show as a one-off until the user marks it as an own transfer.
+Loan repayments only count if they are categorized as Debt. A repayment into a lender account in the borrower's own name ("TO FAIRMONEY MFB - JANE DOE") is Debt / Loan repayment, not an own transfer. A transfer to a person who only banks with Carbon is a transfer, and a savings-app deposit is an own transfer; see [Categories](#categories).
 
-Loan repayments only count if they are categorized as Debt. A repayment into a lender account in the borrower's own name ("TO FAIRMONEY MFB - JANE DOE") is now Debt / Loan repayment, not an own transfer. Run **Re-apply categories** in Settings to fix rows imported before this change.
+## Categories
+
+`categorize()` in `src/core/categorize.ts` is rule-based and deterministic: the same narration always gets the same category, with no model call. The optional AI categorizer (`ANTHROPIC_API_KEY` plus the per-user toggle) only looks at rows the rules leave generic or low-confidence and is off by default; no test needs it. Synthetic GTBank, First Bank and Sterling narrations in `tests/categorization/nigerian-narrations.test.ts` and `tests/fixtures/benchmark.ts` pin the behaviour.
+
+Spending categories: Food, Transport, Housing, Utilities, Shopping, Subscriptions, Family, **Giving** (new: church, tithe, offering, charity; it used to be a subcategory of Other), Debt, Healthcare, Travel, Business, Transfers, Fees, Other. Plus Income and Own transfer, which are left out of spending. Finer detail lives in subcategories (Food / Eating out, Family / Education, Housing / Generator & diesel, Other / Cash, Healthcare / Fitness).
+
+**Signals, in the order they win**
+
+1. Fee rows and fee reversals.
+2. The user's own rules and hand labels. Re-apply never touches rows the user labelled or own-transfer pairs.
+3. Own transfers: the account holder's name on the other side, or a savings app (PiggyVest, Cowrywise, Risevest, Bamboo, Trove, ALAT Goals, OWealth, target savings, fixed deposit) → **Own transfer / Savings**. Savings interest credits stay income.
+4. Lenders (FairMoney, Renmoney, Carbon/OneFi, PalmCredit, Branch, Aella, QuickCheck, OKash, EaseMoni, Lendigo, Specta, …) → **Debt / Loan repayment**, and credits from them are loan proceeds, not income. They are never treated as banks.
+5. Narration rules: merchant names (Bolt Food before Bolt rides, Chowdeck, Shoprite, DSTV, IKEDC, gyms, schools, churches), then memo words people type ("house rent", "mummy upkeep", "fuel", "school fees", "tithe", "generator").
+6. Card and POS purchases: the merchant is read from the card line. A known store kind gets its category; an unknown shop is **Shopping / Card purchase** at low confidence, so it shows in Review.
+7. Counterparty name hints (a name with "church", "pharmacy", "school"). Otherwise a person-to-person transfer stays **Transfers**.
+
+The recipient's bank is cut out of the narration before rules run ("TO JOHN SMITH - CARBON", "TO JOHN SMITH/CARBON REF 0001"), so a person who banks with Carbon, Kuda or Opay is not read as a Carbon loan or an Opay purchase. A lender in that bank slot still counts as Debt when the narration says "repay", the name is the user's own, or no person is named.
+
+**What it refuses to guess**
+
+- Amount and date never pick a category. They decide only recurring vs one-off (below); a ₦400,000 transfer to a person is still a transfer, not rent.
+- A memo that only says "loan", "lend" or "borrow" ("LOAN TO JOHN") is Debt / Loans, but Afford does not name it as a loan to clear: the narration cannot say which way the money went. A credit "LOAN FROM …" from a person is left as received money.
+- A bare person transfer with no memo stays Transfers; Ledger does not guess family, rent or a gift from a name alone.
+- "PalmPay" is a wallet, "PalmCredit" a lender; "savings" on its own (a savings account at a bank) is not a savings app.
+- Betting (Bet9ja, SportyBet, …): stakes are Other / Betting, winnings Income / Other income.
+
+**Recurring vs one-off, outside Afford.** The Transactions page (web and phone) has a **Pattern** filter and a chip on each row; Spending has a **Recurring vs one-off** card with per-category amounts; the phone summary shows the same split. All of it comes from `src/core/cadence.ts`, which reuses Afford's own rules: `recurring()` streams (paid in 2+ months, 20 to 40 days apart, last 6 months) and Afford's one-off test (`isOneOffSpend`, at least ₦50,000 or a tenth of typical income). Streams in Housing, Family, Debt, Utilities, Subscriptions or Business are **Recurring bills**, the ones Afford counts as obligations. Rows older than 6 months get no label.
+
+**Re-apply categories to existing data.** Rows imported before this change keep their old categories until re-applied. Web: **Settings → Re-apply categories**. CLI: `npm run recategorize -- --email you@example.com`. It also moves old Other / Giving, Tithe, Offering and Charity labels (including hand-made ones and merchant aliases) to the Giving category. Hand-labelled rows otherwise keep their label.
 
 ## Environment
 
