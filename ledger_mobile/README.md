@@ -14,7 +14,7 @@ The server URL is not compiled into the app. You set it on the first screen, so 
 | Accounts | Each account, its masked number, and its balance |
 | Activity | Transactions with categories, plus search and a category filter |
 | Upload | Pick a PDF or CSV on the phone and send it to `POST /api/v1/statements` |
-| Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with the figures behind it |
+| Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with what would help (loans to clear, spending to cut, one-offs) and the figures behind it, recurring bills and one-offs shown apart |
 | Settings | Shows the server, signs out, or forgets the server |
 
 Afford does no maths on the phone. The server works out the answer from the ledger (see “Can I really afford this?” in `../finance-app/README.md`). The phone only turns what you type (“2.5m”, “500k”) into kobo and shows the result.
@@ -77,7 +77,7 @@ flutter analyze
 flutter test
 ```
 
-`flutter test` covers money formatting (minor units, no floats), the server URL rules, JSON parsing, the HTTP client (bearer token and multipart upload), and the screens for server setup, sign-in, the home summary, accounts, categories, and the affordability placeholder.
+`flutter test` covers money formatting (minor units, no floats), the server URL rules, JSON parsing, the HTTP client (bearer token and multipart upload), and the screens for server setup, sign-in, the home summary, accounts, categories, and the affordability answer (verdict, what would help, recurring bills and one-off spends).
 
 ## Security notes
 
@@ -90,7 +90,6 @@ flutter test
 
 ## Known gaps
 
-- The affordability check is a placeholder.
 - No Google sign-in, no offline ledger, no editing of categories, no import-issue review. Those stay on the web app.
 - The token store should move to encrypted storage.
 - Web login is still not rate-limited. The mobile login route is, inside one server process.

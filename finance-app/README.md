@@ -65,7 +65,7 @@ Money is a string of minor units (`"198361100"` is ₦1,983,611.00). Dates are I
 | GET | `/api/v1/transactions` | bearer | Paged ledger. Filters: `category`, `type`, `accountId`, `q`, `from`, `to`, `page`, `pageSize` |
 | GET | `/api/v1/summary` | bearer | Month income, expenses, net, category totals, recent rows. `month=YYYY-MM` or `offset=-1` |
 | POST | `/api/v1/statements` | bearer | Multipart PDF, CSV or XLSX (`file` or `files`). Optional `password` for a PDF, used once in memory |
-| POST | `/api/v1/affordability` | bearer | `{ amountMinor: "250000000", description?, horizon?: "month_end" \| 1..120 (days), bufferMinor? }` → `{ verdict: "yes" \| "stretch" \| "no", headline, detail, notes, inputs, projection, monthsToSave }`. 409 until the user has transactions |
+| POST | `/api/v1/affordability` | bearer | `{ amountMinor: "250000000", description?, horizon?: "month_end" \| 1..120 (days), bufferMinor? }` → `{ verdict: "yes" \| "stretch" \| "no", headline, detail, notes, inputs, projection, monthsToSave, advice }`. `advice[]`: `{ kind: "debt" \| "cut" \| "one_off" \| "none", text, subject, monthlyMinor, openMinor }`. `inputs.obligations[].kind` is `"recurring"`; `inputs.oneOffs[]` (`kind: "one_off"`), `oneOffsTotalMinor`, `oneOffMinMinor`, `oneOffsSince`. 409 until the user has transactions |
 
 Run the server so a phone on the same tailnet can reach it:
 
@@ -102,6 +102,21 @@ Web: **Can I afford it?** in the sidebar (`/app/afford`). Phone: the **Afford** 
 - **No**: it goes below ₦0.
 
 Not yes? The answer adds how many months of the usual surplus (income minus obligations minus everyday spending) would close the gap, or says there is no surplus. Notes flag every caveat: no balance, an old balance, under 3 months of history, no income, outgoings above income, a price above a month's income.
+
+### What would help
+
+Under the verdict, a short list of next steps. Rule-based, built only from ledger aggregates; no model is called. Stretch or no gets 2 to 5 lines in this order, a yes gets at most one tip (a loan still being repaid). The rules and the judgment calls behind them:
+
+| Line | When | What it says, and where the numbers come from |
+|---|---|---|
+| **Loan** (up to 2, biggest monthly repayment first) | A lender in Debt with a repayment or a payout in the 45 days before the balance date. Lender = merchant name, else counterparty, over the last 12 months | Monthly repayment: the typical full month that had a repayment (weekly repayments add up), from the same 3 months as the typical month. **Still open** is shown only when Ledger saw the loan paid out: borrowed minus repaid since the first payout. That is a floor on the principal left (repayments include interest), so it says "at least" and "interest not counted", and "at least N more months" at the usual repayment. No payout seen, or more repaid than borrowed: it says Ledger cannot tell what is left and to check with the lender. A balance is never estimated beyond that |
+| **Cut back** (up to 2) | Shopping, Food, Transport, Travel or Subscriptions averaging at least ₦20,000 a month over the typical-month months, one-offs taken out. Bills, family, health and giving are never suggested | Names the category and its main subcategory when that is half or more ("Food (mostly eating out)"). The suggested cut is the smallest whole ₦1,000 a month that keeps the buffer through the window, found by re-running the same day-by-day projection with everyday spending lower from today. If even half the category does not do that, it suggests half and says how many months of saving (usual surplus plus the cut) close the gap, and how much sooner than without it |
+| **One-off** (1) | A single naira debit outside every regular stream, at least ₦50,000 or a tenth of typical monthly income, whichever is more, since the first typical-month month. Not Debt, Fees, own transfers or wallet withdrawals | The total and the biggest one, with payee and date. One-offs in bill categories (a year's rent, school fees) are listed in the breakdown but not suggested for holding off |
+| **Checked** | None of the above | Says that no loan, big category or one-off stood out |
+
+The breakdown labels monthly obligations **Recurring bills** (rent, family support, loan instalments, utilities, subscriptions) and lists **One-off spends** in their own card, with the threshold. One-offs are already in past spending; they are not counted as recurring. Debt rows whose memo only says "loan", "lend" or "borrow" are not named as a loan to clear, because the narration cannot say which way the money went.
+
+Known limits, left for the categorization follow-up: a transfer to a person who banks with Carbon ("TO CARBON - JOHN SMITH") is categorized as a Carbon loan repayment, and a savings-app deposit not in the user's own name ("TO PIGGYVEST SAVINGS") lands in Transfers, so it counts as spending and can show as a one-off until the user marks it as an own transfer.
 
 Loan repayments only count if they are categorized as Debt. A repayment into a lender account in the borrower's own name ("TO FAIRMONEY MFB - JANE DOE") is now Debt / Loan repayment, not an own transfer. Run **Re-apply categories** in Settings to fix rows imported before this change.
 
