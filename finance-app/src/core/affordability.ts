@@ -521,13 +521,11 @@ function cutAdvice(c: AdviceContext, cat: { category: string; monthly: bigint; n
     };
   }
   const saving = c.surplus + cap;
-  const then = saving > 0n
-    ? (() => {
-      const n = Number(ceilDiv(c.gap, saving));
-      const sooner = c.monthsToSave !== null && c.monthsToSave > n ? ` instead of ${c.monthsToSave}` : "";
-      return ` With your usual surplus, that saves the ${about(c.gap)} gap in about ${plural(n, "month")}${sooner}.`;
-    })()
-    : " Your outgoings would still be above your income, so this alone is not enough.";
+  const n = saving > 0n ? Number(ceilDiv(c.gap, saving)) : null;
+  const then = n === null ? " Your outgoings would still be above your income, so this alone is not enough."
+    : c.monthsToSave === null ? ` That leaves you a surplus each month, enough to save the ${about(c.gap)} gap in about ${plural(n, "month")}.`
+    : c.monthsToSave > n ? ` With your usual surplus, that saves the ${about(c.gap)} gap in about ${plural(n, "month")} instead of ${c.monthsToSave}.`
+    : ` That is ${about(cap)} more each month toward the ${about(c.gap)} gap.`;
   return {
     kind: "cut", subject: cat.category, monthlyMinor: cap, openMinor: null,
     text: `Cut ${cat.name} by about ${about(cap)} a month. ${spent}${then}`,

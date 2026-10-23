@@ -262,9 +262,9 @@ describe("affordability: what would help", () => {
     const withLess = (naira: number) => assessAffordability(data({ months: months.map((m) => ({ ...m, spendingMinor: m.spendingMinor - N(naira) })) }), req, NOW).verdict;
     expect(withLess(50_000)).toBe("yes");
     expect(withLess(49_000)).toBe("stretch");
-    // Half of Food is not enough before payday, so it is framed as saving up instead.
+    // Half of Food is not enough before payday. The usual surplus already covers the gap in a month, so no faster date is promised.
     expect(cuts[1]).toMatchObject({ monthlyMinor: N(30_000) });
-    expect(cuts[1].text).toBe("Cut Food (mostly eating out) by about ₦30,000 a month. You spent about ₦60,000 a month there from July to September. With your usual surplus, that saves the ₦15,000 gap in about 1 month.");
+    expect(cuts[1].text).toBe("Cut Food (mostly eating out) by about ₦30,000 a month. You spent about ₦60,000 a month there from July to September. That is ₦30,000 more each month toward the ₦15,000 gap.");
   });
 
   it("when there is no surplus, a cut says how much sooner it gets there, or that it is not enough alone", () => {
@@ -276,6 +276,9 @@ describe("affordability: what would help", () => {
     const some = assessAffordability(tight(750_000), CAR, NOW); // ₦50,000 surplus
     expect(some.monthsToSave).toBe(36);
     expect(some.advice.find((a) => a.kind === "cut")!.text).toMatch(/Cut Shopping by about ₦100,000 a month\. You spent about ₦200,000 a month there from July to September\. With your usual surplus, that saves the ₦1,790,000 gap in about 12 months instead of 36\.$/);
+    const turned = assessAffordability(tight(650_000), CAR, NOW); // ₦50,000 short every month, ₦50,000 over once cut
+    expect(turned.monthsToSave).toBeNull();
+    expect(turned.advice.find((a) => a.kind === "cut")!.text).toMatch(/That leaves you a surplus each month, enough to save the ₦[\d,]+ gap in about \d+ months\.$/);
     const none = assessAffordability(tight(550_000), CAR, NOW); // ₦150,000 short every month
     expect(none.advice.find((a) => a.kind === "cut")!.text).toMatch(/Your outgoings would still be above your income, so this alone is not enough\.$/);
   });

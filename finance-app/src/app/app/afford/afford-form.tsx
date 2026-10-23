@@ -18,6 +18,7 @@ const VERDICT = {
 
 const BUFFER_RULE = { obligations: "a month of bills", floor: "minimum", yours: "yours" } as const;
 const INCOME_RULE = { paydays: "your paydays", monthly: "typical month", none: "none counted" } as const;
+const ADVICE_TAG = { debt: "Loan", cut: "Cut back", one_off: "One-off", none: "Checked" } as const;
 
 export function AffordForm() {
   const [state, action, pending] = useActionState<AffordState, FormData>(affordAction, undefined);
@@ -80,17 +81,31 @@ function Answer({ r }: { r: AffordabilityJson }) {
         {r.detail.map((d) => <p key={d} className="mt-2 text-sm text-ink-2">{d}</p>)}
       </div>
 
+      {r.advice.length > 0 && (
+        <div className="card p-5">
+          <h2 className="font-semibold text-brand">{r.verdict === "yes" ? "One tip" : "What would help"}</h2>
+          <ul className="mt-3 space-y-3">
+            {r.advice.map((a) => (
+              <li key={a.text} className="flex items-start gap-3 text-sm">
+                <span className="mt-0.5 w-[4.75rem] shrink-0 rounded-full bg-brand-soft px-2 py-0.5 text-center text-xs font-semibold text-brand">{ADVICE_TAG[a.kind]}</span>
+                <span className="leading-relaxed">{a.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card p-5">
           <h2 className="font-semibold">Your typical month</h2>
           <p className="text-xs text-ink-3 mt-0.5">{i.incomeMonths.length ? `From ${i.incomeMonths.join(", ")}` : "No months imported yet"}</p>
           <dl className="mt-3 text-sm">
             <Row label="Income" value={money(i.monthlyIncomeMinor)} />
-            <Row label="Fixed obligations" value={`−${money(i.monthlyObligationsMinor)}`} />
+            <Row label="Recurring bills" value={`−${money(i.monthlyObligationsMinor)}`} />
             {i.obligations.map((o) => (
-              <Row key={`${o.name}|${o.category}`} sub label={`${o.name} · ${o.label ?? o.category}`} value={money(o.monthlyMinor)} />
+              <Row key={`${o.name}|${o.category}|${o.monthlyMinor}`} sub label={`${o.name} · ${o.label ?? o.category}`} value={money(o.monthlyMinor)} />
             ))}
-            {i.otherLoanRepaymentsMinor !== "0" && <Row sub label="Other loan repayments" value={money(i.otherLoanRepaymentsMinor)} />}
+            {i.otherLoanRepaymentsMinor !== "0" && <Row sub label="Loan repayments, not monthly" value={money(i.otherLoanRepaymentsMinor)} />}
             <Row label="Everyday spending" value={`−${money(i.monthlyEverydayMinor)}`} />
             <Row strong label="Usual surplus" value={money(i.monthlySurplusMinor)} />
           </dl>
@@ -102,7 +117,7 @@ function Answer({ r }: { r: AffordabilityJson }) {
           <dl className="mt-3 text-sm">
             <Row label={i.cashKnown ? `Cash${i.cashAsOf ? `, ${day(i.cashAsOf)}` : ""}` : "Cash on file (none)"} value={money(i.cashMinor)} />
             <Row label={`Income in (${INCOME_RULE[p.incomeRule]})`} value={`+${money(p.incomeInMinor)}`} />
-            <Row label="Fixed obligations due" value={`−${money(p.obligationsOutMinor)}`} />
+            <Row label="Recurring bills due" value={`−${money(p.obligationsOutMinor)}`} />
             <Row label="Everyday spending, estimated" value={`−${money(p.everydayOutMinor)}`} />
             <Row label={r.description ? `This purchase (${r.description})` : "This purchase"} value={`−${money(r.amountMinor)}`} />
             <Row strong label={`Lowest point, ${day(p.lowestOn)}`} value={money(p.lowestMinor)} />
@@ -111,6 +126,23 @@ function Answer({ r }: { r: AffordabilityJson }) {
           </dl>
         </div>
       </div>
+
+      {i.oneOffsSince && (
+        <div className="card p-5">
+          <h2 className="font-semibold">One-off spends since {day(i.oneOffsSince)}</h2>
+          <p className="text-xs text-ink-3 mt-0.5">Single payments of {money(i.oneOffMinMinor)} or more that are not regular bills. They are already in your past spending, not in the recurring bills above.</p>
+          {i.oneOffs.length ? (
+            <dl className="mt-3 text-sm">
+              {i.oneOffs.map((o) => (
+                <Row key={`${o.name}|${o.date}|${o.amountMinor}`} label={`${o.name} · ${o.label ?? o.category}, ${day(o.date)}`} value={money(o.amountMinor)} />
+              ))}
+              <Row strong label="All one-offs" value={money(i.oneOffsTotalMinor)} />
+            </dl>
+          ) : (
+            <p className="mt-3 text-sm text-ink-2">None found.</p>
+          )}
+        </div>
+      )}
 
       {r.notes.length > 0 && (
         <ul className="card p-5 space-y-1.5 text-sm text-ink-2 list-disc pl-9">
