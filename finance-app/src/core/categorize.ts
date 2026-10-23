@@ -377,12 +377,17 @@ export function categorize(
   if (/debited from \w+ wallet to fund \w+ wallet|wallet to wallet|fund(ed)? (my )?\w+ wallet|deel card withdrawal/.test(desc)) {
     return { category: OWN_TRANSFER, subcategory: "Between your wallets", merchantName: merchant, counterparty: undefined, source: "rule", confidence: 0.95 };
   }
+  // Lenders collect repayments into accounts named after the borrower ("TO FAIRMONEY MFB - <you>").
+  // That is a loan repayment, not a move between the user's own accounts.
+  const lender = lenderMerchant(desc);
+  if (lender && input.type === "DEBIT" && isSelf(counterparty, owners)) {
+    return { category: "Debt", subcategory: "Loan repayment", merchantName: lender, counterparty: lender, source: "rule", confidence: 0.9 };
+  }
   if (isSelf(counterparty, owners)) {
     return { category: OWN_TRANSFER, subcategory: "Between own accounts", merchantName: counterparty, counterparty, source: "rule", confidence: 0.9 };
   }
 
   // Lender disbursements are loan proceeds, not income. Repayments stay on the debt rule below.
-  const lender = lenderMerchant(desc);
   if (lender && input.type === "CREDIT") {
     return { category: "Debt", subcategory: "Loan proceeds", merchantName: lender, counterparty: lender, source: "rule", confidence: 0.9 };
   }
