@@ -8,6 +8,7 @@ import type { AffordabilityJson } from "@/core/affordability";
 import { affordAction, type AffordState } from "../actions";
 
 const money = (minor: string) => formatMoney(BigInt(minor));
+const out = (minor: string) => (minor === "0" ? money(minor) : `−${money(minor)}`);
 const day = (iso: string, offsetMs = 0) => lagosDateLabel(new Date(Date.parse(iso) + offsetMs), { day: "numeric", month: "short" });
 
 const VERDICT = {
@@ -101,12 +102,12 @@ function Answer({ r }: { r: AffordabilityJson }) {
           <p className="text-xs text-ink-3 mt-0.5">{i.incomeMonths.length ? `From ${i.incomeMonths.join(", ")}` : "No months imported yet"}</p>
           <dl className="mt-3 text-sm">
             <Row label="Income" value={money(i.monthlyIncomeMinor)} />
-            <Row label="Recurring bills" value={`−${money(i.monthlyObligationsMinor)}`} />
+            <Row label="Recurring bills" value={out(i.monthlyObligationsMinor)} />
             {i.obligations.map((o) => (
               <Row key={`${o.name}|${o.category}|${o.monthlyMinor}`} sub label={`${o.name} · ${o.label ?? o.category}`} value={money(o.monthlyMinor)} />
             ))}
             {i.otherLoanRepaymentsMinor !== "0" && <Row sub label="Loan repayments, not monthly" value={money(i.otherLoanRepaymentsMinor)} />}
-            <Row label="Everyday spending" value={`−${money(i.monthlyEverydayMinor)}`} />
+            <Row label="Everyday spending" value={out(i.monthlyEverydayMinor)} />
             <Row strong label="Usual surplus" value={money(i.monthlySurplusMinor)} />
           </dl>
         </div>
@@ -117,9 +118,9 @@ function Answer({ r }: { r: AffordabilityJson }) {
           <dl className="mt-3 text-sm">
             <Row label={i.cashKnown ? `Cash${i.cashAsOf ? `, ${day(i.cashAsOf)}` : ""}` : "Cash on file (none)"} value={money(i.cashMinor)} />
             <Row label={`Income in (${INCOME_RULE[p.incomeRule]})`} value={`+${money(p.incomeInMinor)}`} />
-            <Row label="Recurring bills due" value={`−${money(p.obligationsOutMinor)}`} />
-            <Row label="Everyday spending, estimated" value={`−${money(p.everydayOutMinor)}`} />
-            <Row label={r.description ? `This purchase (${r.description})` : "This purchase"} value={`−${money(r.amountMinor)}`} />
+            <Row label="Recurring bills due" value={out(p.obligationsOutMinor)} />
+            <Row label="Everyday spending, estimated" value={out(p.everydayOutMinor)} />
+            <Row label={r.description ? `This purchase (${r.description})` : "This purchase"} value={out(r.amountMinor)} />
             <Row strong label={`Lowest point, ${day(p.lowestOn)}`} value={money(p.lowestMinor)} />
             <Row label={`Safety buffer (${BUFFER_RULE[i.bufferRule]})`} value={money(i.bufferMinor)} />
             <Row strong label="Room above buffer" value={money(p.headroomMinor)} />
