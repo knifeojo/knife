@@ -59,12 +59,37 @@ void main() {
     expect(check.obligations.last.nextDue, isNull);
     expect(check.monthsToSave, 1);
     expect(check.lowestOn, DateTime.utc(2026, 10, 25, 11));
+    expect(check.obligations.map((o) => o.kind), ['recurring', 'recurring']);
+    expect(check.advice.map((a) => a.kind), ['debt', 'one_off']);
+    expect(check.advice.first.subject, 'FairMoney');
+    expect(check.advice.first.monthlyMinor, '5000000');
+    expect(check.advice.first.openMinor, isNull);
+    expect(check.oneOffs.single.name, 'Fouani Showroom');
+    expect(check.oneOffs.single.amountMinor, '45000000');
+    expect(check.oneOffsTotalMinor, '45000000');
+    expect(check.oneOffsSince, DateTime.utc(2026, 6, 30, 23));
+  });
+
+  test('reads an answer from an older server that sends no advice or one-offs', () {
+    final inputs = Map<String, Object?>.from(affordabilityResponse['inputs']! as Map)
+      ..remove('oneOffs')
+      ..remove('oneOffsTotalMinor')
+      ..remove('oneOffMinMinor')
+      ..remove('oneOffsSince');
+    final check = AffordabilityCheck.fromJson({...affordabilityResponse, 'inputs': inputs}..remove('advice'));
+    expect(check.advice, isEmpty);
+    expect(check.oneOffs, isEmpty);
+    expect(check.oneOffsSince, isNull);
   });
 
   test('rejects an affordability answer with a numeric amount or an unknown verdict', () {
     final inputs = Map<String, Object?>.from(affordabilityResponse['inputs']! as Map);
     expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'inputs': {...inputs, 'cashMinor': 181500000}}), throwsFormatException);
     expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'verdict': 'maybe'}), throwsFormatException);
+    final numericCut = {'kind': 'cut', 'text': 'x', 'subject': 'Food', 'monthlyMinor': 3000000, 'openMinor': null};
+    expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'advice': [numericCut]}), throwsFormatException);
+    final unknownKind = {'kind': 'guess', 'text': 'x', 'subject': null, 'monthlyMinor': null, 'openMinor': null};
+    expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'advice': [unknownKind]}), throwsFormatException);
   });
 }
 

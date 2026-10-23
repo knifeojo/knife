@@ -297,6 +297,7 @@ class AffordabilityObligation {
     required this.monthlyMinor,
     required this.dueInWindowMinor,
     this.nextDue,
+    this.kind = 'recurring',
   });
 
   final String name;
@@ -305,6 +306,7 @@ class AffordabilityObligation {
   final String monthlyMinor;
   final String dueInWindowMinor;
   final DateTime? nextDue;
+  final String kind; // recurring
 
   factory AffordabilityObligation.fromJson(Map<String, dynamic> json) {
     return AffordabilityObligation(
@@ -314,6 +316,53 @@ class AffordabilityObligation {
       monthlyMinor: _minor(json, 'monthlyMinor'),
       dueInWindowMinor: _minor(json, 'dueInWindowMinor'),
       nextDue: _optionalDate(json, 'nextDue'),
+      kind: _optionalString(json, 'kind') ?? 'recurring',
+    );
+  }
+}
+
+/// A big single payment outside any regular stream. Already in past spending, not a recurring bill.
+class AffordabilityOneOff {
+  const AffordabilityOneOff({required this.name, required this.category, this.label, required this.amountMinor, required this.date});
+
+  final String name;
+  final String category;
+  final String? label;
+  final String amountMinor;
+  final DateTime date;
+
+  factory AffordabilityOneOff.fromJson(Map<String, dynamic> json) {
+    return AffordabilityOneOff(
+      name: _string(json, 'name'),
+      category: _string(json, 'category'),
+      label: _optionalString(json, 'label'),
+      amountMinor: _minor(json, 'amountMinor'),
+      date: DateTime.parse(_string(json, 'date')),
+    );
+  }
+}
+
+/// One rule-based next step from the server, built from the user's ledger.
+class AffordabilityAdvice {
+  const AffordabilityAdvice({required this.kind, required this.text, this.subject, this.monthlyMinor, this.openMinor});
+
+  static const kinds = ['debt', 'cut', 'one_off', 'none'];
+
+  final String kind; // debt | cut | one_off | none
+  final String text;
+  final String? subject;
+  final String? monthlyMinor;
+  final String? openMinor;
+
+  factory AffordabilityAdvice.fromJson(Map<String, dynamic> json) {
+    final kind = _string(json, 'kind');
+    if (!kinds.contains(kind)) throw FormatException('Unknown advice kind $kind');
+    return AffordabilityAdvice(
+      kind: kind,
+      text: _string(json, 'text'),
+      subject: _optionalString(json, 'subject'),
+      monthlyMinor: _optionalMinor(json, 'monthlyMinor'),
+      openMinor: _optionalMinor(json, 'openMinor'),
     );
   }
 }
@@ -349,6 +398,11 @@ class AffordabilityCheck {
     required this.lowestOn,
     required this.headroomMinor,
     this.monthsToSave,
+    this.advice = const [],
+    this.oneOffs = const [],
+    this.oneOffsTotalMinor = '0',
+    this.oneOffMinMinor = '0',
+    this.oneOffsSince,
   });
 
   final String verdict; // yes | stretch | no
@@ -379,6 +433,11 @@ class AffordabilityCheck {
   final DateTime lowestOn;
   final String headroomMinor;
   final int? monthsToSave;
+  final List<AffordabilityAdvice> advice;
+  final List<AffordabilityOneOff> oneOffs;
+  final String oneOffsTotalMinor;
+  final String oneOffMinMinor;
+  final DateTime? oneOffsSince;
 
   factory AffordabilityCheck.fromJson(Map<String, dynamic> json) {
     final window = _map(json, 'window');
@@ -417,6 +476,12 @@ class AffordabilityCheck {
       lowestOn: DateTime.parse(_string(projection, 'lowestOn')),
       headroomMinor: _minor(projection, 'headroomMinor'),
       monthsToSave: months as int?,
+      // Older servers send no advice or one-offs; the answer still reads without them.
+      advice: _optionalList(json, 'advice').map(AffordabilityAdvice.fromJson).toList(),
+      oneOffs: _optionalList(inputs, 'oneOffs').map(AffordabilityOneOff.fromJson).toList(),
+      oneOffsTotalMinor: _optionalMinor(inputs, 'oneOffsTotalMinor') ?? '0',
+      oneOffMinMinor: _optionalMinor(inputs, 'oneOffMinMinor') ?? '0',
+      oneOffsSince: _optionalDate(inputs, 'oneOffsSince'),
     );
   }
 }
@@ -479,6 +544,8 @@ List<Map<String, dynamic>> _list(Map<String, dynamic> json, String key) {
   if (value is! List) throw FormatException('Expected $key to be a list');
   return value.map(_asMap).toList();
 }
+
+List<Map<String, dynamic>> _optionalList(Map<String, dynamic> json, String key) => json[key] == null ? const [] : _list(json, key);
 
 List<String> _stringList(Map<String, dynamic> json, String key) {
   final value = json[key];
