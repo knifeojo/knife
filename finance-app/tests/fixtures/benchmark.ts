@@ -26,7 +26,7 @@ export const BENCHMARK: BenchCase[] = [
   { description: "Instant Payment Outward 0904 TIRE TO OPAY - FEMI DEMOLA EZEKIEL", type: "DEBIT", expected: "Transport" },
   { description: "Instant Payment Outward 0905 CLEANING TO AELLA - IDONGESIT UMOREN", type: "DEBIT", expected: "Housing" },
   { description: "Instant Payment Outward 0906 HAPPY BIRTHDAY TO STERLING - OLUWATOBI DANIEL EZE", type: "DEBIT", expected: "Family" },
-  { description: "OFFERING FROM EZE ADA BELLO TO GRACE CHRISTIAN WORLD ASSEMBLY", type: "DEBIT", expected: "Other" },
+  { description: "OFFERING FROM EZE ADA BELLO TO GRACE CHRISTIAN WORLD ASSEMBLY", type: "DEBIT", expected: "Giving" },
   { description: "Instant Payment Outward 0907 DELIS CAFE TO", type: "DEBIT", expected: "Food" },
   { description: "Instant Payment Outward 0908 FUEL TO PALMPAY", type: "DEBIT", expected: "Transport" },
   { description: "Instant Payment Outward 0909 LOAN TO REMB -", type: "DEBIT", expected: "Debt" },
@@ -53,4 +53,12 @@ export const BENCHMARK: BenchCase[] = [
   { description: "Instant Payment Outward 0922 GYM SUBSCRIPTION TO GTB - I-FITNESS", type: "DEBIT", expected: "Healthcare" },
   { description: "Instant Payment Outward 0923 LAGOS TOLL TO OPAY - LEKKI CONCESSION COMPANY", type: "DEBIT", expected: "Transport" },
   { description: "Instant Payment Outward 0924 SUYA AND DRINKS TO PALMPAY - MALLAM AUDU", type: "DEBIT", expected: "Food" },
+  // Hard: the recipient's bank, savings apps and card narrations
+  { description: "Instant Payment Outward 0925 TO CARBON - JOHN SMITH", type: "DEBIT", expected: "Transfers" },
+  { description: "Instant Payment Outward 0926 TO PIGGYVEST SAVINGS", type: "DEBIT", expected: "Own transfer" },
+  { description: "Instant Payment Outward 0927 TO MTN MOMO PSB - JOHN OKAFOR", type: "DEBIT", expected: "Transfers" },
+  { description: "Instant Payment Outward 0928 DIESEL FOR GEN TO OPAY - MUSA IBRAHIM", type: "DEBIT", expected: "Housing" },
+  { description: "POS/WEB PMNT @ BOLT FOOD LAGOS NG", type: "DEBIT", expected: "Food" },
+  { description: "POS PURCHASE: MAMA PUT KITCHEN IKEJA LANG", type: "DEBIT", expected: "Food" },
+  { description: "0001-JOHN SMITH-110059-CARBON", type: "CREDIT", expected: "Income" },
 ];

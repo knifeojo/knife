@@ -100,7 +100,11 @@ class LedgerTransaction {
     this.counterparty,
     required this.category,
     this.subcategory,
+    this.cadence,
+    this.recurringBill = false,
   });
+
+  static const cadences = ['recurring', 'one_off'];
 
   final String id;
   final String accountId;
@@ -116,6 +120,19 @@ class LedgerTransaction {
   final String? counterparty;
   final String category;
   final String? subcategory;
+
+  /// `recurring`, `one_off`, or null for everyday spend and rows the server did not label.
+  final String? cadence;
+
+  /// A recurring payment Afford counts as a bill to keep paying.
+  final bool recurringBill;
+
+  /// Chip text for the cadence, matching the web app.
+  String? get cadenceLabel {
+    if (cadence == 'recurring') return recurringBill ? 'Recurring bill' : 'Recurring';
+    if (cadence == 'one_off') return 'One-off';
+    return null;
+  }
 
   String get title {
     final merchant = merchantName?.trim();
@@ -141,6 +158,9 @@ class LedgerTransaction {
       counterparty: _optionalString(json, 'counterparty'),
       category: _string(json, 'category'),
       subcategory: _optionalString(json, 'subcategory'),
+      // Older servers send no cadence; unknown values are dropped rather than failing the list.
+      cadence: cadences.contains(json['cadence']) ? json['cadence'] as String : null,
+      recurringBill: json['recurringBill'] == true,
     );
   }
 }
@@ -172,14 +192,86 @@ class TransactionPage {
 }
 
 class CategorySpend {
-  const CategorySpend({required this.category, required this.totalMinor, required this.count});
+  const CategorySpend({
+    required this.category,
+    required this.totalMinor,
+    required this.count,
+    this.recurringMinor = '0',
+    this.oneOffMinor = '0',
+  });
 
   final String category;
   final String totalMinor;
   final int count;
+  final String recurringMinor;
+  final String oneOffMinor;
 
   factory CategorySpend.fromJson(Map<String, dynamic> json) {
-    return CategorySpend(category: _string(json, 'category'), totalMinor: _minor(json, 'totalMinor'), count: _int(json, 'count'));
+    return CategorySpend(
+      category: _string(json, 'category'),
+      totalMinor: _minor(json, 'totalMinor'),
+      count: _int(json, 'count'),
+      recurringMinor: _optionalMinor(json, 'recurringMinor') ?? '0',
+      oneOffMinor: _optionalMinor(json, 'oneOffMinor') ?? '0',
+    );
+  }
+}
+
+/// A big single payment this period, picked with Afford's one-off rules.
+class SpendingOneOff {
+  const SpendingOneOff({required this.id, required this.name, required this.category, this.subcategory, required this.amountMinor, required this.date});
+
+  final String id;
+  final String name;
+  final String category;
+  final String? subcategory;
+  final String amountMinor;
+  final DateTime date;
+
+  factory SpendingOneOff.fromJson(Map<String, dynamic> json) {
+    return SpendingOneOff(
+      id: _string(json, 'id'),
+      name: _string(json, 'name'),
+      category: _string(json, 'category'),
+      subcategory: _optionalString(json, 'subcategory'),
+      amountMinor: _minor(json, 'amountMinor'),
+      date: DateTime.parse(_string(json, 'date')),
+    );
+  }
+}
+
+/// This period's spending split the way Afford sees it: bills, other recurring, one-offs, everyday.
+class SpendingSplit {
+  const SpendingSplit({
+    required this.recurringBillsMinor,
+    required this.recurringOtherMinor,
+    required this.oneOffMinor,
+    required this.everydayMinor,
+    required this.oneOffMinMinor,
+    required this.labelled,
+    required this.oneOffs,
+  });
+
+  final String recurringBillsMinor;
+  final String recurringOtherMinor;
+  final String oneOffMinor;
+  final String everydayMinor;
+  final String oneOffMinMinor;
+
+  /// False when the period is older than the six months Afford looks back over.
+  final bool labelled;
+  final List<SpendingOneOff> oneOffs;
+
+  factory SpendingSplit.fromJson(Map<String, dynamic> json) {
+    return SpendingSplit(
+      recurringBillsMinor: _minor(json, 'recurringBillsMinor'),
+      recurringOtherMinor: _minor(json, 'recurringOtherMinor'),
+      oneOffMinor: _minor(json, 'oneOffMinor'),
+      everydayMinor: _minor(json, 'everydayMinor'),
+      oneOffMinMinor: _minor(json, 'oneOffMinMinor'),
+      labelled: json['labelled'] != false,
+      oneOffs: _optionalList(json, 'oneOffs').map(SpendingOneOff.fromJson).toList(),
+    );
   }
 }
 
@@ -194,6 +286,7 @@ class HomeSummary {
     required this.count,
     required this.spending,
     required this.recent,
+    this.split,
   });
 
   final String periodLabel;
@@ -206,8 +299,12 @@ class HomeSummary {
   final List<CategorySpend> spending;
   final List<LedgerTransaction> recent;
 
+  /// Null on servers that predate the recurring vs one-off split.
+  final SpendingSplit? split;
+
   factory HomeSummary.fromJson(Map<String, dynamic> json) {
     final period = _map(json, 'period');
+    final split = json['spendingSplit'];
     return HomeSummary(
       periodLabel: _string(period, 'label'),
       incomeMinor: _minor(json, 'incomeMinor'),
@@ -218,6 +315,7 @@ class HomeSummary {
       count: _int(json, 'count'),
       spending: _list(json, 'spendingByCategory').map(CategorySpend.fromJson).toList(),
       recent: _list(json, 'recent').map(LedgerTransaction.fromJson).toList(),
+      split: split == null ? null : SpendingSplit.fromJson(_asMap(split)),
     );
   }
 }

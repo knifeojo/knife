@@ -1,4 +1,5 @@
 import { balances, listTransactions, monthPeriod, spendingByCategory, specificMonth, summary, type Period } from "@/core/analytics";
+import { loadCadence, spendingSplit } from "@/core/cadence";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
 import { minor, transactionJson } from "@/lib/mobile/serialize";
 
@@ -29,12 +30,14 @@ export async function GET(req: Request) {
   if ("error" in resolved) return apiError(400, resolved.error);
   const { period } = resolved;
 
-  const [figures, bal, categories, recent] = await Promise.all([
+  const [figures, bal, categories, recent, cadence] = await Promise.all([
     summary(auth.user.id, period),
     balances(auth.user.id),
     spendingByCategory(auth.user.id, period),
     listTransactions(auth.user.id, {}, 1, 8),
+    loadCadence(auth.user.id),
   ]);
+  const split = await spendingSplit(auth.user.id, period, cadence);
 
   return apiJson({
     period: { label: period.label, from: period.from.toISOString(), to: period.to.toISOString() },
@@ -46,9 +49,22 @@ export async function GET(req: Request) {
     expenseCount: figures.expenseCount,
     balanceMinor: minor(bal.totalBase),
     balanceCurrency: "NGN",
-    spendingByCategory: categories.map((row) => ({ category: row.category, totalMinor: minor(row.total), count: row.count })),
+    spendingByCategory: categories.map((row) => ({
+      category: row.category, totalMinor: minor(row.total), count: row.count,
+      recurringMinor: minor(split.byCategory.get(row.category)?.recurringMinor ?? 0n),
+      oneOffMinor: minor(split.byCategory.get(row.category)?.oneOffMinor ?? 0n),
+    })),
+    spendingSplit: {
+      recurringBillsMinor: minor(split.recurringBillsMinor),
+      recurringOtherMinor: minor(split.recurringOtherMinor),
+      oneOffMinor: minor(split.oneOffMinor),
+      everydayMinor: minor(split.everydayMinor),
+      oneOffMinMinor: minor(split.oneOffMinMinor),
+      labelled: split.labelled,
+      oneOffs: split.oneOffs.map((o) => ({ id: o.id, name: o.name, category: o.category, subcategory: o.subcategory, amountMinor: minor(o.amountMinor), date: o.date.toISOString() })),
+    },
     ratesUsed: figures.ratesUsed.map((rate) => ({ currency: rate.currency, rate: rate.rate, conversions: rate.conversions })),
     unconverted: figures.unconverted.map((row) => ({ currencyAndType: row.currencyAndType, totalMinor: minor(row.totalMinor) })),
-    recent: recent.rows.map(transactionJson),
+    recent: recent.rows.map((tx) => transactionJson(tx, cadence)),
   });
 }

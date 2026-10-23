@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { log } from "@/lib/log";
-import { categorize, inferHolderName, type UserRule } from "./categorize";
+import { LEGACY_GIVING_SUBCATEGORIES, categorize, inferHolderName, type UserRule } from "./categorize";
 import { accountKey, computeFingerprint, findFuzzyMatch } from "./dedup";
 import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
@@ -287,13 +287,17 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
  * Used after rules improve, or after the account holder becomes known.
  */
 export async function reapplyCategories(userId: string): Promise<{ checked: number; changed: number }> {
+  // Giving was a subcategory of Other. Labels the user chose keep their meaning under the new category.
+  const legacyGiving = { userId, category: "Other", subcategory: { in: LEGACY_GIVING_SUBCATEGORIES } };
+  await db.merchantAlias.updateMany({ where: legacyGiving, data: { category: "Giving" } });
+  const moved = await db.transaction.updateMany({ where: legacyGiving, data: { category: "Giving" } });
   const rules = await loadUserRules(userId);
   const debits = await db.transaction.findMany({ where: { userId, type: "DEBIT" }, select: { description: true } });
   const inferred = inferHolderName(debits.map((d) => d.description));
   if (inferred) await db.account.updateMany({ where: { userId, holderName: null }, data: { holderName: inferred } });
   const owners = [...new Set([...(await loadOwners(userId)), ...(inferred ? [inferred] : [])])];
   const rows = await db.transaction.findMany({ where: { userId, classificationSource: { notIn: ["user", "pair"] } } });
-  let changed = 0;
+  let changed = moved.count;
   for (const t of rows) {
     const c = categorize({ description: t.description, type: t.type as "DEBIT" | "CREDIT" }, rules, owners);
     const next = {

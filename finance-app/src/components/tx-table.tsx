@@ -1,10 +1,20 @@
 import type { Account, Transaction } from "@prisma/client";
+import { cadenceLabel, type CadenceIndex } from "@/core/cadence";
 import { Badge, Money, lagosDateLabel } from "./ui";
 import { CategorySelect } from "./category-select";
 
 const SOURCE_LABEL: Record<string, string> = { gmail: "Gmail", fixture: "Sample", demo: "Demo", statement: "Statement", mono: "Open banking", sms: "SMS" };
 
-export function TxTable({ rows, editable = true, showBalance = true }: { rows: (Transaction & { account?: Account })[]; editable?: boolean; showBalance?: boolean }) {
+export function CadenceBadge({ tx, cadence }: { tx: Transaction; cadence: CadenceIndex }) {
+  const kind = cadenceLabel(tx, cadence);
+  const stream = cadence.recurring.get(tx.id);
+  if (kind === "recurring_bill") return <Badge tone="brand" title={`Paid about monthly to ${stream!.name}. Afford counts it as a fixed bill.`}>Recurring bill</Badge>;
+  if (kind === "recurring") return <Badge tone="brand" title={`Seen about monthly (${stream!.name}).`}>Recurring</Badge>;
+  if (kind === "one_off") return <Badge tone="outline" title="A single big payment outside any regular stream. Already in your spending, not counted as a bill.">One-off</Badge>;
+  return null;
+}
+
+export function TxTable({ rows, editable = true, showBalance = true, cadence }: { rows: (Transaction & { account?: Account })[]; editable?: boolean; showBalance?: boolean; cadence?: CadenceIndex }) {
   return (
     <div className="overflow-x-auto -mx-5">
       <table className="w-full text-sm min-w-[720px]">
@@ -28,6 +38,7 @@ export function TxTable({ rows, editable = true, showBalance = true }: { rows: (
               </td>
               <td className="py-3 pr-4">
                 {editable ? <CategorySelect id={t.id} value={t.category} /> : <Badge>{t.category}</Badge>}
+                {cadence && cadenceLabel(t, cadence) && <div className="mt-1"><CadenceBadge tx={t} cadence={cadence} /></div>}
                 {t.transferPairId && <div className="mt-1"><Badge tone="accent">Between your accounts</Badge></div>}
                 {t.classificationSource === "ai" && <div className="mt-1"><Badge>AI suggestion</Badge></div>}
                 {t.classificationSource === "default" && t.classificationConfidence < 0.5 && (

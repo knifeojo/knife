@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../api/models.dart';
 import '../format.dart';
 import '../state/ledger_controller.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 
 class TransactionsScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   final _query = TextEditingController();
   TransactionPage? _page;
   String? _category;
+  String? _cadence;
   String? _error;
   bool _loading = true;
 
@@ -38,7 +40,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       _error = null;
     });
     try {
-      final page = await context.read<LedgerController>().transactions(category: _category, query: _query.text.trim());
+      final page = await context.read<LedgerController>().transactions(category: _category, query: _query.text.trim(), cadence: _cadence);
       if (!mounted) return;
       setState(() {
         _page = page;
@@ -81,6 +83,27 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 _load();
               },
             ),
+          if (page != null) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String?>(
+              key: const Key('cadence-filter'),
+              initialValue: _cadence,
+              decoration: const InputDecoration(
+                labelText: 'Pattern',
+                helperText: 'Recurring: paid in 2+ months about a month apart. One-off: a big single spend.',
+                helperMaxLines: 2,
+              ),
+              items: const [
+                DropdownMenuItem<String?>(value: null, child: Text('Any pattern')),
+                DropdownMenuItem<String?>(value: 'recurring', child: Text('Recurring')),
+                DropdownMenuItem<String?>(value: 'one_off', child: Text('One-off')),
+              ],
+              onChanged: (value) {
+                setState(() => _cadence = value);
+                _load();
+              },
+            ),
+          ],
           const SizedBox(height: 12),
           if (_loading) const Center(child: Text('Loading…')),
           if (_error != null) ErrorText(_error),
@@ -114,6 +137,28 @@ class TransactionList extends StatelessWidget {
   }
 }
 
+/// Recurring rows get a filled brand-blue chip; one-offs an outlined one, as on the web.
+class CadenceChip extends StatelessWidget {
+  const CadenceChip({super.key, required this.transaction});
+
+  final LedgerTransaction transaction;
+
+  @override
+  Widget build(BuildContext context) {
+    final recurring = transaction.cadence == 'recurring';
+    final style = Theme.of(context).textTheme.labelSmall?.copyWith(color: recurring ? Colors.white : ledgerBlue);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: recurring ? ledgerBlue : null,
+        border: Border.all(color: ledgerBlue),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(transaction.cadenceLabel!, style: style),
+    );
+  }
+}
+
 class TransactionTile extends StatelessWidget {
   const TransactionTile({super.key, required this.transaction});
 
@@ -138,10 +183,17 @@ class TransactionTile extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text('${formatDay(transaction.transactionDate)}${masked == null ? '' : ' · $masked'}', style: theme.textTheme.bodySmall),
                 const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: theme.colorScheme.secondaryContainer, borderRadius: BorderRadius.circular(999)),
-                  child: Text(transaction.category, style: theme.textTheme.labelSmall),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(color: theme.colorScheme.secondaryContainer, borderRadius: BorderRadius.circular(999)),
+                      child: Text(transaction.category, style: theme.textTheme.labelSmall),
+                    ),
+                    if (transaction.cadenceLabel != null) CadenceChip(transaction: transaction),
+                  ],
                 ),
               ],
             ),

@@ -76,10 +76,14 @@ export function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-ink-3 py-8 text-center">{children}</div>;
 }
 
-export function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "accent" | "warn" }) {
+export function Badge({ children, tone = "neutral", title }: { children: React.ReactNode; tone?: "neutral" | "accent" | "warn" | "brand" | "outline"; title?: string }) {
   const cls =
-    tone === "accent" ? "bg-accent-soft text-accent" : tone === "warn" ? "bg-warn-bg text-warn-ink" : "bg-surface-2 text-ink-2";
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>;
+    tone === "accent" ? "bg-accent-soft text-accent"
+    : tone === "warn" ? "bg-warn-bg text-warn-ink"
+    : tone === "brand" ? "bg-brand-soft text-brand"
+    : tone === "outline" ? "border border-brand text-brand"
+    : "bg-surface-2 text-ink-2";
+  return <span title={title} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>;
 }
 
 export function lagosDateLabel(d: Date, opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" }) {

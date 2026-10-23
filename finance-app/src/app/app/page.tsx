@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { balances, incomeSources, largest, monthPeriod, monthlyTrend, recurring, spendingByCategory, summary } from "@/core/analytics";
+import { loadCadence } from "@/core/cadence";
 import { buildQuestions } from "@/core/review";
 import { formatMoney } from "@/lib/money";
 import { db } from "@/lib/db";
@@ -19,7 +20,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const txCount = await db.transaction.count({ where: { userId: user.id } });
   if (txCount === 0) return <Onboarding />;
 
-  const [s, bal, cats, trend, recent, bills, big, lastConn, sources, questions] = await Promise.all([
+  const [s, bal, cats, trend, recent, bills, big, lastConn, sources, questions, cadence] = await Promise.all([
     summary(user.id, period),
     balances(user.id),
     spendingByCategory(user.id, period),
@@ -30,6 +31,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     db.financialConnection.findFirst({ where: { userId: user.id, status: "active" }, orderBy: { lastSyncedAt: "desc" } }),
     incomeSources(user.id, period),
     user.isDemo ? Promise.resolve([]) : buildQuestions(user.id),
+    loadCadence(user.id, now),
   ]);
   const latestBalanceDate = bal.accounts.reduce<Date | null>((d, a) => (a.balanceUpdatedAt && (!d || a.balanceUpdatedAt > d) ? a.balanceUpdatedAt : d), null);
 
@@ -73,7 +75,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
 
       <div className="grid lg:grid-cols-3 gap-4 mt-4">
         <Card title="Recent transactions" className="lg:col-span-2" action={<Link href="/app/transactions" className="text-sm text-accent">View all</Link>}>
-          <TxTable rows={recent} showBalance={false} />
+          <TxTable rows={recent} showBalance={false} cadence={cadence} />
         </Card>
         <div className="space-y-4">
           <Card title="Income sources" action={<Link href={`/app/income?m=${offset}`} className="text-sm text-accent">Details</Link>}>

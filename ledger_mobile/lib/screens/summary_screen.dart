@@ -121,6 +121,10 @@ class SummaryBody extends StatelessWidget {
             StatTile(label: 'Net', minor: summary.netMinor, currency: currency, hint: '${summary.count} transactions'),
           ],
         ),
+        if (summary.split case final split?) ...[
+          const SizedBox(height: 16),
+          SpendingSplitSection(split: split, currency: currency),
+        ],
         const SizedBox(height: 16),
         Text('Spending by category', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
@@ -129,7 +133,7 @@ class SummaryBody extends StatelessWidget {
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: Text(row.category),
-            subtitle: Text('${row.count}'),
+            subtitle: Text(_categoryNote(row, currency)),
             trailing: Text(formatMinor(row.totalMinor, currency: currency)),
           ),
         const SizedBox(height: 8),
@@ -137,6 +141,63 @@ class SummaryBody extends StatelessWidget {
         const SizedBox(height: 8),
         if (summary.recent.isEmpty) const EmptyNote('No transactions yet. Upload a statement to start.'),
         for (final tx in summary.recent) TransactionTile(transaction: tx),
+      ],
+    );
+  }
+
+  static String _categoryNote(CategorySpend row, String currency) {
+    final parts = ['${row.count}'];
+    if (row.recurringMinor != '0') parts.add('${formatMinor(row.recurringMinor, currency: currency)} recurring');
+    if (row.oneOffMinor != '0') parts.add('${formatMinor(row.oneOffMinor, currency: currency)} one-off');
+    return parts.join(' · ');
+  }
+}
+
+/// The same split Afford uses, so its advice can be checked against the month.
+class SpendingSplitSection extends StatelessWidget {
+  const SpendingSplitSection({super.key, required this.split, required this.currency});
+
+  final SpendingSplit split;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Recurring vs one-off', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        if (!split.labelled)
+          const EmptyNote('Afford only labels the last six months, so this month is not split.')
+        else ...[
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            mainAxisExtent: 120,
+            children: [
+              StatTile(label: 'Recurring bills', minor: split.recurringBillsMinor, currency: currency, hint: 'Rent, loans, family'),
+              StatTile(label: 'Other recurring', minor: split.recurringOtherMinor, currency: currency),
+              StatTile(label: 'One-off', minor: split.oneOffMinor, currency: currency, hint: 'Each ${formatMinor(split.oneOffMinMinor, currency: currency)}+'),
+              StatTile(label: 'Everyday', minor: split.everydayMinor, currency: currency),
+            ],
+          ),
+          for (final oneOff in split.oneOffs)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(oneOff.name),
+              subtitle: Text('${oneOff.category}${oneOff.subcategory == null ? '' : ' · ${oneOff.subcategory}'} · ${formatDay(oneOff.date)}'),
+              trailing: Text(formatMinor(oneOff.amountMinor, currency: currency)),
+            ),
+          Text(
+            'Recurring means paid in two or more months, about a month apart. One-offs already happened and are not bills.',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
       ],
     );
   }

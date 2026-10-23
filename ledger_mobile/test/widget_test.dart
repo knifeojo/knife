@@ -8,6 +8,7 @@ import 'package:ledger_mobile/api/models.dart';
 import 'package:ledger_mobile/app.dart';
 import 'package:ledger_mobile/screens/accounts_screen.dart';
 import 'package:ledger_mobile/screens/affordability_screen.dart';
+import 'package:ledger_mobile/screens/summary_screen.dart';
 import 'package:ledger_mobile/screens/transactions_screen.dart';
 import 'package:ledger_mobile/state/ledger_controller.dart';
 import 'package:ledger_mobile/storage/settings_store.dart';
@@ -124,6 +125,84 @@ void main() {
     expect(find.text('Food'), findsOneWidget);
     expect(find.text('Shoprite'), findsOneWidget);
     expect(find.textContaining('₦45,250.50'), findsOneWidget);
+    expect(find.byType(CadenceChip), findsNothing);
+  });
+
+  testWidgets('transactions show recurring and one-off chips', (tester) async {
+    LedgerTransaction tx(String id, String name, String category, {String? cadence, bool bill = false}) => LedgerTransaction(
+          id: id,
+          accountId: 'a1',
+          transactionDate: DateTime.utc(2026, 8, 1),
+          type: 'DEBIT',
+          amountMinor: '40000000',
+          currency: 'NGN',
+          description: name,
+          merchantName: name,
+          category: category,
+          cadence: cadence,
+          recurringBill: bill,
+        );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ledgerTheme(Brightness.light),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: TransactionList(
+              page: TransactionPage(
+                transactions: [
+                  tx('t1', 'Landlord', 'Housing', cadence: 'recurring', bill: true),
+                  tx('t2', 'Netflix', 'Entertainment', cadence: 'recurring'),
+                  tx('t3', 'Fouani Showroom', 'Shopping', cadence: 'one_off'),
+                  tx('t4', 'PiggyVest', 'Own transfer'),
+                ],
+                total: 4,
+                page: 1,
+                pageSize: 50,
+                categories: const ['Housing'],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Recurring bill'), findsOneWidget);
+    expect(find.text('Recurring'), findsOneWidget);
+    expect(find.text('One-off'), findsOneWidget);
+    expect(find.byType(CadenceChip), findsNWidgets(3));
+  });
+
+  testWidgets('summary splits spending into recurring and one-off', (tester) async {
+    final summary = HomeSummary.fromJson({
+      ..._summaryJson,
+      'spendingByCategory': [
+        {'category': 'Housing', 'totalMinor': '40000000', 'count': 1, 'recurringMinor': '40000000', 'oneOffMinor': '0'},
+      ],
+      'spendingSplit': {
+        'recurringBillsMinor': '40000000',
+        'recurringOtherMinor': '0',
+        'oneOffMinor': '65000000',
+        'everydayMinor': '1845000',
+        'oneOffMinMinor': '5000000',
+        'labelled': true,
+        'oneOffs': [
+          {'id': 't9', 'name': 'Fouani Showroom', 'category': 'Shopping', 'subcategory': 'Electronics', 'amountMinor': '65000000', 'date': '2026-09-12T00:00:00.000Z'},
+        ],
+      },
+    });
+    await tester.pumpWidget(
+      MaterialApp(theme: ledgerTheme(Brightness.light), home: Scaffold(body: ListView(children: [SummaryBody(summary: summary)]))),
+    );
+    expect(find.text('Recurring vs one-off'), findsOneWidget);
+    expect(find.text('Recurring bills'), findsOneWidget);
+    expect(find.text('Each ₦50,000.00+'), findsOneWidget);
+    expect(find.text('Fouani Showroom'), findsOneWidget);
+    expect(find.text('1 · ₦400,000.00 recurring'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(theme: ledgerTheme(Brightness.light), home: Scaffold(body: ListView(children: [SummaryBody(summary: HomeSummary.fromJson(_summaryJson))]))),
+    );
+    expect(find.text('Recurring vs one-off'), findsNothing);
+    expect(find.text('1'), findsOneWidget);
   });
 
   testWidgets('affordability answer shows the verdict and the inputs behind it', (tester) async {
@@ -182,37 +261,7 @@ Future<http.Response> _api(http.Request request) async {
     );
   }
   if (path.endsWith('/summary')) {
-    return http.Response(
-      jsonEncode({
-        'period': {'label': 'September 2026', 'from': '2026-08-31T23:00:00.000Z', 'to': '2026-09-30T23:00:00.000Z'},
-        'incomeMinor': '198361100',
-        'expensesMinor': '42370050',
-        'netMinor': '155991050',
-        'balanceMinor': '450000000',
-        'balanceCurrency': 'NGN',
-        'count': 7,
-        'spendingByCategory': [
-          {'category': 'Food', 'totalMinor': '1845000', 'count': 1},
-        ],
-        'recent': [
-          {
-            'id': 't1',
-            'accountId': 'a1',
-            'maskedAccountNumber': '****4521',
-            'transactionDate': '2026-09-19T00:00:00.000Z',
-            'type': 'DEBIT',
-            'amountMinor': '4525050',
-            'currency': 'NGN',
-            'description': 'POS SHOPRITE LEKKI',
-            'merchantName': 'Shoprite',
-            'counterparty': null,
-            'category': 'Food',
-            'subcategory': null,
-          },
-        ],
-      }),
-      200,
-    );
+    return http.Response(jsonEncode(_summaryJson), 200);
   }
   if (path.endsWith('/accounts')) {
     return http.Response(jsonEncode({'accounts': [], 'totalBaseMinor': '0', 'totalBaseCurrency': 'NGN'}), 200);
@@ -226,3 +275,33 @@ Future<http.Response> _api(http.Request request) async {
   }
   return http.Response(jsonEncode({'error': 'not found'}), 404);
 }
+
+/// What a server from before the recurring vs one-off split sends.
+const _summaryJson = {
+  'period': {'label': 'September 2026', 'from': '2026-08-31T23:00:00.000Z', 'to': '2026-09-30T23:00:00.000Z'},
+  'incomeMinor': '198361100',
+  'expensesMinor': '42370050',
+  'netMinor': '155991050',
+  'balanceMinor': '450000000',
+  'balanceCurrency': 'NGN',
+  'count': 7,
+  'spendingByCategory': [
+    {'category': 'Food', 'totalMinor': '1845000', 'count': 1},
+  ],
+  'recent': [
+    {
+      'id': 't1',
+      'accountId': 'a1',
+      'maskedAccountNumber': '****4521',
+      'transactionDate': '2026-09-19T00:00:00.000Z',
+      'type': 'DEBIT',
+      'amountMinor': '4525050',
+      'currency': 'NGN',
+      'description': 'POS SHOPRITE LEKKI',
+      'merchantName': 'Shoprite',
+      'counterparty': null,
+      'category': 'Food',
+      'subcategory': null,
+    },
+  ],
+};

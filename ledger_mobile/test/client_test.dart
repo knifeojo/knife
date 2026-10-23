@@ -47,6 +47,22 @@ void main() {
     expect(accounts.totalBaseMinor, '450000000');
   });
 
+  test('asks for one pattern of transactions only when one is picked', () async {
+    final seen = <Uri>[];
+    final api = LedgerApi(
+      baseUrl: 'http://100.64.0.8:3000',
+      token: 'session-token-value',
+      httpClient: MockClient((request) async {
+        seen.add(request.url);
+        return http.Response(jsonEncode({'transactions': [], 'total': 0, 'page': 1, 'pageSize': 50, 'categories': []}), 200);
+      }),
+    );
+    await api.transactions(cadence: 'one_off');
+    await api.transactions();
+    expect(seen.first.queryParameters['cadence'], 'one_off');
+    expect(seen.last.queryParameters.containsKey('cadence'), isFalse);
+  });
+
   test('turns an error body into a message and uploads a statement with its password field', () async {
     final api = LedgerApi(
       baseUrl: 'https://ledger.example',

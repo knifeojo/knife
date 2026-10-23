@@ -25,6 +25,68 @@ void main() {
     expect(summary.recent.single.category, 'Food');
   });
 
+  test('reads recurring vs one-off labels and the spending split', () {
+    final summary = HomeSummary.fromJson({
+      'period': {'label': 'August 2026', 'from': '2026-07-31T23:00:00.000Z', 'to': '2026-08-31T23:00:00.000Z'},
+      'incomeMinor': '200000000',
+      'expensesMinor': '123000000',
+      'netMinor': '77000000',
+      'balanceMinor': '450000000',
+      'balanceCurrency': 'NGN',
+      'count': 9,
+      'spendingByCategory': [
+        {'category': 'Housing', 'totalMinor': '40000000', 'count': 1, 'recurringMinor': '40000000', 'oneOffMinor': '0'},
+      ],
+      'spendingSplit': {
+        'recurringBillsMinor': '40000000',
+        'recurringOtherMinor': '8000000',
+        'oneOffMinor': '65000000',
+        'everydayMinor': '10000000',
+        'oneOffMinMinor': '5000000',
+        'labelled': true,
+        'oneOffs': [
+          {'id': 't9', 'name': 'Fouani Showroom', 'category': 'Shopping', 'subcategory': 'Electronics', 'amountMinor': '65000000', 'date': '2026-08-12T00:00:00.000Z'},
+        ],
+      },
+      'recent': [
+        {..._tx, 'cadence': 'recurring', 'recurringBill': true},
+        {..._tx, 'id': 't2', 'cadence': 'one_off', 'recurringBill': false},
+        {..._tx, 'id': 't3', 'cadence': null, 'recurringBill': false},
+      ],
+    });
+    expect(summary.spending.single.recurringMinor, '40000000');
+    expect(summary.split!.oneOffMinor, '65000000');
+    expect(summary.split!.oneOffs.single.name, 'Fouani Showroom');
+    expect(summary.recent.map((tx) => tx.cadenceLabel), ['Recurring bill', 'One-off', null]);
+  });
+
+  test('reads a summary from an older server with no cadence fields', () {
+    final summary = HomeSummary.fromJson({
+      'period': {'label': 'September 2026'},
+      'incomeMinor': '0',
+      'expensesMinor': '1845000',
+      'netMinor': '-1845000',
+      'balanceMinor': '0',
+      'balanceCurrency': 'NGN',
+      'count': 1,
+      'spendingByCategory': [
+        {'category': 'Food', 'totalMinor': '1845000', 'count': 1},
+      ],
+      'recent': [_tx],
+    });
+    expect(summary.split, isNull);
+    expect(summary.spending.single.recurringMinor, '0');
+    expect(summary.spending.single.oneOffMinor, '0');
+    expect(summary.recent.single.cadence, isNull);
+    expect(summary.recent.single.recurringBill, isFalse);
+  });
+
+  test('drops a cadence it does not know instead of failing the list', () {
+    final tx = LedgerTransaction.fromJson({..._tx, 'cadence': 'weekly'});
+    expect(tx.cadence, isNull);
+    expect(tx.cadenceLabel, isNull);
+  });
+
   test('rejects a money field that arrived as a JSON number', () {
     expect(
       () => LedgerTransaction.fromJson({..._tx, 'amountMinor': 198361100}),

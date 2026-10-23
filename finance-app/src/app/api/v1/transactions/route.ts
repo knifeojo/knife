@@ -1,7 +1,8 @@
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { listTransactions, type TransactionFilters } from "@/core/analytics";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
-import { transactionJson } from "@/lib/mobile/serialize";
+import { cadenceIds, loadCadence, type Cadence } from "@/core/cadence";
+import { minor, transactionJson } from "@/lib/mobile/serialize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,11 @@ export async function GET(req: Request) {
   const toStart = lagosDay(toRaw);
   const accountId = url.searchParams.get("accountId") || undefined;
   if (accountId && accountId.length > 64) return apiError(400, "Unknown account");
+  const cadenceParam = url.searchParams.get("cadence") || undefined;
+  if (cadenceParam && cadenceParam !== "recurring" && cadenceParam !== "one_off") return apiError(400, "cadence must be recurring or one_off");
+  const cadenceRaw = cadenceParam as Cadence | undefined;
+
+  const cadence = await loadCadence(auth.user.id);
 
   const filters: TransactionFilters = {
     q: url.searchParams.get("q")?.slice(0, 80) || undefined,
@@ -46,13 +52,16 @@ export async function GET(req: Request) {
     accountId,
     from,
     to: toStart ? new Date(toStart.getTime() + 86400_000) : undefined,
+    ids: cadenceRaw ? await cadenceIds(auth.user.id, cadence, cadenceRaw) : undefined,
   };
   const data = await listTransactions(auth.user.id, filters, page, pageSize);
   return apiJson({
-    transactions: data.rows.map(transactionJson),
+    transactions: data.rows.map((tx) => transactionJson(tx, cadence)),
     total: data.total,
     page: data.page,
     pageSize: data.pageSize,
     categories: ALL_CATEGORIES,
+    oneOffMinMinor: minor(cadence.oneOffMinMinor),
+    cadenceSince: cadence.since.toISOString(),
   });
 }

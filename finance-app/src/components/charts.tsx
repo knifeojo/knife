@@ -50,7 +50,7 @@ export function MonthlyBars({ data }: { data: { label: string; income: bigint; e
 }
 
 /** Single-series magnitude bars (one hue), direct-labelled with value and share. */
-export function CategoryBars({ data, total }: { data: { label: string; value: bigint; count?: number }[]; total: bigint }) {
+export function CategoryBars({ data, total }: { data: { label: string; value: bigint; count?: number; note?: string }[]; total: bigint }) {
   const max = data.reduce((m, d) => (d.value > m ? d.value : m), 1n);
   return (
     <ul className="space-y-3">
@@ -64,6 +64,7 @@ export function CategoryBars({ data, total }: { data: { label: string; value: bi
                 {formatMoney(d.value, "NGN", { compact: true })} <span className="text-ink-3">· {pct.toFixed(0)}%</span>
               </span>
             </div>
+            {d.note && <div className="text-xs text-ink-3">{d.note}</div>}
             <div className="mt-1.5 h-2 rounded-full bg-surface-2">
               <div
                 tabIndex={0}

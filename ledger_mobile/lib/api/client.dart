@@ -45,9 +45,10 @@ class LedgerApi {
     return _parse(_object(_uri('/api/v1/accounts'), _get), AccountList.fromJson);
   }
 
-  Future<TransactionPage> transactions({String? category, String? query, int page = 1}) {
+  /// `cadence` is "recurring" or "one_off"; older servers ignore it.
+  Future<TransactionPage> transactions({String? category, String? query, String? cadence, int page = 1}) {
     return _parse(
-      _object(_uri('/api/v1/transactions', {'category': category, 'q': query, 'page': '$page', 'pageSize': '50'}), _get),
+      _object(_uri('/api/v1/transactions', {'category': category, 'q': query, 'cadence': cadence, 'page': '$page', 'pageSize': '50'}), _get),
       TransactionPage.fromJson,
     );
   }

@@ -1,4 +1,5 @@
 import type { Account, Transaction } from "@prisma/client";
+import { cadenceOf, type CadenceIndex } from "@/core/cadence";
 
 type TxWithAccount = Transaction & {
   account?: Pick<Account, "accountName" | "institution" | "maskedAccountNumber"> | null;
@@ -23,7 +24,9 @@ export function accountJson(account: Account) {
   };
 }
 
-export function transactionJson(tx: TxWithAccount) {
+/** With a cadence index, adds `cadence` ("recurring" | "one_off" | null) and `recurringBill`. Older clients ignore both. */
+export function transactionJson(tx: TxWithAccount, cadence?: CadenceIndex) {
+  const kind = cadence ? cadenceOf(tx, cadence) : undefined;
   return {
     id: tx.id,
     accountId: tx.accountId,
@@ -39,5 +42,6 @@ export function transactionJson(tx: TxWithAccount) {
     counterparty: tx.counterparty,
     category: tx.category,
     subcategory: tx.subcategory,
+    ...(cadence && { cadence: kind ?? null, recurringBill: kind === "recurring" && !!cadence.recurring.get(tx.id)?.bill }),
   };
 }

@@ -242,7 +242,9 @@ const lagosMonth = (d: Date) => new Date(d.getTime() + 3600_000).toISOString().s
  * the same person are two commitments. A stream is regular when it appears in 2+ months, at most
  * about once a month, with a typical gap of 20 to 40 days.
  */
-export async function recurring(userId: string, now: Date, type: "DEBIT" | "CREDIT" = "DEBIT", lookbackMonths = 6): Promise<RecurringItem[]> {
+export const RECURRING_LOOKBACK_MONTHS = 6;
+
+export async function recurring(userId: string, now: Date, type: "DEBIT" | "CREDIT" = "DEBIT", lookbackMonths = RECURRING_LOOKBACK_MONTHS): Promise<RecurringItem[]> {
   const { sameName } = await import("./categorize");
   const { memoOf } = await import("./review");
   const from = monthPeriod(now, -(lookbackMonths - 1)).from;
@@ -319,6 +321,8 @@ export interface TransactionFilters {
   maxMinor?: bigint;
   accountId?: string;
   merchant?: string;
+  /** Only these rows (a recurring or one-off view). */
+  ids?: string[];
 }
 
 export async function listTransactions(userId: string, f: TransactionFilters, page = 1, pageSize = 50) {
@@ -328,6 +332,7 @@ export async function listTransactions(userId: string, f: TransactionFilters, pa
     ...(f.category && { category: f.category }),
     ...(f.accountId && { accountId: f.accountId }),
     ...(f.merchant && { merchantName: f.merchant }),
+    ...(f.ids && { id: { in: f.ids } }),
     ...((f.from || f.to) && { transactionDate: { ...(f.from && { gte: f.from }), ...(f.to && { lt: f.to }) } }),
     ...((f.minMinor !== undefined || f.maxMinor !== undefined) && {
       amountMinor: { ...(f.minMinor !== undefined && { gte: f.minMinor }), ...(f.maxMinor !== undefined && { lte: f.maxMinor }) },
