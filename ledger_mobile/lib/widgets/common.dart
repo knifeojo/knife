@@ -18,27 +18,37 @@ class ErrorText extends StatelessWidget {
 }
 
 class StatTile extends StatelessWidget {
-  const StatTile({super.key, required this.label, required this.minor, required this.currency, this.hint});
+  const StatTile({super.key, required this.label, required this.minor, required this.currency, this.hint, this.onTap});
 
   final String label;
   final String minor;
   final String currency;
   final String? hint;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 6),
-            Text(formatMinor(minor, currency: currency), style: theme.textTheme.titleMedium),
-            if (hint != null) ...[const SizedBox(height: 4), Text(hint!, style: theme.textTheme.bodySmall)],
-          ],
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: Text(label, style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
+                  if (onTap != null) Icon(Icons.chevron_right, size: 18, color: theme.colorScheme.primary),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(formatMinor(minor, currency: currency), style: theme.textTheme.titleMedium),
+              if (hint != null) ...[const SizedBox(height: 4), Text(hint!, style: theme.textTheme.bodySmall)],
+            ],
+          ),
         ),
       ),
     );

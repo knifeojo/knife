@@ -5,6 +5,9 @@ import '../api/models.dart';
 import '../format.dart';
 import '../state/ledger_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/spending.dart';
+import 'everyday_screen.dart';
+import 'review_screen.dart';
 import 'transactions_screen.dart';
 
 class SummaryScreen extends StatefulWidget {
@@ -89,7 +92,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
           ),
           if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Loading…'))),
           if (_error != null) ErrorText(_error),
-          if (summary != null && !_loading) SummaryBody(summary: summary),
+          if (summary != null && !_loading) SummaryBody(summary: summary, onChanged: _load),
         ],
       ),
     );
@@ -97,13 +100,19 @@ class _SummaryScreenState extends State<SummaryScreen> {
 }
 
 class SummaryBody extends StatelessWidget {
-  const SummaryBody({super.key, required this.summary});
+  const SummaryBody({super.key, required this.summary, this.onChanged});
 
   final HomeSummary summary;
 
+  /// Called after Review saved an answer, so Home can reload.
+  final VoidCallback? onChanged;
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final currency = summary.balanceCurrency;
+    final days = TransactionQuery.days(summary.periodFrom, summary.periodTo);
+    final payees = summary.split?.payees ?? const <PayeeSpend>[];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -123,7 +132,29 @@ class SummaryBody extends StatelessWidget {
         ),
         if (summary.split case final split?) ...[
           const SizedBox(height: 16),
-          SpendingSplitSection(split: split, currency: currency),
+          SpendingSplitSection(split: split, currency: currency, summary: summary, onChanged: onChanged),
+        ],
+        if (payees.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('What you spent on', style: theme.textTheme.titleMedium),
+          Text('Each person or business once, every spelling of the name matched.', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 4),
+          PayeeList(
+            payees: payees,
+            currency: currency,
+            onTap: (p) => openTransactions(context, TransactionQuery(title: p.name, payee: p.name, type: 'DEBIT', from: days.from, to: days.to)),
+          ),
+        ],
+        if (summary.recurring.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('Recurring, by name', style: theme.textTheme.titleMedium),
+          Text('Paid in two or more months, or several times a month, over the last six months.', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 4),
+          RecurringGroupList(
+            groups: summary.recurring,
+            currency: currency,
+            onTap: (g) => openTransactions(context, TransactionQuery(title: g.name, payee: g.name, type: 'DEBIT')),
+          ),
         ],
         const SizedBox(height: 16),
         Text('Spending by category', style: Theme.of(context).textTheme.titleMedium),
@@ -155,17 +186,45 @@ class SummaryBody extends StatelessWidget {
 
 /// The same split Afford uses, so its advice can be checked against the month.
 class SpendingSplitSection extends StatelessWidget {
-  const SpendingSplitSection({super.key, required this.split, required this.currency});
+  const SpendingSplitSection({super.key, required this.split, required this.currency, this.summary, this.onChanged});
 
   final SpendingSplit split;
   final String currency;
 
+  /// The month this split belongs to; tiles open its transactions when set.
+  final HomeSummary? summary;
+  final VoidCallback? onChanged;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final month = summary;
+    final days = TransactionQuery.days(month?.periodFrom, month?.periodTo);
+    final unlabelled = split.unlabelled;
+    VoidCallback? list(String title, String cadence) => month == null
+        ? null
+        : () => openTransactions(context, TransactionQuery(title: title, cadence: cadence, type: 'DEBIT', from: days.from, to: days.to));
+    void everydayList(String title, {String? category, String? payee}) {
+      openTransactions(context, TransactionQuery(title: title, cadence: 'everyday', category: category, payee: payee, from: days.from, to: days.to));
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (unlabelled != null && unlabelled.needsReview) ...[
+          ReviewCta(
+            unlabelled: unlabelled,
+            currency: currency,
+            onReview: () async {
+              if (await openReview(context)) onChanged?.call();
+            },
+            onShowTransfers: () => openTransactions(
+              context,
+              TransactionQuery(title: 'Transfers with no purpose', category: 'Transfers', type: 'DEBIT', from: days.from, to: days.to),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Text('Recurring vs one-off', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         if (!split.labelled)
@@ -179,12 +238,42 @@ class SpendingSplitSection extends StatelessWidget {
             crossAxisSpacing: 8,
             mainAxisExtent: 120,
             children: [
-              StatTile(label: 'Recurring bills', minor: split.recurringBillsMinor, currency: currency, hint: 'Rent, loans, family'),
-              StatTile(label: 'Other recurring', minor: split.recurringOtherMinor, currency: currency),
-              StatTile(label: 'One-off', minor: split.oneOffMinor, currency: currency, hint: 'Each ${formatMinor(split.oneOffMinMinor, currency: currency)}+'),
-              StatTile(label: 'Everyday', minor: split.everydayMinor, currency: currency),
+              StatTile(
+                label: 'Recurring bills',
+                minor: split.recurringBillsMinor,
+                currency: currency,
+                hint: 'Rent, loans, family',
+                onTap: list('Recurring', 'recurring'),
+              ),
+              StatTile(label: 'Other recurring', minor: split.recurringOtherMinor, currency: currency, onTap: list('Recurring', 'recurring')),
+              StatTile(
+                label: 'One-off',
+                minor: split.oneOffMinor,
+                currency: currency,
+                hint: 'Each ${formatMinor(split.oneOffMinMinor, currency: currency)}+',
+                onTap: list('One-off', 'one_off'),
+              ),
+              StatTile(
+                key: const Key('everyday-tile'),
+                label: 'Everyday',
+                minor: split.everydayMinor,
+                currency: currency,
+                hint: split.everyday == null ? null : 'Tap for the breakdown',
+                onTap: month == null ? null : () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => EverydayScreen(summary: month))),
+              ),
             ],
           ),
+          if (split.everyday case final everyday? when everyday.count > 0) ...[
+            const SizedBox(height: 12),
+            Text('Everyday spending', style: theme.textTheme.titleSmall),
+            EverydayBreakdownView(
+              everyday: everyday,
+              currency: currency,
+              onCategory: month == null ? null : (c) => everydayList(c, category: c),
+              onPayee: month == null ? null : (p) => everydayList(p, payee: p),
+            ),
+            const SizedBox(height: 8),
+          ],
           for (final oneOff in split.oneOffs)
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -194,7 +283,8 @@ class SpendingSplitSection extends StatelessWidget {
               trailing: Text(formatMinor(oneOff.amountMinor, currency: currency)),
             ),
           Text(
-            'Recurring means paid in two or more months, about a month apart. One-offs already happened and are not bills.',
+            'Recurring means the same person or business, matched by name, paid in two or more months or several times a month. '
+            'One-offs already happened and are not bills. Everyday is everything else.',
             style: theme.textTheme.bodySmall,
           ),
         ],

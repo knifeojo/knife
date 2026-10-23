@@ -240,6 +240,181 @@ class SpendingOneOff {
   }
 }
 
+/// One line of the everyday breakdown: a category, or a person or business paid.
+class EverydayGroup {
+  const EverydayGroup({required this.name, required this.totalMinor, required this.count});
+
+  final String name;
+  final String totalMinor;
+  final int count;
+
+  factory EverydayGroup.fromJson(Map<String, dynamic> json) {
+    return EverydayGroup(name: _string(json, 'name'), totalMinor: _minor(json, 'totalMinor'), count: _int(json, 'count'));
+  }
+}
+
+/// Everyday spending (not recurring, not a one-off) by category and by person or business paid.
+class EverydayBreakdown {
+  const EverydayBreakdown({required this.totalMinor, required this.count, required this.byCategory, required this.byPayee});
+
+  final String totalMinor;
+  final int count;
+  final List<EverydayGroup> byCategory;
+  final List<EverydayGroup> byPayee;
+
+  factory EverydayBreakdown.fromJson(Map<String, dynamic> json) {
+    return EverydayBreakdown(
+      totalMinor: _minor(json, 'totalMinor'),
+      count: _int(json, 'count'),
+      byCategory: _list(json, 'byCategory').map(EverydayGroup.fromJson).toList(),
+      byPayee: _list(json, 'byPayee').map(EverydayGroup.fromJson).toList(),
+    );
+  }
+}
+
+/// Payments still on the default Transfers label: the bank recorded who was paid, not what for.
+class UnlabelledSpend {
+  const UnlabelledSpend({required this.count, required this.totalMinor, required this.needsReview, required this.reviewQuestions});
+
+  final int count;
+  final String totalMinor;
+
+  /// They are a large share of the month's spending, so Review is worth suggesting.
+  final bool needsReview;
+
+  /// Review questions that would label them. 0 means label them from the transactions list instead.
+  final int reviewQuestions;
+
+  factory UnlabelledSpend.fromJson(Map<String, dynamic> json) {
+    return UnlabelledSpend(
+      count: _int(json, 'count'),
+      totalMinor: _minor(json, 'totalMinor'),
+      needsReview: json['needsReview'] == true,
+      reviewQuestions: json['reviewQuestions'] is int ? json['reviewQuestions'] as int : 0,
+    );
+  }
+}
+
+/// The server's line for payments with no recognisable name; it is not a payee filter.
+const unnamedPayee = 'Unnamed payments';
+
+/// One person or business paid this period, every spelling of the name matched ("what I spent on").
+class PayeeSpend {
+  const PayeeSpend({
+    required this.name,
+    this.label,
+    required this.category,
+    required this.totalMinor,
+    required this.count,
+    required this.recurringMinor,
+    required this.oneOffMinor,
+    required this.everydayMinor,
+    this.regular,
+    required this.unlabelledMinor,
+    required this.variants,
+    required this.unnamed,
+  });
+
+  static const kinds = ['fixed', 'variable', 'frequent'];
+
+  final String name;
+  final String? label;
+  final String category;
+  final String totalMinor;
+  final int count;
+  final String recurringMinor;
+  final String oneOffMinor;
+  final String everydayMinor;
+
+  /// fixed, variable or frequent when this payee is paid regularly, else null.
+  final String? regular;
+
+  /// Spent on this payee with no purpose yet.
+  final String unlabelledMinor;
+
+  /// Other spellings matched into this payee.
+  final List<String> variants;
+
+  /// The "Unnamed payments" line: rows with no recognisable name.
+  final bool unnamed;
+
+  factory PayeeSpend.fromJson(Map<String, dynamic> json) {
+    final regular = json['regular'];
+    return PayeeSpend(
+      name: _string(json, 'name'),
+      label: _optionalString(json, 'label'),
+      category: _string(json, 'category'),
+      totalMinor: _minor(json, 'totalMinor'),
+      count: _int(json, 'count'),
+      recurringMinor: _minor(json, 'recurringMinor'),
+      oneOffMinor: _minor(json, 'oneOffMinor'),
+      everydayMinor: _minor(json, 'everydayMinor'),
+      regular: kinds.contains(regular) ? regular as String : null,
+      unlabelledMinor: _minor(json, 'unlabelledMinor'),
+      variants: _optionalStringList(json, 'variants'),
+      unnamed: json['unnamed'] == true,
+    );
+  }
+}
+
+/// A regular payment found by matched payee name, as on the web Spending page.
+class RecurringGroup {
+  const RecurringGroup({
+    required this.name,
+    this.label,
+    required this.category,
+    required this.kind,
+    required this.bill,
+    required this.averageMinor,
+    required this.occurrences,
+    required this.months,
+    required this.lastDate,
+    required this.nextExpected,
+    required this.aliases,
+  });
+
+  final String name;
+  final String? label;
+  final String category;
+
+  /// fixed: monthly, similar amount. variable: monthly, amount varies. frequent: several times a month.
+  final String kind;
+
+  /// Afford counts it as a bill to keep paying.
+  final bool bill;
+
+  /// Typical payment; for a frequent payee, a typical month's total.
+  final String averageMinor;
+  final int occurrences;
+  final int months;
+  final DateTime lastDate;
+  final DateTime nextExpected;
+  final List<String> aliases;
+
+  String get kindLabel => switch (kind) {
+    'variable' => 'Monthly, amount varies',
+    'frequent' => 'Several times a month',
+    _ => 'Monthly',
+  };
+
+  factory RecurringGroup.fromJson(Map<String, dynamic> json) {
+    final kind = _string(json, 'kind');
+    return RecurringGroup(
+      name: _string(json, 'name'),
+      label: _optionalString(json, 'label'),
+      category: _string(json, 'category'),
+      kind: PayeeSpend.kinds.contains(kind) ? kind : 'fixed',
+      bill: json['bill'] == true,
+      averageMinor: _minor(json, 'averageMinor'),
+      occurrences: _int(json, 'occurrences'),
+      months: _int(json, 'months'),
+      lastDate: DateTime.parse(_string(json, 'lastDate')),
+      nextExpected: DateTime.parse(_string(json, 'nextExpected')),
+      aliases: _optionalStringList(json, 'aliases'),
+    );
+  }
+}
+
 /// This period's spending split the way Afford sees it: bills, other recurring, one-offs, everyday.
 class SpendingSplit {
   const SpendingSplit({
@@ -250,6 +425,9 @@ class SpendingSplit {
     required this.oneOffMinMinor,
     required this.labelled,
     required this.oneOffs,
+    this.everyday,
+    this.payees = const [],
+    this.unlabelled,
   });
 
   final String recurringBillsMinor;
@@ -262,7 +440,18 @@ class SpendingSplit {
   final bool labelled;
   final List<SpendingOneOff> oneOffs;
 
+  /// Null on servers that predate the everyday drill-down.
+  final EverydayBreakdown? everyday;
+
+  /// The month by matched person or business, biggest first. Empty on older servers.
+  final List<PayeeSpend> payees;
+
+  /// Null on servers that predate the Review prompt.
+  final UnlabelledSpend? unlabelled;
+
   factory SpendingSplit.fromJson(Map<String, dynamic> json) {
+    final everyday = json['everyday'];
+    final unlabelled = json['unlabelled'];
     return SpendingSplit(
       recurringBillsMinor: _minor(json, 'recurringBillsMinor'),
       recurringOtherMinor: _minor(json, 'recurringOtherMinor'),
@@ -271,6 +460,9 @@ class SpendingSplit {
       oneOffMinMinor: _minor(json, 'oneOffMinMinor'),
       labelled: json['labelled'] != false,
       oneOffs: _optionalList(json, 'oneOffs').map(SpendingOneOff.fromJson).toList(),
+      everyday: everyday == null ? null : EverydayBreakdown.fromJson(_asMap(everyday)),
+      payees: _optionalList(json, 'payees').map(PayeeSpend.fromJson).toList(),
+      unlabelled: unlabelled == null ? null : UnlabelledSpend.fromJson(_asMap(unlabelled)),
     );
   }
 }
@@ -287,9 +479,16 @@ class HomeSummary {
     required this.spending,
     required this.recent,
     this.split,
+    this.periodFrom,
+    this.periodTo,
+    this.recurring = const [],
   });
 
   final String periodLabel;
+
+  /// Period bounds (to is exclusive). Null if the server left them out.
+  final DateTime? periodFrom;
+  final DateTime? periodTo;
   final String incomeMinor;
   final String expensesMinor;
   final String netMinor;
@@ -302,11 +501,16 @@ class HomeSummary {
   /// Null on servers that predate the recurring vs one-off split.
   final SpendingSplit? split;
 
+  /// Regular payments by matched payee, debits only. Empty on older servers.
+  final List<RecurringGroup> recurring;
+
   factory HomeSummary.fromJson(Map<String, dynamic> json) {
     final period = _map(json, 'period');
     final split = json['spendingSplit'];
     return HomeSummary(
       periodLabel: _string(period, 'label'),
+      periodFrom: _optionalDate(period, 'from'),
+      periodTo: _optionalDate(period, 'to'),
       incomeMinor: _minor(json, 'incomeMinor'),
       expensesMinor: _minor(json, 'expensesMinor'),
       netMinor: _minor(json, 'netMinor'),
@@ -316,7 +520,118 @@ class HomeSummary {
       spending: _list(json, 'spendingByCategory').map(CategorySpend.fromJson).toList(),
       recent: _list(json, 'recent').map(LedgerTransaction.fromJson).toList(),
       split: split == null ? null : SpendingSplit.fromJson(_asMap(split)),
+      recurring: _optionalList(json, 'recurring').map(RecurringGroup.fromJson).toList(),
     );
+  }
+}
+
+class ReviewOption {
+  const ReviewOption({required this.value, required this.label, required this.category, this.subcategory});
+
+  final String value;
+  final String label;
+  final String category;
+  final String? subcategory;
+
+  factory ReviewOption.fromJson(Map<String, dynamic> json) {
+    return ReviewOption(
+      value: _string(json, 'value'),
+      label: _string(json, 'label'),
+      category: _string(json, 'category'),
+      subcategory: _optionalString(json, 'subcategory'),
+    );
+  }
+}
+
+/// Purpose words the bank narration already carries ("WARDROBE TO ACCESS - …"). Answered like "Other".
+class NarrationHint {
+  const NarrationHint({required this.words, required this.category, this.subcategory});
+
+  final String words;
+  final String category;
+  final String? subcategory;
+
+  factory NarrationHint.fromJson(Map<String, dynamic> json) {
+    return NarrationHint(words: _string(json, 'words'), category: _string(json, 'category'), subcategory: _optionalString(json, 'subcategory'));
+  }
+}
+
+/// One "Help Ledger get this right" question, the same as the web Review page.
+class ReviewQuestion {
+  const ReviewQuestion({
+    required this.kind,
+    required this.key,
+    required this.title,
+    required this.prompt,
+    required this.totalMinor,
+    required this.count,
+    required this.examples,
+    required this.options,
+    this.currentCategory,
+    this.hint,
+    required this.narrationHints,
+    required this.allowsOther,
+  });
+
+  final String kind;
+  final String key;
+  final String title;
+  final String prompt;
+  final String totalMinor;
+  final int count;
+
+  /// Full bank narrations of sample payments, never shortened.
+  final List<String> examples;
+  final List<ReviewOption> options;
+  final String? currentCategory;
+  final String? hint;
+  final List<NarrationHint> narrationHints;
+  final bool allowsOther;
+
+  factory ReviewQuestion.fromJson(Map<String, dynamic> json) {
+    return ReviewQuestion(
+      kind: _string(json, 'kind'),
+      key: _string(json, 'key'),
+      title: _string(json, 'title'),
+      prompt: _string(json, 'prompt'),
+      totalMinor: _minor(json, 'totalMinor'),
+      count: _int(json, 'count'),
+      examples: _optionalStringList(json, 'examples'),
+      options: _list(json, 'options').map(ReviewOption.fromJson).toList(),
+      currentCategory: _optionalString(json, 'currentCategory'),
+      hint: _optionalString(json, 'hint'),
+      narrationHints: _optionalList(json, 'narrationHints').map(NarrationHint.fromJson).toList(),
+      allowsOther: json['allowsOther'] != false,
+    );
+  }
+}
+
+class ReviewQueue {
+  const ReviewQueue({required this.questions, required this.totalMinor, required this.categories});
+
+  final List<ReviewQuestion> questions;
+  final String totalMinor;
+  final List<String> categories;
+
+  factory ReviewQueue.fromJson(Map<String, dynamic> json) {
+    return ReviewQueue(
+      questions: _list(json, 'questions').map(ReviewQuestion.fromJson).toList(),
+      totalMinor: _minor(json, 'totalMinor'),
+      categories: _stringList(json, 'categories'),
+    );
+  }
+}
+
+/// Answer from "Re-run categorization".
+class CategorizeResult {
+  const CategorizeResult({required this.checked, required this.changed, required this.message});
+
+  final int checked;
+  final int changed;
+  final String message;
+
+  factory CategorizeResult.fromJson(Map<String, dynamic> json) {
+    return CategorizeResult(checked: _int(json, 'checked'), changed: _int(json, 'changed'), message: _string(json, 'message'));
   }
 }
 
@@ -650,3 +965,5 @@ List<String> _stringList(Map<String, dynamic> json, String key) {
   if (value is! List || value.any((item) => item is! String)) throw FormatException('Expected $key to be strings');
   return value.cast<String>();
 }
+
+List<String> _optionalStringList(Map<String, dynamic> json, String key) => json[key] == null ? const [] : _stringList(json, key);
