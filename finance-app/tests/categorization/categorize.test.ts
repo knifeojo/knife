@@ -113,6 +113,13 @@ describe("lenders (FairMoney and Renmoney are loans, not wallets)", () => {
     // A transfer to the user's own account at a real bank is still an own transfer.
     expect(categorize({ description: "Instant Payment Outward 0003 TO OPAY - JANE ADA DOE", type: "DEBIT" }, [], owners).category).toBe("Own transfer");
   });
+
+  it("names the lender on repayments and on proceeds, so both sides of a loan line up", () => {
+    for (const lender of ["FairMoney", "Renmoney", "PalmCredit", "Carbon"]) {
+      expect(categorize({ description: `${lender.toUpperCase()} LOAN REPAYMENT`, type: "DEBIT" })).toMatchObject({ category: "Debt", merchantName: lender });
+      expect(categorize({ description: `${lender.toUpperCase()} LOAN DISBURSEMENT`, type: "CREDIT" })).toMatchObject({ category: "Debt", subcategory: "Loan proceeds", merchantName: lender });
+    }
+  });
 });
 
 describe("Deel and Pesa narrations", () => {

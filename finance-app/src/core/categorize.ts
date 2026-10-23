@@ -122,7 +122,7 @@ const MERCHANT_ALIASES: [RegExp, string][] = [
   [/ikeja electric/, "Ikeja Electric"], [/ekedc|eko electric/, "Eko Electric"], [/spectranet/, "Spectranet"], [/starlink/, "Starlink"],
   [/\bmtn\b/, "MTN"], [/airtel/, "Airtel"], [/\bglo\b/, "Glo"],
   [/jumia/, "Jumia"], [/konga/, "Konga"], [/amazon/, "Amazon"], [/air peace/, "Air Peace"], [/ibom air/, "Ibom Air"],
-  [/medplus/, "MedPlus"], [/carbon/, "Carbon"], [/fairmoney/, "FairMoney"], [/renmoney|\bremb\b/, "Renmoney"], [/piggyvest/, "PiggyVest"], [/cowrywise/, "Cowrywise"],
+  [/medplus/, "MedPlus"], [/carbon/, "Carbon"], [/fairmoney/, "FairMoney"], [/renmoney|\bremb\b/, "Renmoney"], [/palmcredit/, "PalmCredit"], [/piggyvest/, "PiggyVest"], [/cowrywise/, "Cowrywise"],
   [/upwork/, "Upwork"], [/payoneer/, "Payoneer"], [/\bpesa\b(?!peer)/, "Pesa"],
 ];
 
