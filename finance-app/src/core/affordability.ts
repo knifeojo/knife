@@ -200,7 +200,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const monthOf = (d: Date) => monthPeriod(d, 0).label;
 
 /** The middle of 3+ months; with fewer, the cautious end (lowest income, highest spending). */
-function typical(values: bigint[], cautious: "low" | "high"): bigint {
+export function typical(values: bigint[], cautious: "low" | "high"): bigint {
   if (!values.length) return 0n;
   const sorted = [...values.slice(0, LOOKBACK_MONTHS)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   if (sorted.length >= 3) return sorted[Math.floor(sorted.length / 2)];
@@ -237,6 +237,27 @@ function occurrences(item: RegularItem, start: number, end: number, kind: "oblig
 export function isActiveObligation(item: RegularItem, start: Date): boolean {
   return item.nextExpected.getTime() >= start.getTime() - OBLIGATION_GRACE_DAYS * DAY_MS;
 }
+
+/** One-offs are big single payments outside any regular stream, scaled to the user's income. */
+export function oneOffMinimum(monthlyIncomeMinor: bigint): bigint {
+  return max(ONE_OFF_FLOOR_MINOR, monthlyIncomeMinor / 10n);
+}
+
+/** Typical monthly income behind the answer: the full months only, cautious when there are fewer than 3. */
+export function typicalIncome(months: MonthFigures[]): bigint {
+  const full = months.filter((m) => !m.partial);
+  return full.length ? typical(full.map((m) => m.incomeMinor), "low") : 0n;
+}
+
+/**
+ * A debit that can be a one-off spend, before size and regularity are checked: naira, not one leg of a
+ * move between the user's accounts, not a loan repayment, bank fee or own transfer, not a wallet withdrawal.
+ */
+export function isOneOffSpend(r: { type: string; currency: string; transferPairId: string | null; category: string; subcategory: string | null }): boolean {
+  return r.type === "DEBIT" && r.currency === BASE_CURRENCY && r.transferPairId === null
+    && !NOT_ONE_OFF_CATEGORIES.includes(r.category) && !(r.category === "Transfers" && r.subcategory === "Withdrawal");
+}
+const NOT_ONE_OFF_CATEGORIES = [OWN_TRANSFER, "Fees", "Debt"];
 
 export function windowEnd(now: Date, horizon: Horizon): Date {
   if (horizon.kind === "month_end") return monthPeriod(now, 0).to;
@@ -352,8 +373,7 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
   if (incomeRule === "monthly") notes.push("No regular payday found, so Ledger counts one typical month of income for each full 30 days ahead.");
   if (otherLoans > 0n) notes.push(`${fmt(otherLoans)} a month of loan repayments does not follow a monthly pattern and is spread across the days ahead.`);
 
-  // One-offs: big single payments outside any regular stream, scaled to the user's income.
-  const oneOffMin = max(ONE_OFF_FLOOR_MINOR, monthlyIncome / 10n);
+  const oneOffMin = oneOffMinimum(monthlyIncome);
   const oneOffs = data.oneOffs.filter((o) => o.amountMinor >= oneOffMin).sort((a, b) => (b.amountMinor > a.amountMinor ? 1 : b.amountMinor < a.amountMinor ? -1 : 0));
   const lookback = full.length ? full.slice(0, LOOKBACK_MONTHS) : partial ? [partial] : [];
   const advice = buildAdvice({
@@ -583,21 +603,7 @@ export async function loadAffordabilityData(userId: string, now = new Date()): P
   const naira = reported.filter((a) => a.currency === BASE_CURRENCY);
   const asOf = naira.reduce<Date | null>((d, a) => (a.balanceUpdatedAt && (!d || a.balanceUpdatedAt > d) ? a.balanceUpdatedAt : d), null);
 
-  const months: MonthFigures[] = [];
-  let since: Date | null = null;
-  if (first) {
-    for (let i = 1; i <= SEARCH_MONTHS && months.length < LOOKBACK_MONTHS; i++) {
-      const p = monthPeriod(now, -i);
-      if (p.to <= first.transactionDate) break;
-      const m = await monthFigures(userId, p, false, now);
-      if (m) { months.push(m); since = p.from; }
-    }
-    if (!months.length) {
-      const p = monthPeriod(now, 0);
-      const m = await monthFigures(userId, p, true, now);
-      if (m) { months.push(m); since = p.from; }
-    }
-  }
+  const { months, since } = await loadMonths(userId, now, first?.transactionDate ?? null);
 
   const regularIds = new Set(obligations.flatMap((o) => o.transactionIds));
   const [lenders, oneOffs] = await Promise.all([lenderActivity(userId, now), since ? bigOneOffs(userId, since, regularIds) : []]);
@@ -614,6 +620,30 @@ export async function loadAffordabilityData(userId: string, now = new Date()): P
     oneOffs,
     oneOffsSince: since,
   };
+}
+
+/**
+ * The months behind the typical month, newest first: the 3 most recent full months with data in the last
+ * 12, or the month in progress when there is no full month yet. `since` is the start of the oldest.
+ */
+export async function loadMonths(userId: string, now: Date, firstTransaction?: Date | null): Promise<{ months: MonthFigures[]; since: Date | null }> {
+  const first = firstTransaction !== undefined ? firstTransaction
+    : (await db.transaction.findFirst({ where: { userId }, orderBy: { transactionDate: "asc" }, select: { transactionDate: true } }))?.transactionDate ?? null;
+  const months: MonthFigures[] = [];
+  let since: Date | null = null;
+  if (!first) return { months, since };
+  for (let i = 1; i <= SEARCH_MONTHS && months.length < LOOKBACK_MONTHS; i++) {
+    const p = monthPeriod(now, -i);
+    if (p.to <= first) break;
+    const m = await monthFigures(userId, p, false, now);
+    if (m) { months.push(m); since = p.from; }
+  }
+  if (!months.length) {
+    const p = monthPeriod(now, 0);
+    const m = await monthFigures(userId, p, true, now);
+    if (m) { months.push(m); since = p.from; }
+  }
+  return { months, since };
 }
 
 /**
@@ -646,10 +676,10 @@ async function bigOneOffs(userId: string, since: Date, regularIds: Set<string>):
     },
     orderBy: { amountMinor: "desc" },
     take: 100,
-    select: { id: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, amountMinor: true, transactionDate: true },
+    select: { id: true, type: true, currency: true, transferPairId: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, amountMinor: true, transactionDate: true },
   });
   return rows
-    .filter((r) => !regularIds.has(r.id) && !(r.category === "Transfers" && r.subcategory === "Withdrawal"))
+    .filter((r) => !regularIds.has(r.id) && isOneOffSpend(r))
     .map((r) => ({
       name: r.merchantName ?? r.counterparty ?? r.description.slice(0, 40), category: r.category, label: r.subcategory ?? undefined,
       amountMinor: r.amountMinor, date: r.transactionDate,
