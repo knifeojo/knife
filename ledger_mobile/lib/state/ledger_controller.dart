@@ -98,8 +98,8 @@ class LedgerController extends ChangeNotifier {
 
   Future<AccountList> accounts() => _guard((api) => api.accounts());
 
-  Future<TransactionPage> transactions({String? category, String? query}) {
-    return _guard((api) => api.transactions(category: category, query: query));
+  Future<TransactionPage> transactions({String? category, String? query, String? cadence}) {
+    return _guard((api) => api.transactions(category: category, query: query, cadence: cadence));
   }
 
   Future<AffordabilityCheck> affordability({required String amountMinor, String? description, String horizon = 'month_end', String? bufferMinor}) {
