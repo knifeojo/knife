@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { INCOME_CATEGORY, OWN_TRANSFER, learningKey } from "./categorize";
 
@@ -218,6 +219,12 @@ export async function monthlyTrend(userId: string, now: Date, months = 6) {
   );
 }
 
+/**
+ * fixed: about once a month at a similar amount (rent, a subscription). variable: about once a month for 3+ months
+ * at amounts that vary (family support, a tailor). frequent: several times a month for 3+ months (Bolt, a buka).
+ */
+export type RecurringKind = "fixed" | "variable" | "frequent";
+
 export interface RecurringItem {
   key: string;
   name: string;
@@ -225,6 +232,7 @@ export interface RecurringItem {
   /** The user's own label, if any ("Partner", "Mum", "Rent and DD"). */
   label?: string;
   type: "DEBIT" | "CREDIT";
+  /** Typical payment; for a frequent payee, a typical month's total. */
   averageMinor: bigint;
   occurrences: number;
   months: number;
@@ -232,46 +240,100 @@ export interface RecurringItem {
   nextExpected: Date;
   /** The rows in this stream, so callers can tell a regular payment from a one-off. */
   transactionIds: string[];
+  kind: RecurringKind;
+  /** Other spellings of the payee matched into this stream ("Okeke Chidi", "CHIDI E OKEK"). */
+  aliases: string[];
 }
 
 const lagosMonth = (d: Date) => new Date(d.getTime() + 3600_000).toISOString().slice(0, 7);
+const median = (xs: bigint[]) => [...xs].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[Math.floor(xs.length / 2)];
 
 /**
- * Regular payments. Groups by person (names match when 2 of 3 words agree), else merchant, else the
- * memo the user typed. Within a person, similar amounts form separate streams, so ₦750K and ₦1M to
- * the same person are two commitments. A stream is regular when it appears in 2+ months, at most
- * about once a month, with a typical gap of 20 to 40 days.
+ * Regular payments. Groups payments by who received them, matching spellings across narrations (see payees.ts:
+ * "TO OPAY - CHIDI EMEKA OKEKE" = "OKEKE CHIDI" = "CHIDI E OKEK", "POS SHOPRITE LEKKI" = "SHOPRITE NIGERIA LTD"),
+ * else by the memo the user typed. Within a payee, similar amounts form separate streams, so ₦750K and ₦1M to
+ * the same person are two commitments. A stream is regular when it appears in 2+ months, at most about once a
+ * month, with a typical gap of 20 to 40 days. What is left of a payee is a variable monthly stream when it still
+ * looks monthly over 3+ months, and (with `frequent`) a frequent payee when paid in 3+ months, 4+ times.
+ * Frequent payees are opt-in: Afford's fixed obligations and income only use monthly streams.
  */
 export const RECURRING_LOOKBACK_MONTHS = 6;
 
-export async function recurring(userId: string, now: Date, type: "DEBIT" | "CREDIT" = "DEBIT", lookbackMonths = RECURRING_LOOKBACK_MONTHS): Promise<RecurringItem[]> {
-  const { sameName } = await import("./categorize");
+export async function recurring(
+  userId: string, now: Date, type: "DEBIT" | "CREDIT" = "DEBIT", lookbackMonths = RECURRING_LOOKBACK_MONTHS, opts: { frequent?: boolean } = {},
+): Promise<RecurringItem[]> {
   const { memoOf } = await import("./review");
+  const { clusterPayees, payeeKey, payeeName } = await import("./payees");
   const from = monthPeriod(now, -(lookbackMonths - 1)).from;
-  const rows = await db.transaction.findMany({
-    where: { userId, type, currency: BASE_CURRENCY, ...countable, transactionDate: { gte: from } },
-    orderBy: { transactionDate: "asc" },
-    select: { id: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, classificationSource: true, amountMinor: true, transactionDate: true },
-  });
+  const [rows, aliases] = await Promise.all([
+    db.transaction.findMany({
+      where: { userId, type, currency: BASE_CURRENCY, ...countable, transactionDate: { gte: from } },
+      orderBy: { transactionDate: "asc" },
+      select: { id: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, classificationSource: true, amountMinor: true, transactionDate: true },
+    }),
+    db.merchantAlias.findMany({ where: { userId, category: { not: null } }, select: { pattern: true, canonicalName: true, category: true, subcategory: true } }),
+  ]);
 
   type Row = (typeof rows)[number];
-  const groups: { key: string; display: string; isPerson: boolean; rows: Row[] }[] = [];
-  for (const r of rows) {
-    if (r.category === "Fees") continue;
-    if (type === "CREDIT" && r.category === "Debt") continue;
-    const person = r.counterparty && r.counterparty.split(/\s+/).length >= 2 ? r.counterparty : undefined;
-    let g = person ? groups.find((x) => x.isPerson && sameName(x.display, person)) : undefined;
-    const fallbackKey = (r.merchantName ?? memoOf(r.description) ?? learningKey(r.description, null, null)).toLowerCase();
-    if (!person) g = groups.find((x) => !x.isPerson && x.key === fallbackKey);
-    if (!g) groups.push((g = { key: person ? person.toLowerCase() : fallbackKey, display: person ?? r.merchantName ?? r.description.slice(0, 40), isPerson: !!person, rows: [] }));
-    if (person && person.length > g.display.length) g.display = person;
+  const eligible = rows.filter((r) => r.category !== "Fees" && !(type === "CREDIT" && r.category === "Debt"));
+  const { clusters, unnamed } = clusterPayees(eligible, payeeName, aliases);
+  const groups: { key: string; display: string; variants: string[]; alias: { category: string | null; subcategory: string | null } | null; rows: Row[] }[] =
+    clusters.map((c) => ({ key: payeeKey(c.name), display: c.name, variants: c.variants, alias: c.alias, rows: c.items }));
+  for (const r of unnamed) {
+    const key = (memoOf(r.description) ?? learningKey(r.description, null, null)).toLowerCase();
+    let g = groups.find((x) => !x.variants.length && x.key === key);
+    if (!g) groups.push((g = { key, display: r.merchantName ?? r.description.slice(0, 40), variants: [], alias: null, rows: [] }));
     g.rows.push(r);
   }
 
-  const aliases = await db.merchantAlias.findMany({ where: { userId, category: { not: null } }, select: { pattern: true, category: true, subcategory: true } });
+  const byDate = (xs: Row[]) => [...xs].sort((x, y) => x.transactionDate.getTime() - y.transactionDate.getTime());
+  /** Months seen and the typical gap, when the rows look like a monthly payment. */
+  const monthly = (sorted: Row[]) => {
+    const months = new Set(sorted.map((r) => lagosMonth(r.transactionDate)));
+    if (months.size < 2 || sorted.length > months.size * 2) return undefined; // not monthly, or many small repeats
+    // Gaps in whole months: a skipped or late month (61 days) is still a monthly payment.
+    const gaps = sorted.slice(1).map((r, i) => (r.transactionDate.getTime() - sorted[i].transactionDate.getTime()) / 86400_000).filter((d) => d > 3);
+    const perMonth = gaps.map((d) => d / Math.max(1, Math.round(d / 30.4)));
+    const medGap = perMonth.length ? [...perMonth].sort((a, b) => a - b)[Math.floor(perMonth.length / 2)] : 30;
+    return medGap < 20 || medGap > 40 ? undefined : { months: months.size, medGap };
+  };
+
   const out: RecurringItem[] = [];
   for (const g of groups) {
-    // Split a person's payments into amount streams (each amount within 15% of the stream's first).
+    const stream = (sorted: Row[], kind: RecurringKind, months: number, gapDays: number, averageMinor: bigint) => {
+      const last = sorted[sorted.length - 1];
+      const labelled = [...sorted].reverse().find((r) => r.classificationSource === "user") ?? last;
+      out.push({
+        key: `${g.key}|${kind === "fixed" ? sorted.reduce((lo, r) => (r.amountMinor < lo ? r.amountMinor : lo), sorted[0].amountMinor) : kind}`,
+        name: g.display,
+        category: labelled.category,
+        // The user's own words for this payee ("Mum", "Partner") beat a generic subcategory.
+        label: (g.alias?.category === labelled.category ? g.alias.subcategory : null) ?? labelled.subcategory ?? undefined,
+        type,
+        averageMinor,
+        occurrences: sorted.length,
+        months,
+        lastDate: last.transactionDate,
+        nextExpected: new Date(last.transactionDate.getTime() + Math.round(gapDays) * 86400_000),
+        transactionIds: sorted.map((r) => r.id),
+        kind,
+        aliases: g.variants.filter((v) => v !== g.display),
+      });
+    };
+
+    const frequent = (left: Row[]) => {
+      const perMonth = new Map<string, bigint>();
+      for (const r of left) perMonth.set(lagosMonth(r.transactionDate), (perMonth.get(lagosMonth(r.transactionDate)) ?? 0n) + r.amountMinor);
+      if (perMonth.size < 3 || left.length < 4) return false;
+      const gaps = left.slice(1).map((r, i) => (r.transactionDate.getTime() - left[i].transactionDate.getTime()) / 86400_000).filter((d) => d > 0).sort((a, b) => a - b);
+      stream(left, "frequent", perMonth.size, gaps.length ? gaps[Math.floor(gaps.length / 2)] : 7, median([...perMonth.values()]));
+      return true;
+    };
+    // A shop paid at ₦8K, ₦10K and ₦12K every month is one frequent payee, not three monthly bills.
+    const all = byDate(g.rows);
+    if (opts.frequent && all.length > new Set(all.map((r) => lagosMonth(r.transactionDate))).size * 2 && frequent(all)) continue;
+
+    // Split a payee's payments into amount streams (each amount within 15% of the stream's first).
     const byAmount = [...g.rows].sort((x, y) => (x.amountMinor < y.amountMinor ? -1 : 1));
     const streams: Row[][] = [];
     for (const r of byAmount) {
@@ -279,34 +341,25 @@ export async function recurring(userId: string, now: Date, type: "DEBIT" | "CRED
       if (s && r.amountMinor * 100n <= s[0].amountMinor * 115n) s.push(r);
       else streams.push([r]);
     }
+    const used = new Set<string>();
     for (const s of streams) {
-      const sorted = [...s].sort((x, y) => x.transactionDate.getTime() - y.transactionDate.getTime());
-      const months = new Set(sorted.map((r) => lagosMonth(r.transactionDate)));
-      if (months.size < 2 || sorted.length > months.size * 2) continue; // not monthly, or many small repeats
-      // Gaps in whole months: a skipped or late month (61 days) is still a monthly payment.
-      const gaps = sorted.slice(1).map((r, i) => (r.transactionDate.getTime() - sorted[i].transactionDate.getTime()) / 86400_000).filter((d) => d > 3);
-      const perMonth = gaps.map((d) => d / Math.max(1, Math.round(d / 30.4)));
-      const medGap = perMonth.length ? [...perMonth].sort((a, b) => a - b)[Math.floor(perMonth.length / 2)] : 30;
-      if (medGap < 20 || medGap > 40) continue;
-      const amounts = sorted.map((r) => r.amountMinor).sort((a, b) => (a < b ? -1 : 1));
-      const last = sorted[sorted.length - 1];
-      const labelled = [...sorted].reverse().find((r) => r.classificationSource === "user") ?? last;
-      // The user's own words for this person ("Mum", "Partner") beat a generic subcategory.
-      const alias = g.isPerson ? aliases.find((a) => sameName(a.pattern, g.display)) : undefined;
-      out.push({
-        key: `${g.key}|${amounts[0]}`,
-        name: g.display,
-        category: labelled.category,
-        label: (alias?.category === labelled.category ? alias.subcategory : null) ?? labelled.subcategory ?? undefined,
-        type,
-        averageMinor: amounts[Math.floor(amounts.length / 2)],
-        occurrences: sorted.length,
-        months: months.size,
-        lastDate: last.transactionDate,
-        nextExpected: new Date(last.transactionDate.getTime() + Math.round(medGap) * 86400_000),
-        transactionIds: sorted.map((r) => r.id),
-      });
+      const sorted = byDate(s);
+      const m = monthly(sorted);
+      if (!m) continue;
+      stream(sorted, "fixed", m.months, m.medGap, median(sorted.map((r) => r.amountMinor)));
+      for (const r of s) used.add(r.id);
     }
+
+    // The rest of the payee: still monthly over 3+ months, at amounts within 3x of the typical one.
+    const rest = byDate(g.rows.filter((r) => !used.has(r.id)));
+    const typical = rest.length ? median(rest.map((r) => r.amountMinor)) : 0n;
+    const m = rest.length >= 3 ? monthly(rest) : undefined;
+    if (m && m.months >= 3 && rest.every((r) => r.amountMinor * 3n >= typical && r.amountMinor <= typical * 3n)) {
+      stream(rest, "variable", m.months, m.medGap, typical);
+      for (const r of rest) used.add(r.id);
+    }
+
+    if (opts.frequent) frequent(byDate(g.rows.filter((r) => !used.has(r.id))));
   }
   return out.sort((a, b) => (b.averageMinor > a.averageMinor ? 1 : -1));
 }
@@ -323,6 +376,10 @@ export interface TransactionFilters {
   merchant?: string;
   /** Only these rows (a recurring or one-off view). */
   ids?: string[];
+  /** A cadence view (see cadenceWhere), on top of the other filters. */
+  cadence?: Prisma.TransactionWhereInput;
+  /** One matched person or business, every spelling (see payeeWhere). */
+  payee?: Prisma.TransactionWhereInput;
 }
 
 export async function listTransactions(userId: string, f: TransactionFilters, page = 1, pageSize = 50) {
@@ -333,6 +390,7 @@ export async function listTransactions(userId: string, f: TransactionFilters, pa
     ...(f.accountId && { accountId: f.accountId }),
     ...(f.merchant && { merchantName: f.merchant }),
     ...(f.ids && { id: { in: f.ids } }),
+    ...((f.cadence || f.payee) && { AND: [f.cadence, f.payee].filter((w): w is Prisma.TransactionWhereInput => !!w) }),
     ...((f.from || f.to) && { transactionDate: { ...(f.from && { gte: f.from }), ...(f.to && { lt: f.to }) } }),
     ...((f.minMinor !== undefined || f.maxMinor !== undefined) && {
       amountMinor: { ...(f.minMinor !== undefined && { gte: f.minMinor }), ...(f.maxMinor !== undefined && { lte: f.maxMinor }) },

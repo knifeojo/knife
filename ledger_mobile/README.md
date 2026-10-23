@@ -10,12 +10,14 @@ The server URL is not compiled into the app. You set it on the first screen, so 
 |---|---|
 | Server | Checks `GET /api/v1/health`, then saves the origin |
 | Sign in | Email and password, or create an account |
-| Home | This month’s balance, income, expenses, net, recurring vs one-off split, categories, and recent rows |
+| Home | This month’s balance, income, expenses, net, recurring vs one-off split (each tile opens its rows), the Everyday breakdown, **What you spent on** (each person or business once, every spelling matched), **Recurring, by name** (fixed, variable or several times a month), categories, and recent rows. When payments with no purpose dominate, a prompt opens Review |
+| Everyday | Everyday spending for the month by category and by payee, with its transactions |
+| Review | The web Review questions with each payment’s full bank narration and one-tap purpose words found in it (“WARDROBE”, “SCHOOL”) |
 | Accounts | Each account, its masked number, and its balance |
-| Activity | Transactions with categories and Recurring / One-off chips, plus search, a category filter and a pattern filter |
+| Activity | Transactions with categories and Recurring / One-off chips, plus search, a category filter and a pattern filter (Recurring, One-off, Everyday) |
 | Upload | Pick a PDF or CSV on the phone and send it to `POST /api/v1/statements` |
 | Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with what would help (loans to clear, spending to cut, one-offs) and the figures behind it, recurring bills and one-offs shown apart |
-| Settings | Shows the server, signs out, or forgets the server |
+| Settings | Re-run categorization (`POST /api/v1/categorize`, same as the web button), open Review, show the server, sign out, or forget the server |
 
 Afford does no maths on the phone. The server works out the answer from the ledger (see “Can I really afford this?” in `../finance-app/README.md`). The phone only turns what you type (“2.5m”, “500k”) into kobo and shows the result.
 
@@ -77,7 +79,7 @@ flutter analyze
 flutter test
 ```
 
-`flutter test` covers money formatting (minor units, no floats), the server URL rules, JSON parsing, the HTTP client (bearer token and multipart upload), and the screens for server setup, sign-in, the home summary, accounts, categories, recurring and one-off chips, and the affordability answer (verdict, what would help, recurring bills and one-off spends).
+`flutter test` covers money formatting (minor units, no floats), the server URL rules, JSON parsing, the HTTP client (bearer token and multipart upload), and the screens for server setup, sign-in, the home summary, accounts, categories, recurring and one-off chips, matched payees and named recurring groups, the Everyday drill-down, Review (full narrations, hint answers), Re-run categorization, and the affordability answer (verdict, what would help, recurring bills and one-off spends).
 
 ## Security notes
 

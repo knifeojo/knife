@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ledger_mobile/api/models.dart';
 
 import 'affordability_fixture.dart';
+import 'intelligence_fixture.dart';
 
 void main() {
   test('reads money as minor-unit strings', () {
@@ -152,6 +153,64 @@ void main() {
     expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'advice': [numericCut]}), throwsFormatException);
     final unknownKind = {'kind': 'guess', 'text': 'x', 'subject': null, 'monthlyMinor': null, 'openMinor': null};
     expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'advice': [unknownKind]}), throwsFormatException);
+  });
+
+  test('reads matched payees, named recurring groups, the everyday breakdown and the Review prompt', () {
+    final summary = HomeSummary.fromJson(intelligenceSummary);
+    final split = summary.split!;
+    expect(summary.periodFrom, DateTime.utc(2026, 7, 31, 23));
+    expect(split.everyday!.byCategory.single.name, 'Transfers');
+    expect(split.everyday!.byPayee.first.totalMinor, '8500000');
+    expect(split.unlabelled!.count, 6);
+    expect(split.unlabelled!.totalMinor, '27000000');
+    expect(split.unlabelled!.needsReview, isTrue);
+    expect(split.unlabelled!.reviewQuestions, 4);
+    final chidi = split.payees.firstWhere((p) => p.name == 'Chidi Emeka Okeke');
+    expect(chidi.variants, ['Okeke Chidie']);
+    expect(chidi.unlabelledMinor, '8500000');
+    expect(chidi.regular, isNull);
+    expect(split.payees.map((p) => p.regular), ['fixed', null, 'frequent']);
+    final grace = summary.recurring.firstWhere((g) => g.name == 'Grace Nneka Eze');
+    expect(grace.kind, 'variable');
+    expect(grace.kindLabel, 'Monthly, amount varies');
+    expect(grace.aliases, ['Eze Grace', 'Gracen Eze']);
+    expect(summary.recurring.first.bill, isTrue);
+    expect(summary.recurring.first.averageMinor, '25000000');
+  });
+
+  test('a split from a server before payee matching still reads', () {
+    final split = SpendingSplit.fromJson({
+      'recurringBillsMinor': '0',
+      'recurringOtherMinor': '0',
+      'oneOffMinor': '0',
+      'everydayMinor': '0',
+      'oneOffMinMinor': '5000000',
+      'labelled': true,
+    });
+    expect(split.everyday, isNull);
+    expect(split.payees, isEmpty);
+    expect(split.unlabelled, isNull);
+    expect(HomeSummary.fromJson({...intelligenceSummary, 'recurring': null}).recurring, isEmpty);
+  });
+
+  test('keeps an unknown recurring kind from failing the summary', () {
+    final payee = PayeeSpend.fromJson({...(intelligenceSummary['spendingSplit'] as Map)['payees'][0] as Map<String, dynamic>, 'regular': 'weekly'});
+    expect(payee.regular, isNull);
+    expect(() => PayeeSpend.fromJson({...(intelligenceSummary['spendingSplit'] as Map)['payees'][0] as Map<String, dynamic>, 'totalMinor': 250000}), throwsFormatException);
+  });
+
+  test('reads Review questions with the full narration and hints from it', () {
+    final queue = ReviewQueue.fromJson(reviewResponse);
+    final q = queue.questions.single;
+    expect(q.examples.single, wardrobeNarration);
+    expect(q.narrationHints.single.words, 'wardrobe');
+    expect(q.narrationHints.single.category, 'Housing');
+    expect(q.options.map((o) => o.value), ['family', 'friend', 'csr']);
+    expect(q.options.last.category, 'Family');
+    expect(q.options.last.subcategory, 'Black tax');
+    expect(q.allowsOther, isTrue);
+    expect(queue.categories, contains('Housing'));
+    expect(CategorizeResult.fromJson({'checked': 40, 'changed': 3, 'message': 'Re-checked 40'}).changed, 3);
   });
 }
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { largest, monthPeriod, monthlyTrend, recurring, spendingByCategory, summary, topMerchants } from "@/core/analytics";
-import { loadCadence, spendingSplit } from "@/core/cadence";
+import { largest, monthPeriod, monthlyTrend, spendingByCategory, summary } from "@/core/analytics";
+import { reviewQuestionsFor, loadCadence, spendingSplit } from "@/core/cadence";
+import { EverydayBreakdownView, PayeeList, ReviewCta, everydayHref, recurringKindLabel } from "@/components/everyday";
 import { requireUser } from "@/lib/auth";
 import { formatMoney } from "@/lib/money";
 import { CategoryBars, MonthlyBars } from "@/components/charts";
@@ -13,12 +14,13 @@ export default async function Spending({ searchParams }: { searchParams: Promise
   const now = new Date();
   const p = monthPeriod(now, offset);
   const prev = monthPeriod(now, offset - 1);
-  const [s, sPrev, cats, merchants, big, bills, trend] = await Promise.all([
-    summary(user.id, p), summary(user.id, prev), spendingByCategory(user.id, p), topMerchants(user.id, p),
-    largest(user.id, p, "DEBIT", 8), recurring(user.id, now, "DEBIT"), monthlyTrend(user.id, now, 6),
+  const [s, sPrev, cats, big, trend, cadence] = await Promise.all([
+    summary(user.id, p), summary(user.id, prev), spendingByCategory(user.id, p),
+    largest(user.id, p, "DEBIT", 8), monthlyTrend(user.id, now, 6), loadCadence(user.id, now),
   ]);
-  const cadence = await loadCadence(user.id, now);
+  const bills = cadence.streams.filter((b) => b.type === "DEBIT");
   const split = await spendingSplit(user.id, p, cadence);
+  const reviewQuestions = user.isDemo ? 0 : await reviewQuestionsFor(user.id, split.unlabelled);
   const short = (m: bigint) => formatMoney(m, "NGN", { compact: true });
   const catNote = (category: string) => {
     const g = split.byCategory.get(category);
@@ -42,12 +44,13 @@ export default async function Spending({ searchParams }: { searchParams: Promise
           <Empty>Ledger only labels the last 6 months, the window it uses to find regular payments.</Empty>
         ) : (
           <>
+            <div className="mb-3 empty:hidden"><ReviewCta unlabelled={split.unlabelled} reviewQuestions={reviewQuestions} period={p} /></div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
                 { label: "Recurring bills", minor: split.recurringBillsMinor, hint: "Rent, family support, loan instalments, utilities, subscriptions", href: "/app/transactions?cadence=recurring" },
-                { label: "Other regular payments", minor: split.recurringOtherMinor, hint: "Seen about monthly, but not a bill", href: "/app/transactions?cadence=recurring" },
+                { label: "Other regular payments", minor: split.recurringOtherMinor, hint: "Paid monthly or several times a month, but not a bill", href: "/app/transactions?cadence=recurring" },
                 { label: "One-off spends", minor: split.oneOffMinor, hint: `Single payments from ${formatMoney(split.oneOffMinMinor).replace(/\.00$/, "")}`, href: "/app/transactions?cadence=one_off" },
-                { label: "Everyday spending", minor: split.everydayMinor, hint: "Everything else", href: undefined },
+                { label: "Everyday spending", minor: split.everydayMinor, hint: "Everything else: see what it was", href: everydayHref(p) },
               ].map((x) => (
                 <div key={x.label} className="rounded-xl bg-surface-2 p-3">
                   <div className="text-xs text-ink-3">{x.href ? <Link href={x.href} className="hover:underline">{x.label}</Link> : x.label}</div>
@@ -73,23 +76,25 @@ export default async function Spending({ searchParams }: { searchParams: Promise
           </>
         )}
       </Card>
+      {split.labelled && (
+        <Card
+          title={`Everyday spending: ${short(split.everyday.totalMinor)}`}
+          className="mt-4"
+          action={<Link href={everydayHref(p)} className="text-sm text-brand">See {split.everyday.count} transactions</Link>}
+        >
+          <div id="everyday" className="space-y-4">
+            <EverydayBreakdownView everyday={split.everyday} period={p} />
+          </div>
+        </Card>
+      )}
       <div className="grid lg:grid-cols-2 gap-4 mt-4">
         <Card title="By category">
           {cats.length ? (
             <CategoryBars data={cats.map((c) => ({ label: c.category, value: c.total, count: c.count, note: catNote(c.category) }))} total={s.expenses} />
           ) : <Empty>No spending in {p.label}.</Empty>}
         </Card>
-        <Card title="Top merchants and people">
-          {merchants.length ? (
-            <ul className="divide-y divide-border">
-              {merchants.map((m) => (
-                <li key={m.merchant} className="flex justify-between py-2.5 text-sm gap-3">
-                  <Link href={`/app/transactions?merchant=${encodeURIComponent(m.merchant)}`} className="truncate hover:underline">{m.merchant}</Link>
-                  <span className="shrink-0 text-ink-2"><Money minor={m.total} /> <span className="text-ink-3 text-xs">· {m.count}</span></span>
-                </li>
-              ))}
-            </ul>
-          ) : <Empty>No merchants yet.</Empty>}
+        <Card title="What you spent on" action={<span className="text-xs text-ink-3">Spellings of the same person or shop are matched</span>}>
+          {split.payees.length ? <PayeeList payees={split.payees} period={p} /> : <Empty>No spending in {p.label}.</Empty>}
         </Card>
       </div>
       <div className="grid lg:grid-cols-2 gap-4 mt-4">
@@ -102,10 +107,11 @@ export default async function Spending({ searchParams }: { searchParams: Promise
               {bills.map((b) => (
                 <li key={b.key} className="flex justify-between py-2.5 text-sm gap-3">
                   <div className="min-w-0">
-                    <div className="truncate font-medium">{b.name}</div>
-                    <div className="text-xs text-ink-3">{b.category}{cadence.recurring.get(b.transactionIds[0])?.bill ? " · bill" : ""} · seen {b.occurrences}x · next ~{lagosDateLabel(b.nextExpected, { day: "numeric", month: "short" })}</div>
+                    <div className="truncate font-medium">{b.name}{b.label ? <span className="text-ink-3 font-normal"> · {b.label}</span> : null}</div>
+                    <div className="text-xs text-ink-3">{b.category}{cadence.recurring.get(b.transactionIds[0])?.bill ? " · bill" : ""} · {recurringKindLabel(b.kind)} · seen {b.occurrences}x in {b.months} months · next ~{lagosDateLabel(b.nextExpected, { day: "numeric", month: "short" })}</div>
+                    {b.aliases.length > 0 && <div className="text-xs text-ink-3 truncate">Also written as {b.aliases.slice(0, 3).join(", ")}</div>}
                   </div>
-                  <Money minor={b.averageMinor} className="shrink-0" />
+                  <span className="shrink-0 text-right"><Money minor={b.averageMinor} />{b.kind === "frequent" && <div className="text-xs text-ink-3">a month</div>}</span>
                 </li>
               ))}
             </ul>

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../api/models.dart';
 import '../server_url.dart';
 import '../state/ledger_controller.dart';
+import 'review_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -26,6 +28,18 @@ class SettingsScreen extends StatelessWidget {
             const Text('This URL is HTTP. That is expected for a Tailscale address. Do not use it off a private network.'),
           ],
           const SizedBox(height: 24),
+          Text('Categories', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          const Text('Re-run applies the latest rules to every transaction. Labels you chose, and Review answers, are kept.'),
+          const SizedBox(height: 8),
+          const RerunCategorizationButton(),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            key: const Key('settings-review'),
+            onPressed: () => openReview(context),
+            child: const Text('Review payments that need a purpose'),
+          ),
+          const SizedBox(height: 24),
           OutlinedButton(onPressed: controller.signOut, child: const Text('Sign out')),
           const SizedBox(height: 8),
           TextButton(onPressed: controller.forgetServer, child: const Text('Use a different server')),
@@ -36,6 +50,40 @@ class SettingsScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "Re-run categorization": the same server logic as the web Settings button.
+class RerunCategorizationButton extends StatefulWidget {
+  const RerunCategorizationButton({super.key});
+
+  @override
+  State<RerunCategorizationButton> createState() => _RerunCategorizationButtonState();
+}
+
+class _RerunCategorizationButtonState extends State<RerunCategorizationButton> {
+  bool _running = false;
+
+  Future<void> _run() async {
+    setState(() => _running = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await context.read<LedgerController>().rerunCategorization();
+      messenger.showSnackBar(SnackBar(content: Text(result.message)));
+    } on ApiException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      key: const Key('rerun-categorization'),
+      onPressed: _running ? null : _run,
+      child: Text(_running ? 'Re-running…' : 'Re-run categorization'),
     );
   }
 }

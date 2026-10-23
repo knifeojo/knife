@@ -334,7 +334,7 @@ const NAME_HINTS: [RegExp, NameHint][] = [
   [/stitch|couture|tailor|fashion|fabric|textile|boutique|apparel|clothing|wears|kiddies/, { label: "Tailor or clothing", category: "Shopping", subcategory: "Clothing" }],
   [/shoe|footwear|sneaker/, { label: "Shoes", category: "Shopping", subcategory: "Clothing" }],
   [/natural|hair|salon|beauty|cosmetic|skincare|spa\b|nails|lash|barb/, { label: "Hair or beauty", category: "Shopping", subcategory: "Personal care" }],
-  [/interior|furnitur|decor|curtain|upholster|tiles|paint/, { label: "Interior or furniture", category: "Housing", subcategory: "Home & furnishing" }],
+  [/interior|furnitur|wardrobe|carpent|cabinet|decor|curtain|upholster|tiles|paint/, { label: "Interior or furniture", category: "Housing", subcategory: "Home & furnishing" }],
   [/showroom|electronic|appliance|gadget|phones?\b|mobile ?world|computers?|fouani|slot\b|pointek/, { label: "Electronics store", category: "Shopping", subcategory: "Electronics" }],
   [/lounge|\bbar\b|grill|kitchen|restaurant|eatery|bistro|delis?\b|bakery|cafe|suya|shawarma|pizza|catering|chops/, { label: "Food or drinks place", category: "Food", subcategory: "Eating out" }],
   [/supermarket|stores?\b|\bmart\b|mall|provisions|groceries|market/, { label: "Shop or supermarket", category: "Food", subcategory: "Groceries" }],

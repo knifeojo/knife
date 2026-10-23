@@ -45,12 +45,41 @@ class LedgerApi {
     return _parse(_object(_uri('/api/v1/accounts'), _get), AccountList.fromJson);
   }
 
-  /// `cadence` is "recurring" or "one_off"; older servers ignore it.
-  Future<TransactionPage> transactions({String? category, String? query, String? cadence, int page = 1}) {
+  /// `cadence` is "recurring", "one_off" or "everyday"; `payee` matches every spelling of one name.
+  /// `from` and `to` are inclusive Lagos days (YYYY-MM-DD).
+  Future<TransactionPage> transactions({
+    String? category,
+    String? query,
+    String? cadence,
+    String? payee,
+    String? type,
+    String? from,
+    String? to,
+    int page = 1,
+  }) {
+    final params = {'category': category, 'q': query, 'cadence': cadence, 'payee': payee, 'type': type, 'from': from, 'to': to};
     return _parse(
-      _object(_uri('/api/v1/transactions', {'category': category, 'q': query, 'cadence': cadence, 'page': '$page', 'pageSize': '50'}), _get),
+      _object(_uri('/api/v1/transactions', {...params, 'page': '$page', 'pageSize': '50'}), _get),
       TransactionPage.fromJson,
     );
+  }
+
+  Future<ReviewQueue> review() {
+    return _parse(_object(_uri('/api/v1/review'), _get), ReviewQueue.fromJson);
+  }
+
+  /// Answers one Review question. `value` "other" needs `otherText`; "unknown" is "Can't remember". Returns rows updated.
+  Future<int> answerReview({required String kind, required String key, required String value, String? otherText, String? otherCategory}) async {
+    final body = {'kind': kind, 'key': key, 'value': value, 'otherText': ?otherText, 'otherCategory': ?otherCategory};
+    final json = await _object(_uri('/api/v1/review'), (uri) => _post(uri, body));
+    final updated = json['updated'];
+    if (updated is! int) throw const ApiException(0, 'The server did not confirm the answer.');
+    return updated;
+  }
+
+  /// "Re-run categorization", the same server logic as the web Settings button.
+  Future<CategorizeResult> rerunCategorization() {
+    return _parse(_object(_uri('/api/v1/categorize'), (uri) => _post(uri, const {})), CategorizeResult.fromJson);
   }
 
   Future<HomeSummary> summary({int offset = 0}) {

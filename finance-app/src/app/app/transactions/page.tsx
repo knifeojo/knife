@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { ALL_CATEGORIES } from "@/core/categorize";
-import { listTransactions, type TransactionFilters } from "@/core/analytics";
-import { cadenceIds, loadCadence, type Cadence } from "@/core/cadence";
+import { listTransactions, monthPeriod, type TransactionFilters } from "@/core/analytics";
+import { cadenceWhere, payeeWhere, reviewQuestionsFor, loadCadence, parseCadenceView, spendingSplit } from "@/core/cadence";
+import { EverydayBreakdownView, ReviewCta } from "@/components/everyday";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { formatMoney, parseAmountToMinor } from "@/lib/money";
@@ -21,24 +22,34 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const page = Math.max(1, Number(one(sp.page)) || 1);
   const to = lagosDayStart(one(sp.to));
-  const cadenceView: Cadence | undefined = one(sp.cadence) === "recurring" || one(sp.cadence) === "one_off" ? (one(sp.cadence) as Cadence) : undefined;
+  const cadenceView = parseCadenceView(one(sp.cadence));
   const cadence = await loadCadence(user.id);
+  const from = lagosDayStart(one(sp.from));
+  const payee = one(sp.payee)?.slice(0, 80);
   const f: TransactionFilters = {
     q: one(sp.q)?.slice(0, 80),
     type: one(sp.type) === "DEBIT" || one(sp.type) === "CREDIT" ? (one(sp.type) as "DEBIT" | "CREDIT") : undefined,
     category: ALL_CATEGORIES.includes(one(sp.category) ?? "") ? one(sp.category) : undefined,
     accountId: one(sp.account),
     merchant: one(sp.merchant),
-    from: lagosDayStart(one(sp.from)),
+    from,
     to: to ? new Date(to.getTime() + 86400_000) : undefined,
     minMinor: one(sp.min) ? parseAmountToMinor(one(sp.min)!) ?? undefined : undefined,
     maxMinor: one(sp.max) ? parseAmountToMinor(one(sp.max)!) ?? undefined : undefined,
-    ids: cadenceView ? await cadenceIds(user.id, cadence, cadenceView) : undefined,
+    cadence: cadenceView ? await cadenceWhere(user.id, cadence, cadenceView) : undefined,
+    payee: payee ? await payeeWhere(user.id, payee) : undefined,
   };
-  const [data, accounts] = await Promise.all([
+  // The everyday breakdown covers the chosen dates (or everything Ledger can label), before category and search filters.
+  const everydayPeriod = cadenceView === "everyday"
+    ? { from: f.from && f.from > cadence.since ? f.from : cadence.since, to: f.to ?? monthPeriod(new Date(), 0).to, label: "" }
+    : undefined;
+  const [data, accounts, everydaySplit] = await Promise.all([
     listTransactions(user.id, f, page, 50),
     db.account.findMany({ where: { userId: user.id }, select: { id: true, accountName: true } }),
+    everydayPeriod ? spendingSplit(user.id, everydayPeriod, cadence) : undefined,
   ]);
+  const everyday = everydaySplit?.everyday;
+  const reviewQuestions = everydaySplit && !user.isDemo ? await reviewQuestionsFor(user.id, everydaySplit.unlabelled) : 0;
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
   const qs = (p: number) => {
     const u = new URLSearchParams();
@@ -51,7 +62,7 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
     <>
       <PageHeader title="Transactions" subtitle={`${data.total.toLocaleString()} transactions. Change a category and similar transactions learn from it.`} />
       <Card className="mb-4">
-        <form className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 items-end">
+        <form id="filters" className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 items-end">
           <div className="col-span-2">
             <label className="label" htmlFor="q">Search</label>
             <input id="q" name="q" defaultValue={f.q} placeholder="Merchant, person, reference" className="input mt-1" />
@@ -72,7 +83,7 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
           <div>
             <label className="label" htmlFor="cadence">Pattern</label>
             <select id="cadence" name="cadence" defaultValue={cadenceView ?? ""} className="input mt-1">
-              <option value="">All</option><option value="recurring">Recurring</option><option value="one_off">One-off spends</option>
+              <option value="">All</option><option value="recurring">Recurring</option><option value="one_off">One-off spends</option><option value="everyday">Everyday spending</option>
             </select>
           </div>
           <div>
@@ -100,12 +111,28 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
           </div>
         </form>
       </Card>
+      {everyday && everydayPeriod && (
+        <Card title={`Everyday spending: ${formatMoney(everyday.totalMinor, "NGN", { compact: true })} in ${everyday.count} payments`} className="mb-4">
+          <div className="space-y-4">
+            <ReviewCta unlabelled={everydaySplit!.unlabelled} reviewQuestions={reviewQuestions} period={everydayPeriod} />
+            <EverydayBreakdownView everyday={everyday} period={everydayPeriod} />
+          </div>
+        </Card>
+      )}
       <Card>
+        {payee && (
+          <p className="text-sm mb-3">
+            Payments matched to <strong>{payee}</strong>, under any spelling in your bank narrations. <Link href="/app/transactions" className="text-accent underline">Clear</Link>
+            <input type="hidden" form="filters" name="payee" value={payee} />
+          </p>
+        )}
         {cadenceView && (
           <p className="text-xs text-ink-3 mb-3">
             {cadenceView === "recurring"
               ? "Payments seen about once a month for 2 months or more, the same way Can I afford it? finds your bills. Recurring bills are the ones it counts as fixed."
-              : `Single payments of at least ${formatMoney(cadence.oneOffMinMinor).replace(/\.00$/, "")} outside any regular stream, the same way Can I afford it? lists one-off spends. Loan repayments, fees and own transfers are never one-offs.`}
+              : cadenceView === "one_off"
+                ? `Single payments of at least ${formatMoney(cadence.oneOffMinMinor).replace(/\.00$/, "")} outside any regular stream, the same way Can I afford it? lists one-off spends. Loan repayments, fees and own transfers are never one-offs.`
+                : "Spending that is neither a regular payment nor a one-off: day-to-day purchases, transfers to people and bank charges. Own transfers are left out."}
           </p>
         )}
         {data.rows.length ? <TxTable rows={data.rows} cadence={cadence} /> : <Empty>No transactions match these filters.</Empty>}

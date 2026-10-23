@@ -4,10 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:provider/provider.dart';
 import 'package:ledger_mobile/api/models.dart';
 import 'package:ledger_mobile/app.dart';
 import 'package:ledger_mobile/screens/accounts_screen.dart';
 import 'package:ledger_mobile/screens/affordability_screen.dart';
+import 'package:ledger_mobile/screens/everyday_screen.dart';
+import 'package:ledger_mobile/screens/review_screen.dart';
+import 'package:ledger_mobile/screens/settings_screen.dart';
 import 'package:ledger_mobile/screens/summary_screen.dart';
 import 'package:ledger_mobile/screens/transactions_screen.dart';
 import 'package:ledger_mobile/state/ledger_controller.dart';
@@ -15,6 +19,7 @@ import 'package:ledger_mobile/storage/settings_store.dart';
 import 'package:ledger_mobile/theme.dart';
 
 import 'affordability_fixture.dart';
+import 'intelligence_fixture.dart';
 
 void main() {
   testWidgets('asks for a server and rejects a URL that is not an origin', (tester) async {
@@ -243,7 +248,140 @@ void main() {
     expect(find.text(tip), findsOneWidget);
     expect(find.text('What would help'), findsNothing);
   });
+
+  testWidgets('home shows what was spent on, recurring by name, the everyday breakdown and the Review prompt', (tester) async {
+    final requests = <http.Request>[];
+    final controller = await _signedIn((request) async {
+      requests.add(request);
+      final path = request.url.path;
+      if (path.endsWith('/transactions')) {
+        return http.Response(jsonEncode({'transactions': [], 'total': 0, 'page': 1, 'pageSize': 50, 'categories': ['Food']}), 200);
+      }
+      if (path.endsWith('/review') && request.method == 'GET') return _json(reviewResponse);
+      if (path.endsWith('/review')) return _json({'updated': 1});
+      if (path.endsWith('/summary')) return _json(intelligenceSummary);
+      return http.Response(jsonEncode({'error': 'not found'}), 404);
+    });
+    final summary = HomeSummary.fromJson(intelligenceSummary);
+    var reloaded = 0;
+    await tester.pumpWidget(_app(controller, ListView(children: [SummaryBody(summary: summary, onChanged: () => reloaded++)])));
+
+    expect(find.text('6 payments need a purpose — help Ledger label them'), findsOneWidget);
+    expect(find.text('What you spent on'), findsOneWidget);
+    expect(find.text('Also written as Okeke Chidie'), findsOneWidget);
+    expect(find.text('several times a month'), findsOneWidget);
+    expect(find.text('no purpose yet'), findsOneWidget);
+    expect(find.text('Recurring, by name'), findsOneWidget);
+    expect(find.text('Also written as Eze Grace, Gracen Eze'), findsOneWidget);
+    expect(find.text('Transfers · Monthly, amount varies · 3 months'), findsOneWidget);
+    expect(find.text('By person or business'), findsOneWidget);
+
+    // A matched payee opens its transactions for the month, every spelling included.
+    await tester.ensureVisible(find.byKey(const Key('payee-Chidi Emeka Okeke')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('payee-Chidi Emeka Okeke')));
+    await tester.pumpAndSettle();
+    expect(find.text('Every spelling of this name is included.'), findsOneWidget);
+    expect(requests.last.url.queryParameters, containsPair('payee', 'Chidi Emeka Okeke'));
+    expect(requests.last.url.queryParameters, containsPair('from', '2026-08-01'));
+    expect(requests.last.url.queryParameters, containsPair('to', '2026-08-31'));
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // The Everyday tile is a drill-down.
+    await tester.ensureVisible(find.byKey(const Key('everyday-tile')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('everyday-tile')));
+    await tester.pumpAndSettle();
+    expect(find.byType(EverydayScreen), findsOneWidget);
+    expect(find.text('Everyday · August 2026'), findsOneWidget);
+    expect(requests.last.url.queryParameters, containsPair('cadence', 'everyday'));
+    expect(requests.last.url.queryParameters, containsPair('from', '2026-08-01'));
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // The prompt opens Review; answering there reloads Home.
+    await tester.ensureVisible(find.byKey(const Key('open-review')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-review')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReviewScreen), findsOneWidget);
+    expect(find.text(wardrobeNarration), findsOneWidget);
+    await tester.tap(find.byKey(const Key('hint-wardrobe')));
+    await tester.pumpAndSettle();
+    final answer = requests.lastWhere((r) => r.method == 'POST');
+    expect(jsonDecode(answer.body), {'kind': 'person', 'key': 'emeka john obi', 'value': 'other', 'otherText': 'wardrobe', 'otherCategory': 'Housing'});
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(reloaded, 1);
+    controller.dispose();
+  });
+
+  testWidgets('Review shows each full narration and the purpose words found in it', (tester) async {
+    final posts = <Object?>[];
+    final controller = await _signedIn((request) async {
+      if (request.method == 'POST') {
+        posts.add(jsonDecode(request.body));
+        return _json({'updated': 2});
+      }
+      return _json(reviewResponse);
+    });
+    await tester.pumpWidget(_app(controller, const ReviewScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('Who is Emeka John Obi?'), findsOneWidget);
+    expect(find.text('What your bank wrote'), findsOneWidget);
+    final narration = tester.widget<SelectableText>(find.byType(SelectableText));
+    expect(narration.data, wardrobeNarration);
+    expect(narration.maxLines, isNull);
+    expect(find.text('"WARDROBE" → Housing'), findsOneWidget);
+    expect(find.text('Family'), findsOneWidget);
+    expect(find.text('Can’t remember'), findsOneWidget);
+
+    // "CSR (black tax)": support for extended family, filed under Family / Black tax on the server.
+    await tester.ensureVisible(find.text('CSR (black tax)'));
+    await tester.tap(find.text('CSR (black tax)'));
+    await tester.pumpAndSettle();
+    expect(posts, [
+      {'kind': 'person', 'key': 'emeka john obi', 'value': 'csr'},
+    ]);
+    expect(find.text('Saved. 2 payments relabelled.'), findsOneWidget);
+    controller.dispose();
+  });
+
+  testWidgets('settings re-runs categorization on the server', (tester) async {
+    final seen = <String>[];
+    final controller = await _signedIn((request) async {
+      seen.add('${request.method} ${request.url.path}');
+      return _json({'checked': 40, 'changed': 3, 'message': 'Re-checked 40 transactions; 3 changed. Your manual corrections were kept.'});
+    });
+    await tester.pumpWidget(ChangeNotifierProvider<LedgerController>.value(
+      value: controller,
+      child: MaterialApp(theme: ledgerTheme(Brightness.light), home: const SettingsScreen()),
+    ));
+    await tester.tap(find.byKey(const Key('rerun-categorization')));
+    await tester.pumpAndSettle();
+    expect(seen, ['POST /api/v1/categorize']);
+    expect(find.textContaining('3 changed'), findsOneWidget);
+    controller.dispose();
+  });
 }
+
+Future<LedgerController> _signedIn(Future<http.Response> Function(http.Request request) handler) async {
+  final controller = LedgerController(MemorySettingsStore(), httpClient: MockClient(handler));
+  await controller.load();
+  controller.serverUrl = 'http://100.64.0.8:3000';
+  controller.token = 'token-token-token-token';
+  return controller;
+}
+
+Widget _app(LedgerController controller, Widget body) {
+  return ChangeNotifierProvider<LedgerController>.value(
+    value: controller,
+    child: MaterialApp(theme: ledgerTheme(Brightness.light), home: Scaffold(body: body)),
+  );
+}
+
+http.Response _json(Object body) => http.Response(jsonEncode(body), 200, headers: {'content-type': 'application/json; charset=utf-8'});
 
 Future<http.Response> _api(http.Request request) async {
   final path = request.url.path;

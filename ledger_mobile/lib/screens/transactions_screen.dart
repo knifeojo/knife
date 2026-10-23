@@ -6,6 +6,7 @@ import '../format.dart';
 import '../state/ledger_controller.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'everyday_screen.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -90,13 +91,16 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               initialValue: _cadence,
               decoration: const InputDecoration(
                 labelText: 'Pattern',
-                helperText: 'Recurring: paid in 2+ months about a month apart. One-off: a big single spend.',
-                helperMaxLines: 2,
+                helperText:
+                    'Recurring: the same person or business, matched by name, paid in 2+ months or several times a month. '
+                    'One-off: a big single spend. Everyday: everything else you spent.',
+                helperMaxLines: 3,
               ),
               items: const [
                 DropdownMenuItem<String?>(value: null, child: Text('Any pattern')),
                 DropdownMenuItem<String?>(value: 'recurring', child: Text('Recurring')),
                 DropdownMenuItem<String?>(value: 'one_off', child: Text('One-off')),
+                DropdownMenuItem<String?>(value: 'everyday', child: Text('Everyday spending')),
               ],
               onChanged: (value) {
                 setState(() => _cadence = value);
@@ -104,11 +108,123 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               },
             ),
           ],
+          if (_cadence == 'everyday') ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('everyday-breakdown'),
+              onPressed: () => openEverydayThisMonth(context),
+              icon: const Icon(Icons.pie_chart_outline),
+              label: const Text('This month by category and payee'),
+            ),
+          ],
           const SizedBox(height: 12),
           if (_loading) const Center(child: Text('Loading…')),
           if (_error != null) ErrorText(_error),
           if (page != null && !_loading) TransactionList(page: page),
         ],
+      ),
+    );
+  }
+}
+
+/// Filters for a pushed list: one payee, one category of everyday spending, one period.
+class TransactionQuery {
+  const TransactionQuery({required this.title, this.cadence, this.payee, this.category, this.type, this.from, this.to});
+
+  final String title;
+  final String? cadence;
+  final String? payee;
+  final String? category;
+  final String? type;
+
+  /// Inclusive Lagos days, YYYY-MM-DD.
+  final String? from;
+  final String? to;
+
+  /// A Home period (to is exclusive) as inclusive Lagos days.
+  static ({String? from, String? to}) days(DateTime? from, DateTime? to) {
+    return (from: from == null ? null : lagosDay(from), to: to == null ? null : lagosDay(to.subtract(const Duration(milliseconds: 1))));
+  }
+}
+
+void openTransactions(BuildContext context, TransactionQuery query) {
+  Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => FilteredTransactionsScreen(query: query)));
+}
+
+/// Loads this month's summary and opens its everyday breakdown.
+Future<void> openEverydayThisMonth(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final navigator = Navigator.of(context);
+  try {
+    final summary = await context.read<LedgerController>().summary();
+    navigator.push(MaterialPageRoute<void>(builder: (_) => EverydayScreen(summary: summary)));
+  } on ApiException catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(error.message)));
+  }
+}
+
+class FilteredTransactionsScreen extends StatefulWidget {
+  const FilteredTransactionsScreen({super.key, required this.query});
+
+  final TransactionQuery query;
+
+  @override
+  State<FilteredTransactionsScreen> createState() => _FilteredTransactionsScreenState();
+}
+
+class _FilteredTransactionsScreenState extends State<FilteredTransactionsScreen> {
+  TransactionPage? _page;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final q = widget.query;
+    try {
+      final page = await context.read<LedgerController>().transactions(
+        cadence: q.cadence,
+        payee: q.payee,
+        category: q.category,
+        type: q.type,
+        from: q.from,
+        to: q.to,
+      );
+      if (!mounted) return;
+      setState(() {
+        _page = page;
+        _error = null;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final page = _page;
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.query.title)),
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (widget.query.payee != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text('Every spelling of this name is included.', style: Theme.of(context).textTheme.bodySmall),
+              ),
+            if (_error != null) ErrorText(_error),
+            if (page == null && _error == null) const Center(child: Text('Loading…')),
+            if (page != null) TransactionList(page: page),
+          ],
+        ),
       ),
     );
   }

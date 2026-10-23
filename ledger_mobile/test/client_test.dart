@@ -8,6 +8,7 @@ import 'package:ledger_mobile/api/client.dart';
 import 'package:ledger_mobile/api/models.dart';
 
 import 'affordability_fixture.dart';
+import 'intelligence_fixture.dart';
 
 void main() {
   test('sends the bearer token and keeps minor units as strings', () async {
@@ -138,5 +139,58 @@ void main() {
     expect(seen.headers['authorization'], 'Bearer session-token-value');
     expect(jsonDecode(seen.body), {'amountMinor': '160000000', 'description': 'a car deposit', 'horizon': '30'});
     expect(check.verdict, 'stretch');
+  });
+
+  test('asks for everyday spending for one payee and month', () async {
+    late Uri seen;
+    final api = LedgerApi(
+      baseUrl: 'http://100.64.0.8:3000',
+      token: 'session-token-value',
+      httpClient: MockClient((request) async {
+        seen = request.url;
+        return http.Response(jsonEncode({'transactions': [], 'total': 0, 'page': 1, 'pageSize': 50, 'categories': []}), 200);
+      }),
+    );
+    await api.transactions(cadence: 'everyday', payee: 'Chidi Emeka Okeke', type: 'DEBIT', from: '2026-08-01', to: '2026-08-31');
+    expect(seen.path, '/api/v1/transactions');
+    expect(seen.queryParameters, {
+      'cadence': 'everyday',
+      'payee': 'Chidi Emeka Okeke',
+      'type': 'DEBIT',
+      'from': '2026-08-01',
+      'to': '2026-08-31',
+      'page': '1',
+      'pageSize': '50',
+    });
+  });
+
+  test('reads Review, answers with a narration hint, and re-runs categorization', () async {
+    final seen = <http.Request>[];
+    final api = LedgerApi(
+      baseUrl: 'http://100.64.0.8:3000',
+      token: 'session-token-value',
+      httpClient: MockClient((request) async {
+        seen.add(request);
+        if (request.url.path == '/api/v1/categorize') {
+          return http.Response(jsonEncode({'checked': 40, 'changed': 3, 'message': 'Re-checked 40 transactions; 3 changed. Your manual corrections were kept.'}), 200);
+        }
+        if (request.method == 'POST') return http.Response(jsonEncode({'updated': 1}), 200);
+        return http.Response(jsonEncode(reviewResponse), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+      }),
+    );
+    final queue = await api.review();
+    expect(queue.questions.single.examples.single, wardrobeNarration);
+    final hint = queue.questions.single.narrationHints.single;
+    expect(await api.answerReview(kind: 'person', key: 'emeka john obi', value: 'other', otherText: hint.words, otherCategory: hint.category), 1);
+    expect(seen[1].method, 'POST');
+    expect(seen[1].url.path, '/api/v1/review');
+    expect(jsonDecode(seen[1].body), {'kind': 'person', 'key': 'emeka john obi', 'value': 'other', 'otherText': 'wardrobe', 'otherCategory': 'Housing'});
+    await api.answerReview(kind: 'person', key: 'emeka john obi', value: 'family');
+    expect(jsonDecode(seen[2].body), {'kind': 'person', 'key': 'emeka john obi', 'value': 'family'});
+
+    final rerun = await api.rerunCategorization();
+    expect(seen.last.method, 'POST');
+    expect(seen.last.headers['authorization'], 'Bearer session-token-value');
+    expect(rerun.message, contains('manual corrections'));
   });
 }

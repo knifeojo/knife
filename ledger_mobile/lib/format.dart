@@ -45,6 +45,9 @@ String _groupThousands(String digits) {
 
 const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/// The Lagos calendar day (UTC+1, no DST) of an instant, as YYYY-MM-DD for API date filters.
+String lagosDay(DateTime instant) => instant.toUtc().add(const Duration(hours: 1)).toIso8601String().substring(0, 10);
+
 String formatDay(DateTime date) {
   final local = date.toLocal();
   return '${local.day} ${_months[local.month - 1]} ${local.year}';

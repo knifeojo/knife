@@ -286,6 +286,10 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
  * Re-applies the current rules to every transaction the user has not categorized by hand.
  * Used after rules improve, or after the account holder becomes known.
  */
+export function reapplyMessage(r: { checked: number; changed: number }): string {
+  return `Checked ${r.checked} transactions, updated ${r.changed}. Your manual corrections were left as they are.`;
+}
+
 export async function reapplyCategories(userId: string): Promise<{ checked: number; changed: number }> {
   // Giving was a subcategory of Other. Labels the user chose keep their meaning under the new category.
   const legacyGiving = { userId, category: "Other", subcategory: { in: LEGACY_GIVING_SUBCATEGORIES } };

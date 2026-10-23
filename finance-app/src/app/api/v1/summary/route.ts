@@ -1,5 +1,5 @@
 import { balances, listTransactions, monthPeriod, spendingByCategory, specificMonth, summary, type Period } from "@/core/analytics";
-import { loadCadence, spendingSplit } from "@/core/cadence";
+import { reviewQuestionsFor, loadCadence, spendingSplit, type EverydayGroup } from "@/core/cadence";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
 import { minor, transactionJson } from "@/lib/mobile/serialize";
 
@@ -38,6 +38,9 @@ export async function GET(req: Request) {
     loadCadence(auth.user.id),
   ]);
   const split = await spendingSplit(auth.user.id, period, cadence);
+  const reviewQuestions = await reviewQuestionsFor(auth.user.id, split.unlabelled);
+  const group = (g: EverydayGroup) => ({ name: g.name, totalMinor: minor(g.totalMinor), count: g.count });
+  const debitStreams = cadence.streams.filter((st) => st.type === "DEBIT");
 
   return apiJson({
     period: { label: period.label, from: period.from.toISOString(), to: period.to.toISOString() },
@@ -62,7 +65,25 @@ export async function GET(req: Request) {
       oneOffMinMinor: minor(split.oneOffMinMinor),
       labelled: split.labelled,
       oneOffs: split.oneOffs.map((o) => ({ id: o.id, name: o.name, category: o.category, subcategory: o.subcategory, amountMinor: minor(o.amountMinor), date: o.date.toISOString() })),
+      everyday: {
+        totalMinor: minor(split.everyday.totalMinor),
+        count: split.everyday.count,
+        byCategory: split.everyday.byCategory.map(group),
+        byPayee: split.everyday.byPayee.map(group),
+      },
+      payees: split.payees.map((x) => ({
+        name: x.name, label: x.label, category: x.category, totalMinor: minor(x.totalMinor), count: x.count,
+        recurringMinor: minor(x.recurringMinor), oneOffMinor: minor(x.oneOffMinor), everydayMinor: minor(x.everydayMinor),
+        regular: x.regular, unlabelledMinor: minor(x.unlabelledMinor), variants: x.variants, unnamed: x.unnamed,
+      })),
+      unlabelled: { count: split.unlabelled.count, totalMinor: minor(split.unlabelled.totalMinor), needsReview: split.unlabelled.needsReview, reviewQuestions },
     },
+    /** Regular payments by matched payee name, the same list as the web Spending page. */
+    recurring: debitStreams.map((st) => ({
+      name: st.name, label: st.label ?? null, category: st.category, kind: st.kind, bill: !!cadence.recurring.get(st.transactionIds[0])?.bill,
+      averageMinor: minor(st.averageMinor), occurrences: st.occurrences, months: st.months,
+      lastDate: st.lastDate.toISOString(), nextExpected: st.nextExpected.toISOString(), aliases: st.aliases,
+    })),
     ratesUsed: figures.ratesUsed.map((rate) => ({ currency: rate.currency, rate: rate.rate, conversions: rate.conversions })),
     unconverted: figures.unconverted.map((row) => ({ currencyAndType: row.currencyAndType, totalMinor: minor(row.totalMinor) })),
     recent: recent.rows.map((tx) => transactionJson(tx, cadence)),

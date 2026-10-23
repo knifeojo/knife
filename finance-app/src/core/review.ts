@@ -8,6 +8,7 @@ void suspectedConversions; // kept for answering legacy conversion questions
 // Every answer becomes a user rule, so it applies to past AND future transactions with that name.
 
 export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion";
+export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion"];
 
 export interface Option {
   value: string;
@@ -28,8 +29,48 @@ export interface Question {
   currentCategory?: string;
   /** What the name suggests they do ("Tailor or clothing"), or that it looks like a person. */
   hint?: string;
+  /** Purpose words the user typed before the recipient ("WARDROBE TO ACCESS - …"), with the category they suggest. */
+  narrationHints?: NarrationHint[];
   /** For conversion questions: the matching sends and receipts. */
   evidence?: { date: string; sent: string; received: string }[];
+}
+
+export interface NarrationHint {
+  words: string;
+  category: string;
+  subcategory: string;
+}
+
+/** Up to this many full narrations are shown per question, so the user can check before answering. */
+const MAX_EXAMPLES = 4;
+
+const GENERIC_MEMO = new Set([
+  "payment", "payments", "transfer", "trf", "nip", "mobile", "mob", "app", "ussd", "web", "pos", "instant", "outward", "inward", "opay", "palmpay",
+  "moniepoint", "kuda", "money", "fund", "funds", "naira", "ngn", "send", "sent", "being", "for", "the", "and", "via", "ref", "utu", "frm", "from",
+]);
+
+/** The purpose typed before the recipient: "Instant Payment Outward 0001 WARDROBE TO ACCESS - JOHN DOE" -> "wardrobe". */
+export function purposeWords(description: string): string | undefined {
+  const memo = memoOf(description);
+  if (!memo) return undefined;
+  const words = memo.split(" ").filter((w) => !GENERIC_MEMO.has(w));
+  return words.join("").length >= 3 ? words.join(" ") : undefined;
+}
+
+/** Distinct purpose words across a payee's narrations, most common first, each with the category it suggests. */
+export function narrationHints(descriptions: string[], limit = 3): NarrationHint[] {
+  const counts = new Map<string, number>();
+  for (const d of descriptions) {
+    const w = purposeWords(d);
+    if (w) counts.set(w, (counts.get(w) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([words]) => ({ words, ...inferFromText("person", words) }));
+}
+
+/** Full narrations, distinct, as the bank wrote them. Never clipped: purpose words can sit anywhere in the line. */
+function addExample(examples: string[], description: string) {
+  const full = description.replace(/\s+/g, " ").trim();
+  if (examples.length < MAX_EXAMPLES && !examples.includes(full)) examples.push(full);
 }
 
 export const PERSON_OPTIONS: Option[] = [
@@ -38,6 +79,7 @@ export const PERSON_OPTIONS: Option[] = [
   { value: "friend", label: "Friend", category: "Transfers", subcategory: "Friends" },
   { value: "landlord", label: "Landlord or rent", category: "Housing", subcategory: "Rent" },
   { value: "staff", label: "Someone I employ (driver, cleaner, nanny)", category: "Housing", subcategory: "Home services" },
+  { value: "csr", label: "CSR (black tax)", category: "Family", subcategory: "Black tax" },
   { value: "vendor", label: "A business or vendor I buy from", category: "Shopping", subcategory: "Vendors" },
   { value: "work", label: "Work or business expense", category: "Business", subcategory: "Business expense" },
   { value: "loan", label: "Loan (given or repaid)", category: "Debt", subcategory: "Loans" },
@@ -89,7 +131,7 @@ export function memoOf(description: string): string | undefined {
   return memo.length >= 3 && memo.split(" ").length <= 4 ? memo : undefined;
 }
 
-interface Group { key: string; display: string; total: bigint; count: number; examples: string[]; categories: Map<string, number>; hits?: { minor: bigint; date: Date }[] }
+interface Group { key: string; display: string; total: bigint; count: number; examples: string[]; descriptions: string[]; categories: Map<string, number>; hits?: { minor: bigint; date: Date }[] }
 
 /** Same payee in 2+ months with amounts within 25% of the median: a regular commitment. */
 export function regularPattern(hits: { minor: bigint; date: Date }[]): { typicalMinor: bigint; day: number; months: number } | undefined {
@@ -113,12 +155,13 @@ function groupByName(rows: { counterparty: string | null; amountMinor: bigint; d
   for (const r of rows) {
     if (!r.counterparty || nameTokens(r.counterparty).length < 2) continue;
     let g = groups.find((x) => sameName(x.display, r.counterparty!));
-    if (!g) groups.push((g = { key: r.counterparty, display: r.counterparty, total: 0n, count: 0, examples: [], categories: new Map() }));
+    if (!g) groups.push((g = { key: r.counterparty, display: r.counterparty, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map() }));
     if (r.counterparty.length > g.display.length) g.display = r.counterparty;
     g.total += r.amountMinor;
     g.count++;
     if (r.transactionDate) (g.hits ??= []).push({ minor: r.amountMinor, date: r.transactionDate });
-    if (g.examples.length < 3) g.examples.push(r.description.replace(/\d{8,}/g, "…").slice(0, 70));
+    addExample(g.examples, r.description);
+    g.descriptions.push(r.description);
     g.categories.set(r.category, (g.categories.get(r.category) ?? 0) + 1);
   }
   for (const g of groups) g.key = g.display.toLowerCase();
@@ -173,6 +216,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
         : `You sent them ${g.count} payment${g.count > 1 ? "s" : ""}. Your answer applies to every payment to this name, past and future.`,
       totalMinor: g.total, count: g.count, examples: g.examples, options, currentCategory: topCategory(g.categories),
       hint: hint ? `The name suggests: ${hint.label.toLowerCase()}` : "The name looks like a person",
+      narrationHints: narrationHints(g.descriptions),
     });
   }
 
@@ -181,11 +225,11 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   for (const t of tx.filter((t) => t.type === "DEBIT" && !t.counterparty && t.category === "Transfers")) {
     const memo = memoOf(t.description);
     if (!memo || answered(memo)) continue;
-    const g: Group = memos.get(memo) ?? { key: memo, display: memo, total: 0n, count: 0, examples: [], categories: new Map() };
+    const g: Group = memos.get(memo) ?? { key: memo, display: memo, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map() };
     g.total += t.amountMinor;
     g.count++;
     (g.hits ??= []).push({ minor: t.amountMinor, date: t.transactionDate });
-    if (g.examples.length < 3) g.examples.push(t.description.replace(/\d{8,}/g, "…").slice(0, 70));
+    addExample(g.examples, t.description);
     memos.set(memo, g);
   }
   for (const g of [...memos.values()].filter((g) => g.total >= QUESTION_MIN_MINOR).sort((a, b) => (b.total > a.total ? 1 : -1)).slice(0, 3)) {

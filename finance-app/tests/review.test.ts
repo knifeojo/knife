@@ -4,6 +4,7 @@ import { importStatement } from "@/core/statement-import";
 import { ingestTransaction } from "@/core/ledger";
 import { answerQuestion, askAgain, buildQuestions, inferFromText, memoOf } from "@/core/review";
 import { nameHint, sameName } from "@/core/categorize";
+import { assessAffordability, loadAffordabilityData } from "@/core/affordability";
 
 const STATEMENT = Buffer.from([
   "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
@@ -91,6 +92,54 @@ describe("review questions", () => {
     expect(after).not.toContain("monthly");
     expect(after).not.toContain("deel inc");
     expect(after.some((k) => /mensah/.test(k))).toBe(false);
+  });
+});
+
+describe("the CSR (black tax) answer", () => {
+  // Support for an aunt, under three spellings, plus a big shopping month so Afford has something to suggest cutting.
+  const BLACK_TAX = Buffer.from([
+    "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
+    "24-Jul-2026,B1,,600000.00,600000.00,NIP ACME TECHNOLOGIES SALARY",
+    "26-Jul-2026,B2,50000.00,,550000.00,Instant Payment Outward 0726 TO OPAY - NGOZI ADAEZE OKAFOR",
+    "28-Jul-2026,B3,300000.00,,250000.00,POS/WEB PMNT @ JUMIA NIGERIA LA NG",
+    "24-Aug-2026,B4,,600000.00,850000.00,NIP ACME TECHNOLOGIES SALARY",
+    "26-Aug-2026,B5,60000.00,,790000.00,NIP TRANSFER TO PALMPAY - OKAFOR NGOZI",
+    "28-Aug-2026,B6,300000.00,,490000.00,POS/WEB PMNT @ JUMIA NIGERIA LA NG",
+    "24-Sep-2026,B7,,600000.00,1090000.00,NIP ACME TECHNOLOGIES SALARY",
+    "26-Sep-2026,B8,55000.00,,1035000.00,PAYMENT / TRANSFER / TO / NGOZI A OKAFOR",
+    "28-Sep-2026,B9,300000.00,,735000.00,POS/WEB PMNT @ JUMIA NIGERIA LA NG",
+  ].join("\n"));
+  const NOW = new Date("2026-10-05T10:00:00Z");
+
+  it("files extended-family support under Family / Black tax, learns the name, and Afford keeps it as an obligation", async () => {
+    const u = await db.user.create({ data: { email: "blacktax@test.dev" } });
+    await importStatement(u.id, { name: "s.csv", bytes: BLACK_TAX }, { institution: "GTBank" });
+    const q = (await buildQuestions(u.id)).find((x) => x.kind === "person" && /ngozi/.test(x.key))!;
+    expect(q.options).toContainEqual(expect.objectContaining({ value: "csr", label: "CSR (black tax)", category: "Family", subcategory: "Black tax" }));
+    expect(q.options.map((o) => o.value)).not.toContain("car");
+
+    expect(await answerQuestion(u.id, "person", q.key, "csr")).toBe(3);
+    const rows = await db.transaction.findMany({ where: { userId: u.id, reference: { in: ["B2", "B5", "B8"] } } });
+    expect(rows.every((r) => r.category === "Family" && r.subcategory === "Black tax" && r.classificationSource === "user")).toBe(true);
+    const alias = await db.merchantAlias.findFirstOrThrow({ where: { userId: u.id, category: "Family" } });
+    expect(alias.subcategory).toBe("Black tax");
+
+    const later = await ingestTransaction(u.id, {
+      institution: "GTBank", source: "statement", sourceTransactionId: "bt-later", type: "DEBIT", amountMinor: 5_000_000n, currency: "NGN",
+      transactionDate: new Date("2026-10-02T10:00:00Z"), description: "Instant Payment Outward 1002 TO OPAY - NGOZI ADAEZE OKAFOR",
+      reference: "B10", accountLast4: undefined, confidence: 1,
+    });
+    expect(await db.transaction.findUniqueOrThrow({ where: { id: later.transactionId } })).toMatchObject({ category: "Family", subcategory: "Black tax" });
+    expect((await buildQuestions(u.id)).some((x) => /ngozi/.test(x.key))).toBe(false);
+
+    // Afford: a monthly obligation like other family support, never a cut.
+    const data = await loadAffordabilityData(u.id, NOW);
+    const result = assessAffordability(data, { amountMinor: 80_000_000n, horizon: { kind: "month_end" } }, NOW);
+    expect(result.inputs.obligations).toContainEqual(expect.objectContaining({ category: "Family", label: "Black tax" }));
+    const cuts = result.advice.filter((a) => a.kind === "cut");
+    expect(cuts.length).toBeGreaterThan(0);
+    expect(cuts.map((a) => a.subject)).not.toContain("Family");
+    expect(result.advice.map((a) => a.text).join(" ")).not.toMatch(/black tax/i);
   });
 });
 
