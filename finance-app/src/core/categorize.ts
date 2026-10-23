@@ -207,6 +207,15 @@ export function lenderMerchant(desc: string): string | undefined {
   return LENDERS.find(([re]) => re.test(d))?.[1];
 }
 
+/** The canonical lender names statement rows are labelled with, in detection order. */
+export const LENDER_NAMES: readonly string[] = LENDERS.map(([, name]) => name);
+
+/** "renmoney", "Remb" or "RENMONEY MFB" -> "Renmoney". undefined when it is not a known lender. */
+export function canonicalLender(raw: string): string | undefined {
+  const t = raw.trim();
+  return LENDER_NAMES.find((n) => n.toLowerCase() === t.toLowerCase()) ?? lenderMerchant(t);
+}
+
 function savingsMerchant(desc: string): string | undefined {
   return SAVINGS_NAMES.find(([re]) => re.test(desc))?.[1];
 }

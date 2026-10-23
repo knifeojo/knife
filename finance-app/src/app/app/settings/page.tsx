@@ -94,7 +94,7 @@ export default async function Settings() {
           <li>Email bodies are parsed in memory and discarded. We keep the transaction fields plus sender and subject.</li>
         </ul>
         <form action={deleteMyData} className="mt-4">
-          <button className="btn btn-danger">Delete my {txCount.toLocaleString()} transactions and synced data</button>
+          <button className="btn btn-danger">Delete my {txCount.toLocaleString()} transactions, loans and synced data</button>
         </form>
       </Card>
       <form action={logout}><button className="btn btn-secondary">Log out</button></form>
