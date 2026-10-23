@@ -8,8 +8,8 @@ import { decrypt } from "@/lib/crypto";
 import { log } from "@/lib/log";
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { NotFoundError, monthPeriod, recategorize } from "@/core/analytics";
-import { reapplyCategories, syncEmailSource } from "@/core/ledger";
-import { answerQuestion, askAgain, type QuestionKind } from "@/core/review";
+import { reapplyCategories, reapplyMessage, syncEmailSource } from "@/core/ledger";
+import { QUESTION_KINDS, answerQuestion, askAgain, type QuestionKind } from "@/core/review";
 import { aiAllowed, aiConfigured } from "@/core/ai/client";
 import { aiCategorize, aiClassifier } from "@/core/ai/categorizer";
 import { askAssistant, type AssistantTurn, type ToolCallLog } from "@/core/ai/assistant";
@@ -151,13 +151,13 @@ export async function reapplyCategoriesAction(): Promise<SyncState> {
   const user = await requireUser();
   const r = await reapplyCategories(user.id);
   revalidatePath("/app", "layout");
-  return { ok: `Checked ${r.checked} transactions, updated ${r.changed}. Your manual corrections were left as they are.` };
+  return { ok: reapplyMessage(r) };
 }
 
 export async function answerQuestionAction(form: FormData) {
   const user = await requireUser();
   const kind = String(form.get("kind")) as QuestionKind;
-  if (!["holder", "person", "income", "memo", "conversion"].includes(kind)) return;
+  if (!QUESTION_KINDS.includes(kind)) return;
   const value = String(form.get("value"));
   const text = String(form.get("otherText") ?? "").slice(0, 60);
   if (value === "other" && !text.trim()) return;

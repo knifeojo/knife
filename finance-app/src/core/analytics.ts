@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { INCOME_CATEGORY, OWN_TRANSFER, learningKey } from "./categorize";
 
@@ -323,6 +324,8 @@ export interface TransactionFilters {
   merchant?: string;
   /** Only these rows (a recurring or one-off view). */
   ids?: string[];
+  /** A cadence view (see cadenceWhere), on top of the other filters. */
+  cadence?: Prisma.TransactionWhereInput;
 }
 
 export async function listTransactions(userId: string, f: TransactionFilters, page = 1, pageSize = 50) {
@@ -333,6 +336,7 @@ export async function listTransactions(userId: string, f: TransactionFilters, pa
     ...(f.accountId && { accountId: f.accountId }),
     ...(f.merchant && { merchantName: f.merchant }),
     ...(f.ids && { id: { in: f.ids } }),
+    ...(f.cadence && { AND: [f.cadence] }),
     ...((f.from || f.to) && { transactionDate: { ...(f.from && { gte: f.from }), ...(f.to && { lt: f.to }) } }),
     ...((f.minMinor !== undefined || f.maxMinor !== undefined) && {
       amountMinor: { ...(f.minMinor !== undefined && { gte: f.minMinor }), ...(f.maxMinor !== undefined && { lte: f.maxMinor }) },

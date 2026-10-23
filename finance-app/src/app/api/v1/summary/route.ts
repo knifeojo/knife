@@ -1,5 +1,5 @@
 import { balances, listTransactions, monthPeriod, spendingByCategory, specificMonth, summary, type Period } from "@/core/analytics";
-import { loadCadence, spendingSplit } from "@/core/cadence";
+import { everydayReviewQuestions, loadCadence, spendingSplit, type EverydayGroup } from "@/core/cadence";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
 import { minor, transactionJson } from "@/lib/mobile/serialize";
 
@@ -38,6 +38,8 @@ export async function GET(req: Request) {
     loadCadence(auth.user.id),
   ]);
   const split = await spendingSplit(auth.user.id, period, cadence);
+  const reviewQuestions = await everydayReviewQuestions(auth.user.id, split.everyday);
+  const group = (g: EverydayGroup) => ({ name: g.name, totalMinor: minor(g.totalMinor), count: g.count });
 
   return apiJson({
     period: { label: period.label, from: period.from.toISOString(), to: period.to.toISOString() },
@@ -62,6 +64,15 @@ export async function GET(req: Request) {
       oneOffMinMinor: minor(split.oneOffMinMinor),
       labelled: split.labelled,
       oneOffs: split.oneOffs.map((o) => ({ id: o.id, name: o.name, category: o.category, subcategory: o.subcategory, amountMinor: minor(o.amountMinor), date: o.date.toISOString() })),
+      everyday: {
+        totalMinor: minor(split.everyday.totalMinor),
+        count: split.everyday.count,
+        byCategory: split.everyday.byCategory.map(group),
+        byPayee: split.everyday.byPayee.map(group),
+        opaque: { count: split.everyday.opaque.count, totalMinor: minor(split.everyday.opaque.totalMinor) },
+        needsReview: split.everyday.needsReview,
+        reviewQuestions,
+      },
     },
     ratesUsed: figures.ratesUsed.map((rate) => ({ currency: rate.currency, rate: rate.rate, conversions: rate.conversions })),
     unconverted: figures.unconverted.map((row) => ({ currencyAndType: row.currencyAndType, totalMinor: minor(row.totalMinor) })),

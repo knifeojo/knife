@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { largest, monthPeriod, monthlyTrend, recurring, spendingByCategory, summary, topMerchants } from "@/core/analytics";
-import { loadCadence, spendingSplit } from "@/core/cadence";
+import { everydayReviewQuestions, loadCadence, spendingSplit } from "@/core/cadence";
+import { EverydayBreakdownView, EverydayReviewCta, everydayHref } from "@/components/everyday";
 import { requireUser } from "@/lib/auth";
 import { formatMoney } from "@/lib/money";
 import { CategoryBars, MonthlyBars } from "@/components/charts";
@@ -19,6 +20,7 @@ export default async function Spending({ searchParams }: { searchParams: Promise
   ]);
   const cadence = await loadCadence(user.id, now);
   const split = await spendingSplit(user.id, p, cadence);
+  const reviewQuestions = user.isDemo ? 0 : await everydayReviewQuestions(user.id, split.everyday);
   const short = (m: bigint) => formatMoney(m, "NGN", { compact: true });
   const catNote = (category: string) => {
     const g = split.byCategory.get(category);
@@ -47,7 +49,7 @@ export default async function Spending({ searchParams }: { searchParams: Promise
                 { label: "Recurring bills", minor: split.recurringBillsMinor, hint: "Rent, family support, loan instalments, utilities, subscriptions", href: "/app/transactions?cadence=recurring" },
                 { label: "Other regular payments", minor: split.recurringOtherMinor, hint: "Seen about monthly, but not a bill", href: "/app/transactions?cadence=recurring" },
                 { label: "One-off spends", minor: split.oneOffMinor, hint: `Single payments from ${formatMoney(split.oneOffMinMinor).replace(/\.00$/, "")}`, href: "/app/transactions?cadence=one_off" },
-                { label: "Everyday spending", minor: split.everydayMinor, hint: "Everything else", href: undefined },
+                { label: "Everyday spending", minor: split.everydayMinor, hint: "Everything else: see what it was", href: everydayHref(p) },
               ].map((x) => (
                 <div key={x.label} className="rounded-xl bg-surface-2 p-3">
                   <div className="text-xs text-ink-3">{x.href ? <Link href={x.href} className="hover:underline">{x.label}</Link> : x.label}</div>
@@ -73,6 +75,18 @@ export default async function Spending({ searchParams }: { searchParams: Promise
           </>
         )}
       </Card>
+      {split.labelled && (
+        <Card
+          title={`Everyday spending: ${short(split.everyday.totalMinor)}`}
+          className="mt-4"
+          action={<Link href={everydayHref(p)} className="text-sm text-brand">See {split.everyday.count} transactions</Link>}
+        >
+          <div id="everyday" className="space-y-4">
+            <EverydayReviewCta everyday={split.everyday} reviewQuestions={reviewQuestions} period={p} />
+            <EverydayBreakdownView everyday={split.everyday} period={p} />
+          </div>
+        </Card>
+      )}
       <div className="grid lg:grid-cols-2 gap-4 mt-4">
         <Card title="By category">
           {cats.length ? (

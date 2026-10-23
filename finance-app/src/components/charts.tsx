@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { formatMoney } from "@/lib/money";
 
 // Lightweight HTML charts. Colors follow the validated reference palette via CSS roles
@@ -50,7 +51,7 @@ export function MonthlyBars({ data }: { data: { label: string; income: bigint; e
 }
 
 /** Single-series magnitude bars (one hue), direct-labelled with value and share. */
-export function CategoryBars({ data, total }: { data: { label: string; value: bigint; count?: number; note?: string }[]; total: bigint }) {
+export function CategoryBars({ data, total }: { data: { label: string; value: bigint; count?: number; note?: string; href?: string }[]; total: bigint }) {
   const max = data.reduce((m, d) => (d.value > m ? d.value : m), 1n);
   return (
     <ul className="space-y-3">
@@ -59,7 +60,7 @@ export function CategoryBars({ data, total }: { data: { label: string; value: bi
         return (
           <li key={d.label}>
             <div className="flex items-baseline justify-between text-sm gap-2">
-              <span className="truncate">{d.label}</span>
+              {d.href ? <Link href={d.href} className="truncate hover:underline">{d.label}</Link> : <span className="truncate">{d.label}</span>}
               <span className="num text-ink-2 shrink-0">
                 {formatMoney(d.value, "NGN", { compact: true })} <span className="text-ink-3">· {pct.toFixed(0)}%</span>
               </span>

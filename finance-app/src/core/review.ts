@@ -8,6 +8,7 @@ void suspectedConversions; // kept for answering legacy conversion questions
 // Every answer becomes a user rule, so it applies to past AND future transactions with that name.
 
 export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion";
+export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion"];
 
 export interface Option {
   value: string;

@@ -3,10 +3,12 @@ import { db } from "@/lib/db";
 import { issueSession } from "@/lib/auth";
 import { importStatement } from "@/core/statement-import";
 import { assessAffordability, loadAffordabilityData } from "@/core/affordability";
-import { buildCadenceIndex, cadenceIds, cadenceLabel, cadenceOf, loadCadence, spendingSplit, type CadenceRow } from "@/core/cadence";
-import { specificMonth, type RecurringItem } from "@/core/analytics";
+import { buildCadenceIndex, cadenceIds, cadenceLabel, cadenceOf, cadenceWhere, isEveryday, isOpaque, loadCadence, parseCadenceView, spendingSplit, type CadenceRow } from "@/core/cadence";
+import { listTransactions, specificMonth, type RecurringItem } from "@/core/analytics";
 import { GET as transactions } from "@/app/api/v1/transactions/route";
 import { GET as summary } from "@/app/api/v1/summary/route";
+import { GET as reviewGet, POST as reviewPost } from "@/app/api/v1/review/route";
+import { POST as categorizePost } from "@/app/api/v1/categorize/route";
 
 // Synthetic figures only. ₦ amounts are converted to kobo with BigInt.
 const N = (naira: number) => BigInt(naira) * 100n;
@@ -45,6 +47,35 @@ describe("cadence: the rule", () => {
 
   it("does not label rows older than recurring detection looks back", () => {
     expect(cadenceOf(row({ transactionDate: new Date("2026-03-01T09:00:00Z") }), index)).toBeNull();
+  });
+
+  it("everyday is every other spending debit: not regular, not a one-off, not an own transfer or linked leg", () => {
+    expect(isEveryday(row({ amountMinor: N(5_000) }), index)).toBe(true);
+    expect(isEveryday(row({ amountMinor: N(30_000), category: "Transfers" }), index)).toBe(true);
+    expect(isEveryday(row({ category: "Fees" }), index)).toBe(true); // never a one-off, however big
+    expect(isEveryday(row({ currency: "USD" }), index)).toBe(true); // foreign spending is never a one-off
+    expect(isEveryday(row({ id: "rent", category: "Housing" }), index)).toBe(false);
+    expect(isEveryday(row({ id: "gym", category: "Healthcare" }), index)).toBe(false);
+    expect(isEveryday(row({}), index)).toBe(false); // ₦200,000 single spend: one-off
+    for (const over of [
+      { category: "Own transfer", amountMinor: N(5_000) }, { transferPairId: "other", amountMinor: N(5_000) },
+      { type: "CREDIT", category: "Income", amountMinor: N(5_000) }, { amountMinor: N(5_000), transactionDate: new Date("2026-03-01T09:00:00Z") },
+    ]) expect(isEveryday(row(over), index), Object.keys(over).join(",")).toBe(false);
+  });
+
+  it("only a rules default Transfers/Other label is opaque", () => {
+    expect(isOpaque({ category: "Transfers", classificationSource: "default" })).toBe(true);
+    expect(isOpaque({ category: "Other", classificationSource: "default" })).toBe(true);
+    expect(isOpaque({ category: "Transfers", classificationSource: "user" })).toBe(false); // answered "Friend"
+    expect(isOpaque({ category: "Transfers", classificationSource: "ai" })).toBe(false);
+    expect(isOpaque({ category: "Shopping", classificationSource: "default" })).toBe(false);
+  });
+
+  it("parses the everyday view and rejects unknown ones", () => {
+    expect(parseCadenceView("everyday")).toBe("everyday");
+    expect(parseCadenceView("one_off")).toBe("one_off");
+    expect(parseCadenceView("weekly")).toBeUndefined();
+    expect(parseCadenceView(null)).toBeUndefined();
   });
 });
 
@@ -130,6 +161,7 @@ describe("cadence and categories from an imported statement", () => {
       everydayMinor: N(100_000), // the loan to a friend
       labelled: true,
     });
+    expect(split.everyday).toMatchObject({ totalMinor: N(100_000), count: 1, opaque: { count: 0, totalMinor: 0n }, needsReview: false });
     expect(split.oneOffs.map((o) => [o.name, o.amountMinor])).toEqual([["Fouani Showroom", N(450_000)], ["John Smith", N(200_000)]]);
     expect(split.byCategory.get("Food")).toEqual({ recurringMinor: N(80_000), oneOffMinor: 0n });
   });
@@ -170,5 +202,115 @@ describe("cadence and categories from an imported statement", () => {
     const cats = home.body.spendingByCategory as { category: string; totalMinor: string; recurringMinor: string; oneOffMinor: string }[];
     expect(cats.every((c) => /^\d+$/.test(c.recurringMinor) && /^\d+$/.test(c.oneOffMinor))).toBe(true);
     expect(cats.map((c) => c.category)).not.toContain("Own transfer");
+  });
+});
+
+// Person payments whose narration names who was paid but not what for: the rules leave them on default Transfers.
+const OPAQUE_AUGUST: Row[] = [
+  [3, 60_000, 0, "Instant Payment Outward 000013260803 TO OPAY - CHIDI EMEKA OKEKE"],
+  [17, 40_000, 0, "NIP TRANSFER TO PALMPAY - AMAKA NNEKA OBI"],
+  [18, 12_000, 0, "POS CHICKEN REPUBLIC IKEJA"],
+  [20, 30_000, 0, "PAYMENT / TRANSFER / TO / TUNDE BAKARE"],
+  [21, 25_000, 0, "Instant Payment Outward 000013260821 TO OPAY - CHIDI EMEKA OKEKE"],
+];
+const OPAQUE_CSV = statement((m) => (m === "Aug" ? [...AUGUST, ...OPAQUE_AUGUST] : []));
+const AUG = specificMonth(2026, 7);
+
+describe("everyday spending drill-down", () => {
+  it("breaks everyday down by category and payee, and its total is the Spending residual", async () => {
+    const user = await db.user.create({ data: { email: "everyday-core@test.dev" } });
+    await importStatement(user.id, { name: "synthetic.csv", bytes: Buffer.from(OPAQUE_CSV) });
+    const cadence = await loadCadence(user.id, NOW);
+    const split = await spendingSplit(user.id, AUG, cadence);
+    // Loan to a friend (₦100k) + four person transfers (₦155k) + a meal (₦12k). The one-offs and regular payments are not in it.
+    expect(split.everydayMinor).toBe(N(267_000));
+    expect(split.everyday.totalMinor).toBe(split.everydayMinor);
+    expect(split.everyday.byCategory.reduce((t, c) => t + c.totalMinor, 0n)).toBe(split.everydayMinor);
+    expect(split.everyday.count).toBe(6);
+    expect(split.everyday.byCategory[0]).toEqual({ name: "Transfers", totalMinor: N(155_000), count: 4 });
+    expect(split.everyday.byCategory.map((c) => c.name)).toContain("Debt");
+    expect(split.everyday.byPayee[0]).toEqual({ name: "John Okafor", totalMinor: N(100_000), count: 1 });
+    expect(split.everyday.byPayee.find((p) => p.name === "Chidi Emeka Okeke")).toEqual({ name: "Chidi Emeka Okeke", totalMinor: N(85_000), count: 2 });
+    expect(split.everyday.opaque).toEqual({ count: 4, totalMinor: N(155_000) });
+    expect(split.everyday.needsReview).toBe(true);
+
+    // The transactions view lists exactly these rows.
+    const view = await listTransactions(user.id, { from: AUG.from, to: AUG.to, cadence: await cadenceWhere(user.id, cadence, "everyday") }, 1, 50);
+    expect(view.total).toBe(6);
+    expect(view.rows.every((r) => isEveryday(r, cadence))).toBe(true);
+    const ids = new Set(await cadenceIds(user.id, cadence, "everyday"));
+    expect(view.rows.every((r) => ids.has(r.id))).toBe(true);
+    const transfers = await listTransactions(user.id, { from: AUG.from, to: AUG.to, category: "Transfers", cadence: await cadenceWhere(user.id, cadence, "everyday") }, 1, 50);
+    expect(transfers.total).toBe(4);
+
+    // A month before recurring detection looks back gets no everyday breakdown.
+    const old = await spendingSplit(user.id, specificMonth(2025, 0), cadence);
+    expect(old.everyday).toMatchObject({ totalMinor: 0n, count: 0, needsReview: false });
+  });
+
+  it("the mobile API adds cadence=everyday, the breakdown, Review and Re-run without changing existing fields", async () => {
+    const user = await db.user.create({ data: { email: "everyday-api@test.dev" } });
+    await importStatement(user.id, { name: "synthetic.csv", bytes: Buffer.from(OPAQUE_CSV) });
+    const { token } = await issueSession(user.id);
+    const call = async (handler: (r: Request) => Promise<Response>, path: string, body?: object) => {
+      const res = await handler(new Request(`http://localhost${path}`, {
+        method: body ? "POST" : "GET",
+        headers: { authorization: `Bearer ${token}`, ...(body && { "content-type": "application/json" }) },
+        body: body ? JSON.stringify(body) : undefined,
+      }));
+      return { status: res.status, body: await res.json() };
+    };
+
+    const everyday = await call(transactions, "/api/v1/transactions?cadence=everyday&from=2026-08-01&to=2026-08-31");
+    expect(everyday.status).toBe(200);
+    type Tx = { description: string; category: string; cadence: string | null };
+    const rows = everyday.body.transactions as Tx[];
+    expect(rows.every((t) => t.cadence === null && t.category !== "Own transfer")).toBe(true);
+
+    const home = await call(summary, "/api/v1/summary?month=2026-08");
+    expect(home.status).toBe(200);
+    const e = home.body.spendingSplit.everyday;
+    expect(e).toMatchObject({
+      totalMinor: expect.stringMatching(/^\d+$/), count: expect.any(Number), needsReview: expect.any(Boolean), reviewQuestions: expect.any(Number),
+      opaque: { count: expect.any(Number), totalMinor: expect.stringMatching(/^\d+$/) },
+    });
+    expect(e.totalMinor).toBe(home.body.spendingSplit.everydayMinor);
+    expect((e.byCategory as { totalMinor: string }[]).every((c) => /^\d+$/.test(c.totalMinor))).toBe(true);
+    // Recurring detection looks back 6 months from today, so the labels depend on the real clock.
+    if (home.body.spendingSplit.labelled) {
+      expect(rows.map((t) => t.description).filter((d) => /CHIDI|AMAKA|TUNDE/.test(d))).toHaveLength(4);
+      expect(e).toMatchObject({ totalMinor: "26700000", count: 6, needsReview: true, opaque: { count: 4, totalMinor: "15500000" } });
+      expect(e.reviewQuestions).toBeGreaterThanOrEqual(3);
+      expect(e.byPayee).toContainEqual({ name: "Chidi Emeka Okeke", totalMinor: "8500000", count: 2 });
+    }
+
+    // Review: the same questions as the web page, answered by the phone.
+    const review = await call(reviewGet, "/api/v1/review");
+    expect(review.status).toBe(200);
+    type Q = { kind: string; key: string; title: string; totalMinor: string; options: { value: string }[]; allowsOther: boolean };
+    const chidi = (review.body.questions as Q[]).find((q) => q.key === "chidi emeka okeke")!;
+    expect(chidi).toMatchObject({ kind: "person", totalMinor: "8500000", allowsOther: true });
+    expect(chidi.options.map((o) => o.value)).toContain("family");
+    expect((await call(reviewPost, "/api/v1/review", { kind: "guess", key: "x", value: "family" })).status).toBe(400);
+    expect((await call(reviewPost, "/api/v1/review", { kind: "person", key: chidi.key, value: "other" })).status).toBe(400);
+    expect((await call(reviewPost, "/api/v1/review", { kind: "person", key: chidi.key, value: "nonsense" })).status).toBe(400);
+    const answered = await call(reviewPost, "/api/v1/review", { kind: "person", key: chidi.key, value: "family" });
+    expect(answered).toEqual({ status: 200, body: { updated: 2 } });
+
+    // Chidi now counts as Family, so less of everyday is unexplained and Review is no longer pushed.
+    const after = await spendingSplit(user.id, AUG, await loadCadence(user.id, NOW));
+    expect(after.everyday.opaque).toEqual({ count: 2, totalMinor: N(70_000) });
+    expect(after.everyday.byCategory.find((c) => c.name === "Family")).toEqual({ name: "Family", totalMinor: N(85_000), count: 2 });
+    expect(after.everyday.needsReview).toBe(false);
+
+    // Re-run categorization keeps the answer.
+    const rerun = await call(categorizePost, "/api/v1/categorize", {});
+    expect(rerun.status).toBe(200);
+    expect(rerun.body).toMatchObject({ checked: expect.any(Number), changed: expect.any(Number), message: expect.stringContaining("manual corrections") });
+    const chidiRows = await db.transaction.findMany({ where: { userId: user.id, counterparty: "Chidi Emeka Okeke" } });
+    expect(chidiRows.every((r) => r.category === "Family")).toBe(true);
+
+    const anon = await categorizePost(new Request("http://localhost/api/v1/categorize", { method: "POST" }));
+    expect(anon.status).toBe(401);
   });
 });
