@@ -10,6 +10,7 @@ export const NAV = [
   { href: "/app/income", label: "Income" },
   { href: "/app/accounts", label: "Accounts" },
   { href: "/app/insights", label: "Insights" },
+  { href: "/app/afford", label: "Can I afford it?" },
   { href: "/app/review", label: "Review" },
   { href: "/app/profile", label: "About you" },
   { href: "/app/notes", label: "Your notes" },

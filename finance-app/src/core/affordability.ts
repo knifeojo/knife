@@ -8,7 +8,6 @@ import { INCOME_CATEGORY } from "./categorize";
 // constants below and are listed back to the user with the answer.
 
 const DAY_MS = 86400_000;
-const LAGOS_MS = 3600_000;
 
 /** Ledger always keeps at least this much aside: ₦50,000. */
 export const BUFFER_FLOOR_MINOR = 5_000_000n;
