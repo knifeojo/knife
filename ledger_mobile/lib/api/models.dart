@@ -289,6 +289,138 @@ class StatementFileResult {
   }
 }
 
+class AffordabilityObligation {
+  const AffordabilityObligation({
+    required this.name,
+    required this.category,
+    this.label,
+    required this.monthlyMinor,
+    required this.dueInWindowMinor,
+    this.nextDue,
+  });
+
+  final String name;
+  final String category;
+  final String? label;
+  final String monthlyMinor;
+  final String dueInWindowMinor;
+  final DateTime? nextDue;
+
+  factory AffordabilityObligation.fromJson(Map<String, dynamic> json) {
+    return AffordabilityObligation(
+      name: _string(json, 'name'),
+      category: _string(json, 'category'),
+      label: _optionalString(json, 'label'),
+      monthlyMinor: _minor(json, 'monthlyMinor'),
+      dueInWindowMinor: _minor(json, 'dueInWindowMinor'),
+      nextDue: _optionalDate(json, 'nextDue'),
+    );
+  }
+}
+
+/// Answer from `POST /api/v1/affordability`. Every amount stays a minor-unit string.
+class AffordabilityCheck {
+  const AffordabilityCheck({
+    required this.verdict,
+    required this.headline,
+    required this.detail,
+    required this.notes,
+    required this.amountMinor,
+    this.description,
+    required this.windowFrom,
+    required this.windowTo,
+    required this.cashMinor,
+    required this.cashKnown,
+    this.cashAsOf,
+    required this.monthlyIncomeMinor,
+    required this.incomeMonths,
+    required this.monthlyObligationsMinor,
+    required this.obligations,
+    required this.otherLoanRepaymentsMinor,
+    required this.monthlyEverydayMinor,
+    required this.monthlySurplusMinor,
+    required this.bufferMinor,
+    required this.bufferRule,
+    required this.incomeInMinor,
+    required this.incomeRule,
+    required this.obligationsOutMinor,
+    required this.everydayOutMinor,
+    required this.lowestMinor,
+    required this.lowestOn,
+    required this.headroomMinor,
+    this.monthsToSave,
+  });
+
+  final String verdict; // yes | stretch | no
+  final String headline;
+  final List<String> detail;
+  final List<String> notes;
+  final String amountMinor;
+  final String? description;
+  final DateTime windowFrom;
+  final DateTime windowTo;
+  final String cashMinor;
+  final bool cashKnown;
+  final DateTime? cashAsOf;
+  final String monthlyIncomeMinor;
+  final List<String> incomeMonths;
+  final String monthlyObligationsMinor;
+  final List<AffordabilityObligation> obligations;
+  final String otherLoanRepaymentsMinor;
+  final String monthlyEverydayMinor;
+  final String monthlySurplusMinor;
+  final String bufferMinor;
+  final String bufferRule; // obligations | floor | yours
+  final String incomeInMinor;
+  final String incomeRule; // paydays | monthly | none
+  final String obligationsOutMinor;
+  final String everydayOutMinor;
+  final String lowestMinor;
+  final DateTime lowestOn;
+  final String headroomMinor;
+  final int? monthsToSave;
+
+  factory AffordabilityCheck.fromJson(Map<String, dynamic> json) {
+    final window = _map(json, 'window');
+    final inputs = _map(json, 'inputs');
+    final projection = _map(json, 'projection');
+    final verdict = _string(json, 'verdict');
+    if (!const ['yes', 'stretch', 'no'].contains(verdict)) throw const FormatException('Expected verdict to be yes, stretch or no');
+    final months = json['monthsToSave'];
+    if (months != null && months is! int) throw const FormatException('Expected monthsToSave to be an integer');
+    return AffordabilityCheck(
+      verdict: verdict,
+      headline: _string(json, 'headline'),
+      detail: _stringList(json, 'detail'),
+      notes: _stringList(json, 'notes'),
+      amountMinor: _minor(json, 'amountMinor'),
+      description: _optionalString(json, 'description'),
+      windowFrom: DateTime.parse(_string(window, 'from')),
+      windowTo: DateTime.parse(_string(window, 'to')),
+      cashMinor: _minor(inputs, 'cashMinor'),
+      cashKnown: inputs['cashKnown'] == true,
+      cashAsOf: _optionalDate(inputs, 'cashAsOf'),
+      monthlyIncomeMinor: _minor(inputs, 'monthlyIncomeMinor'),
+      incomeMonths: _stringList(inputs, 'incomeMonths'),
+      monthlyObligationsMinor: _minor(inputs, 'monthlyObligationsMinor'),
+      obligations: _list(inputs, 'obligations').map(AffordabilityObligation.fromJson).toList(),
+      otherLoanRepaymentsMinor: _minor(inputs, 'otherLoanRepaymentsMinor'),
+      monthlyEverydayMinor: _minor(inputs, 'monthlyEverydayMinor'),
+      monthlySurplusMinor: _minor(inputs, 'monthlySurplusMinor'),
+      bufferMinor: _minor(inputs, 'bufferMinor'),
+      bufferRule: _string(inputs, 'bufferRule'),
+      incomeInMinor: _minor(projection, 'incomeInMinor'),
+      incomeRule: _string(projection, 'incomeRule'),
+      obligationsOutMinor: _minor(projection, 'obligationsOutMinor'),
+      everydayOutMinor: _minor(projection, 'everydayOutMinor'),
+      lowestMinor: _minor(projection, 'lowestMinor'),
+      lowestOn: DateTime.parse(_string(projection, 'lowestOn')),
+      headroomMinor: _minor(projection, 'headroomMinor'),
+      monthsToSave: months as int?,
+    );
+  }
+}
+
 class ApiException implements Exception {
   const ApiException(this.status, this.message);
 
@@ -321,6 +453,11 @@ String _minor(Map<String, dynamic> json, String key) {
 String? _optionalMinor(Map<String, dynamic> json, String key) {
   if (json[key] == null) return null;
   return _minor(json, key);
+}
+
+DateTime? _optionalDate(Map<String, dynamic> json, String key) {
+  final value = _optionalString(json, key);
+  return value == null ? null : DateTime.parse(value);
 }
 
 int _int(Map<String, dynamic> json, String key) {

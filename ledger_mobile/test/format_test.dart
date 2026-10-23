@@ -14,4 +14,15 @@ void main() {
   test('formats US dollars when asked', () {
     expect(formatMinor('150', currency: 'USD'), r'$1.50');
   });
+
+  test('reads typed naira amounts as minor units without floating point', () {
+    expect(parseNairaToMinor('2.5m'), '250000000');
+    expect(parseNairaToMinor('500k'), '50000000');
+    expect(parseNairaToMinor('₦1,200,000.50'), '120000050');
+    expect(parseNairaToMinor(' 750000 '), '75000000');
+    expect(parseNairaToMinor('0.1'), '10');
+    for (final bad in ['', '0', '-5', 'abc', '1e9', '1.234', '999999999999m']) {
+      expect(parseNairaToMinor(bad), isNull, reason: bad);
+    }
+  });
 }

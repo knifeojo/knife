@@ -14,10 +14,10 @@ The server URL is not compiled into the app. You set it on the first screen, so 
 | Accounts | Each account, its masked number, and its balance |
 | Activity | Transactions with categories, plus search and a category filter |
 | Upload | Pick a PDF or CSV on the phone and send it to `POST /api/v1/statements` |
-| Afford | Placeholder for the “Can I really afford this?” check |
+| Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with the figures behind it |
 | Settings | Shows the server, signs out, or forgets the server |
 
-Afford does not calculate anything. The check (income, fixed obligations such as rent, family support, FairMoney and Renmoney, a buffer, and forward cash flow) is still to be built.
+Afford does no maths on the phone. The server works out the answer from the ledger (see “Can I really afford this?” in `../finance-app/README.md`). The phone only turns what you type (“2.5m”, “500k”) into kobo and shows the result.
 
 ## Run the server so the phone can reach it
 

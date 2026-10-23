@@ -18,6 +18,22 @@ String formatMinor(String? minor, {String currency = 'NGN'}) {
   return '${negative ? '-' : ''}$symbol${_groupThousands(whole)}.$fraction';
 }
 
+/// Reads a naira amount as typed ("2.5m", "500k", "₦1,200,000.50") into minor units, without floating point.
+/// Returns null for anything else, zero, or more than ₦100bn.
+String? parseNairaToMinor(String raw) {
+  final s = raw.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '').replaceFirst(RegExp(r'^(₦|ngn|n)'), '');
+  final m = RegExp(r'^([\d,]*)(?:\.(\d{1,2}))?([km])?$').firstMatch(s);
+  if (m == null) return null;
+  final whole = m.group(1)!.replaceAll(',', '');
+  final frac = m.group(2) ?? '';
+  if (whole.isEmpty && frac.isEmpty) return null;
+  var minor = BigInt.parse(whole.isEmpty ? '0' : whole) * BigInt.from(100) + BigInt.parse(frac.padRight(2, '0'));
+  if (m.group(3) == 'k') minor *= BigInt.from(1000);
+  if (m.group(3) == 'm') minor *= BigInt.from(1000000);
+  if (minor <= BigInt.zero || minor > BigInt.parse('10000000000000')) return null;
+  return minor.toString();
+}
+
 String _groupThousands(String digits) {
   final out = StringBuffer();
   for (var i = 0; i < digits.length; i++) {
