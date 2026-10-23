@@ -9,7 +9,7 @@ export default async function Afford() {
   const hasData = (await db.transaction.count({ where: { userId: user.id } })) > 0;
   return (
     <div className="max-w-3xl">
-      <PageHeader title="Can I really afford this?" subtitle="Enter a price. Ledger checks it against your income, fixed bills, a safety buffer and the days ahead." />
+      <PageHeader title="Can I really afford this?" subtitle="Enter a price. Ledger checks it against your income, bills, a safety buffer and the days ahead, and says what would help." />
       {hasData ? (
         <AffordForm />
       ) : (

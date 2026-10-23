@@ -139,7 +139,30 @@ void main() {
     expect(find.text('FairMoney · Loan repayment'), findsOneWidget);
     expect(find.text('-₦1,600,000.00'), findsOneWidget);
     expect(find.text('-₦198,333.34'), findsOneWidget);
+    expect(find.text('What would help'), findsOneWidget);
+    expect(find.text('Loan'), findsOneWidget);
+    expect(find.text('One-off'), findsOneWidget);
+    expect(find.textContaining('Clear FairMoney first.'), findsOneWidget);
+    expect(find.text('Recurring bills'), findsOneWidget);
+    expect(find.textContaining('One-off spends since '), findsOneWidget);
+    expect(find.text('Fouani Showroom · Electronics, 12 Aug 2026'), findsOneWidget);
+    expect(find.text('All one-offs'), findsOneWidget);
     expect(find.textContaining('—'), findsNothing);
+  });
+
+  testWidgets('a yes shows one tip, not next steps', (tester) async {
+    const tip = 'You still repay FairMoney about ₦50,000 a month. Clearing it first leaves more room for what comes next.';
+    final yes = AffordabilityCheck.fromJson({
+      ...affordabilityResponse,
+      'verdict': 'yes',
+      'advice': [
+        {'kind': 'debt', 'text': tip, 'subject': 'FairMoney', 'monthlyMinor': '5000000', 'openMinor': null},
+      ],
+    });
+    await tester.pumpWidget(MaterialApp(theme: ledgerTheme(Brightness.light), home: Scaffold(body: ListView(children: [AffordabilityAnswer(result: yes)]))));
+    expect(find.text('One tip'), findsOneWidget);
+    expect(find.text(tip), findsOneWidget);
+    expect(find.text('What would help'), findsNothing);
   });
 }
 

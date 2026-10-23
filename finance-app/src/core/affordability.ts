@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { formatMoney, parseAmountToMinor } from "@/lib/money";
 import { BASE_CURRENCY, monthPeriod, recurring, summary } from "./analytics";
-import { INCOME_CATEGORY } from "./categorize";
+import { INCOME_CATEGORY, OWN_TRANSFER } from "./categorize";
 
 // "Can I really afford this?" Every figure comes from the user's ledger, in integer minor units.
 // The judgment calls (which months, which payments count as fixed, how big the buffer is) are
@@ -23,6 +23,17 @@ const INCOME_GRACE_DAYS = 10;
 export const MAX_HORIZON_DAYS = 120;
 export const MAX_AMOUNT_MINOR = 10_000_000_000_000n; // ₦100bn, a typo guard
 
+/** Categories where cutting back is a fair suggestion. Bills, family, health and giving are never suggested. */
+export const DISCRETIONARY_CATEGORIES = ["Shopping", "Food", "Transport", "Travel", "Subscriptions"];
+/** A spending category is named in advice once it averages at least this a month: ₦20,000. */
+export const CUT_MIN_MINOR = 2_000_000n;
+/** The most Ledger suggests cutting from one category, as a percentage of it. */
+const CUT_MAX_PERCENT = 50n;
+/** A single payment outside any regular stream is a one-off from ₦50,000, or a tenth of typical monthly income if that is more. */
+export const ONE_OFF_FLOOR_MINOR = 5_000_000n;
+const ONE_OFFS_SHOWN = 5;
+const MAX_ADVICE = 5;
+
 export type Verdict = "yes" | "stretch" | "no";
 export type Horizon = { kind: "month_end" } | { kind: "days"; days: number };
 
@@ -40,9 +51,37 @@ export interface MonthFigures {
   incomeMinor: bigint;
   spendingMinor: bigint;
   loanRepaymentsMinor: bigint;
+  /** Naira debits by category and subcategory, own transfers excluded. */
+  categories: CategorySpend[];
   /** The month in progress, used only when there is no full month yet. */
   partial: boolean;
   days: number;
+}
+
+export interface CategorySpend {
+  category: string;
+  subcategory: string | null;
+  totalMinor: bigint;
+}
+
+export interface Dated {
+  date: Date;
+  amountMinor: bigint;
+}
+
+/** Debt rows for one lender, as the ledger has them: repayments out, loan proceeds in. */
+export interface LenderActivity {
+  name: string;
+  repayments: Dated[];
+  proceeds: Dated[];
+}
+
+export interface SpendItem {
+  name: string;
+  category: string;
+  label?: string;
+  amountMinor: bigint;
+  date: Date;
 }
 
 export interface AffordabilityData {
@@ -53,6 +92,11 @@ export interface AffordabilityData {
   months: MonthFigures[];
   obligations: RegularItem[];
   income: RegularItem[];
+  lenders: LenderActivity[];
+  /** Single debits of at least ONE_OFF_FLOOR_MINOR that are not part of a regular stream. Not Debt, Fees or own transfers. */
+  oneOffs: SpendItem[];
+  /** Start of the oldest month searched for one-offs. */
+  oneOffsSince: Date | null;
 }
 
 export interface AffordabilityRequest {
@@ -69,6 +113,30 @@ export interface ObligationLine {
   monthlyMinor: bigint;
   dueInWindowMinor: bigint;
   nextDue: Date | null;
+  kind: "recurring";
+}
+
+export interface OneOffLine {
+  name: string;
+  category: string;
+  label?: string;
+  amountMinor: bigint;
+  date: Date;
+  kind: "one_off";
+}
+
+export type AdviceKind = "debt" | "cut" | "one_off" | "none";
+
+/** One rule-based next step, built from ledger aggregates only. */
+export interface AdviceLine {
+  kind: AdviceKind;
+  text: string;
+  /** The lender, spending category or payee the line is about. */
+  subject: string | null;
+  /** Debt: the usual monthly repayment. Cut: the suggested monthly cut. */
+  monthlyMinor: bigint | null;
+  /** Debt only: borrowed minus repaid, as far as the ledger shows. null when Ledger cannot tell. */
+  openMinor: bigint | null;
 }
 
 export interface AffordabilityResult {
@@ -93,6 +161,11 @@ export interface AffordabilityResult {
     monthlySurplusMinor: bigint;
     bufferMinor: bigint;
     bufferRule: "obligations" | "floor" | "yours";
+    /** The biggest one-offs, newest search window first by size. Already inside past spending, not counted as recurring. */
+    oneOffs: OneOffLine[];
+    oneOffsTotalMinor: bigint;
+    oneOffMinMinor: bigint;
+    oneOffsSince: Date | null;
   };
   projection: {
     incomeInMinor: bigint;
@@ -107,6 +180,8 @@ export interface AffordabilityResult {
     headroomMinor: bigint;
   };
   monthsToSave: number | null;
+  /** What would help: 2 to 5 lines when the answer is stretch or no, at most one tip when it is yes. */
+  advice: AdviceLine[];
 }
 
 const ceilDiv = (a: bigint, b: bigint) => (a > 0n ? (a + b - 1n) / b : a / b);
@@ -114,6 +189,15 @@ const max = (a: bigint, b: bigint) => (a > b ? a : b);
 const sum = (xs: bigint[]) => xs.reduce((s, x) => s + x, 0n);
 const fmt = (m: bigint) => formatMoney(m, BASE_CURRENCY);
 const dayLabel = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Lagos" });
+/** ₦1,300,000 rather than ₦1,300,000.00 when there are no kobo. */
+const whole = (m: bigint) => fmt(m).replace(/\.00$/, "");
+/** For typical figures: to the nearest ₦1,000, or ₦100 under ₦10,000. */
+const about = (m: bigint) => {
+  const step = m >= 1_000_000n ? 100_000n : 10_000n;
+  return whole(((m + step / 2n) / step) * step);
+};
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const monthOf = (d: Date) => monthPeriod(d, 0).label;
 
 /** The middle of 3+ months; with fewer, the cautious end (lowest income, highest spending). */
 function typical(values: bigint[], cautious: "low" | "high"): bigint {
@@ -190,7 +274,7 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
     for (const t of due) out[dayOf(t)] += o.amountMinor;
     return {
       name: o.name, category: o.category, label: o.label, monthlyMinor: o.amountMinor,
-      dueInWindowMinor: o.amountMinor * BigInt(due.length), nextDue: due.length ? new Date(due[0]) : null,
+      dueInWindowMinor: o.amountMinor * BigInt(due.length), nextDue: due.length ? new Date(due[0]) : null, kind: "recurring",
     };
   });
   const regularMonthly = sum(active.map((o) => o.amountMinor));
@@ -217,19 +301,25 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
   const bufferRule = req.bufferMinor !== undefined && req.bufferMinor >= BUFFER_FLOOR_MINOR ? "yours" : buffer === BUFFER_FLOOR_MINOR ? "floor" : "obligations";
 
   // Day by day: outgoings land before income on the same day, so the low point is never flattered.
+  // `cut` is a monthly reduction in everyday spending from today on. It is 0 for the answer and only sizes advice.
   const daily = monthlyEveryday + otherLoans;
   const spentBy = (d: number) => ceilDiv(daily * BigInt(d), 30n);
-  let running = cash, runningBase = cash;
-  let lowest = cash, lowestDay = 0, lowestBase = cash;
-  for (let d = 0; d <= totalDays; d++) {
-    const step = out[d] + (spentBy(d) - (d > 0 ? spentBy(d - 1) : 0n));
-    running -= step + (d === purchaseDay ? amount : 0n);
-    runningBase -= step;
-    if (running < lowest) { lowest = running; lowestDay = d; }
-    if (runningBase < lowestBase) lowestBase = runningBase;
-    running += inn[d];
-    runningBase += inn[d];
-  }
+  const project = (cut: bigint) => {
+    const outBy = (d: number) => spentBy(d) - (d > purchaseDay ? (cut * BigInt(d - purchaseDay)) / 30n : 0n);
+    let running = cash, runningBase = cash;
+    let lowest = cash, lowestDay = 0, lowestBase = cash;
+    for (let d = 0; d <= totalDays; d++) {
+      const step = out[d] + (outBy(d) - (d > 0 ? outBy(d - 1) : 0n));
+      running -= step + (d === purchaseDay ? amount : 0n);
+      runningBase -= step;
+      if (running < lowest) { lowest = running; lowestDay = d; }
+      if (runningBase < lowestBase) lowestBase = runningBase;
+      running += inn[d];
+      runningBase += inn[d];
+    }
+    return { running, lowest, lowestDay, lowestBase };
+  };
+  const { running, lowest, lowestDay, lowestBase } = project(0n);
   const lowestOn = new Date(startMs + lowestDay * DAY_MS);
   const headroom = lowest - buffer;
   const verdict: Verdict = lowest >= buffer ? "yes" : lowest >= 0n ? "stretch" : "no";
@@ -262,6 +352,16 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
   if (incomeRule === "monthly") notes.push("No regular payday found, so Ledger counts one typical month of income for each full 30 days ahead.");
   if (otherLoans > 0n) notes.push(`${fmt(otherLoans)} a month of loan repayments does not follow a monthly pattern and is spread across the days ahead.`);
 
+  // One-offs: big single payments outside any regular stream, scaled to the user's income.
+  const oneOffMin = max(ONE_OFF_FLOOR_MINOR, monthlyIncome / 10n);
+  const oneOffs = data.oneOffs.filter((o) => o.amountMinor >= oneOffMin).sort((a, b) => (b.amountMinor > a.amountMinor ? 1 : b.amountMinor < a.amountMinor ? -1 : 0));
+  const lookback = full.length ? full.slice(0, LOOKBACK_MONTHS) : partial ? [partial] : [];
+  const advice = buildAdvice({
+    verdict, data, start, now, lastDay, buffer, gap: buffer - lowest, surplus: monthlySurplus, monthsToSave,
+    lookback, partialOnly: !full.length, scale, oneOffs, maxCut: monthlyEveryday,
+    keepsBuffer: (cut) => project(cut).lowest >= buffer,
+  });
+
   return {
     verdict, headline, detail, notes, amountMinor: amount, description: req.description,
     window: { from: start, to: end, label: windowLabel, days: totalDays, startsAtBalanceDate: start < now },
@@ -271,6 +371,8 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
       monthlyObligationsMinor: monthlyObligations, obligations, otherLoanRepaymentsMinor: otherLoans,
       monthlyEverydayMinor: monthlyEveryday, monthlySurplusMinor: monthlySurplus,
       bufferMinor: buffer, bufferRule,
+      oneOffs: oneOffs.slice(0, ONE_OFFS_SHOWN).map((o) => ({ name: o.name, category: o.category, label: o.label, amountMinor: o.amountMinor, date: o.date, kind: "one_off" as const })),
+      oneOffsTotalMinor: sum(oneOffs.map((o) => o.amountMinor)), oneOffMinMinor: oneOffMin, oneOffsSince: data.oneOffsSince,
     },
     projection: {
       incomeInMinor: sum(inn), incomeRule,
@@ -278,7 +380,195 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
       endMinor: running, lowestMinor: lowest, lowestOn, lowestWithoutPurchaseMinor: lowestBase, headroomMinor: headroom,
     },
     monthsToSave,
+    advice,
   };
+}
+
+interface AdviceContext {
+  verdict: Verdict;
+  data: AffordabilityData;
+  start: Date;
+  now: Date;
+  lastDay: Date;
+  buffer: bigint;
+  /** Buffer minus the lowest point: how far short the answer is. Positive unless the verdict is yes. */
+  gap: bigint;
+  surplus: bigint;
+  monthsToSave: number | null;
+  /** The months behind the typical month, newest first. */
+  lookback: MonthFigures[];
+  partialOnly: boolean;
+  scale: (m: MonthFigures, v: bigint) => bigint;
+  oneOffs: SpendItem[];
+  /** A cut can never be more than everyday spending. */
+  maxCut: bigint;
+  /** Re-runs the same day-by-day projection with everyday spending cut by this much a month from today. */
+  keepsBuffer: (cut: bigint) => boolean;
+}
+
+interface Lender {
+  name: string;
+  monthlyMinor: bigint | null;
+  borrowedMinor: bigint;
+  repaidMinor: bigint;
+  openMinor: bigint | null;
+  firstBorrowed: Date | null;
+  borrowings: number;
+}
+
+/**
+ * Lenders still being repaid. Monthly repayment: the typical full month that had a repayment (so weekly
+ * repayments add up). Open: borrowed minus repaid since the first loan Ledger saw, which is a floor on the
+ * principal left because repayments include interest. No loan seen paid out, or more repaid than borrowed:
+ * Ledger cannot tell, and says so.
+ */
+function activeLenders(c: AdviceContext): Lender[] {
+  const cutoff = c.start.getTime() - OBLIGATION_GRACE_DAYS * DAY_MS;
+  const labels = c.partialOnly ? [] : c.lookback.map((m) => m.label);
+  const out: Lender[] = [];
+  for (const l of c.data.lenders) {
+    const last = Math.max(...[...l.repayments, ...l.proceeds].map((x) => x.date.getTime()));
+    if (!(last >= cutoff)) continue;
+    const byMonth = new Map<string, bigint>();
+    for (const r of l.repayments) byMonth.set(monthOf(r.date), (byMonth.get(monthOf(r.date)) ?? 0n) + r.amountMinor);
+    const paidMonths = labels.map((k) => byMonth.get(k) ?? 0n).filter((v) => v > 0n);
+    const first = l.proceeds.length ? new Date(Math.min(...l.proceeds.map((p) => p.date.getTime()))) : null;
+    const borrowed = sum(l.proceeds.map((p) => p.amountMinor));
+    const repaid = first ? sum(l.repayments.filter((r) => r.date >= first).map((r) => r.amountMinor)) : 0n;
+    out.push({
+      name: l.name, monthlyMinor: paidMonths.length ? typical(paidMonths, "high") : null,
+      borrowedMinor: borrowed, repaidMinor: repaid, openMinor: borrowed > repaid ? borrowed - repaid : null,
+      firstBorrowed: first, borrowings: l.proceeds.length,
+    });
+  }
+  const rank = (l: Lender) => l.monthlyMinor ?? -1n;
+  return out.sort((a, b) => (rank(b) > rank(a) ? 1 : rank(b) < rank(a) ? -1 : 0));
+}
+
+function debtAdvice(l: Lender): AdviceLine {
+  const m = l.monthlyMinor;
+  let text: string;
+  if (l.openMinor !== null) {
+    const when = `${l.borrowings === 1 ? "on" : "since"} ${dayLabel(l.firstBorrowed!)}`;
+    const paid = l.repaidMinor > 0n ? `${whole(l.repaidMinor)} repaid since` : "nothing repaid yet";
+    const months = m ? ` At ${about(m)} a month that takes at least ${plural(Number(ceilDiv(l.openMinor, m)), "more month")}, then that money is free.` : "";
+    text = `Clear ${l.name} first: at least ${whole(l.openMinor)} is still open (${whole(l.borrowedMinor)} borrowed ${when}, ${paid}, interest not counted).${months}`;
+  } else {
+    const unknown = l.borrowedMinor > 0n
+      ? `You have repaid more than the ${whole(l.borrowedMinor)} Ledger saw you borrow, so check with ${l.name} for what is left.`
+      : `Ledger has not seen this loan paid out, so it cannot tell how much is left. Check with ${l.name}.`;
+    text = m ? `Clear ${l.name} first. You repay about ${about(m)} a month. ${unknown} Once it is done, that ${about(m)} a month is free.` : `Clear ${l.name} first. ${unknown}`;
+  }
+  return { kind: "debt", text, subject: l.name, monthlyMinor: m, openMinor: l.openMinor };
+}
+
+function spanLabel(c: AdviceContext): string {
+  const names = c.lookback.map((m) => m.label.split(" ")[0]);
+  if (!names.length) return "";
+  if (c.partialOnly) return `in ${names[0]} so far`;
+  return names.length === 1 ? `in ${names[0]}` : `from ${names[names.length - 1]} to ${names[0]}`;
+}
+
+/** Discretionary categories by monthly average over the lookback months, with one-offs taken out. */
+function spendingToCut(c: AdviceContext) {
+  const oneOff = new Map<string, bigint>();
+  const key = (month: string, category: string, sub: string | null | undefined) => `${month}|${category}|${sub ?? ""}`;
+  for (const o of c.oneOffs) oneOff.set(key(monthOf(o.date), o.category, o.label), (oneOff.get(key(monthOf(o.date), o.category, o.label)) ?? 0n) + o.amountMinor);
+  const cats = new Map<string, { total: bigint; subs: Map<string, bigint> }>();
+  for (const m of c.lookback) {
+    for (const row of m.categories) {
+      if (!DISCRETIONARY_CATEGORIES.includes(row.category)) continue;
+      const v = max(0n, row.totalMinor - (oneOff.get(key(m.label, row.category, row.subcategory)) ?? 0n));
+      const g = cats.get(row.category) ?? { total: 0n, subs: new Map() };
+      g.total += v;
+      if (row.subcategory) g.subs.set(row.subcategory, (g.subs.get(row.subcategory) ?? 0n) + v);
+      cats.set(row.category, g);
+    }
+  }
+  return [...cats.entries()]
+    .map(([category, g]) => {
+      const monthly = c.partialOnly ? c.scale(c.lookback[0], g.total) : g.total / BigInt(c.lookback.length);
+      const [topSub, topTotal] = [...g.subs.entries()].sort((a, b) => (b[1] > a[1] ? 1 : -1))[0] ?? [null, 0n];
+      return { category, monthly, name: topSub && topTotal * 2n >= g.total ? `${category} (mostly ${topSub.toLowerCase()})` : category };
+    })
+    .filter((x) => x.monthly >= CUT_MIN_MINOR)
+    .sort((a, b) => (b.monthly > a.monthly ? 1 : b.monthly < a.monthly ? -1 : 0));
+}
+
+/** Smallest monthly cut, in whole ₦1,000s, that keeps the buffer through the window. null when even the cap does not. */
+function cutThatKeepsBuffer(c: AdviceContext, cap: bigint): bigint | null {
+  if (!c.keepsBuffer(cap)) return null;
+  const step = 100_000n;
+  // A cut of 0 fails (the answer is not yes), and a cut of the cap rounded up passes.
+  let lo = 0n, hi = ceilDiv(cap, step);
+  while (hi - lo > 1n) {
+    const mid = (lo + hi) / 2n;
+    if (c.keepsBuffer(mid * step)) hi = mid;
+    else lo = mid;
+  }
+  return hi * step;
+}
+
+function cutAdvice(c: AdviceContext, cat: { category: string; monthly: bigint; name: string }): AdviceLine | null {
+  const part = cat.monthly * CUT_MAX_PERCENT / 100n;
+  const cap = part < c.maxCut ? part : c.maxCut;
+  if (cap <= 0n) return null;
+  const spent = `You spent about ${about(cat.monthly)} a month there ${spanLabel(c)}.`;
+  const inWindow = cutThatKeepsBuffer(c, cap);
+  if (inWindow !== null) {
+    return {
+      kind: "cut", subject: cat.category, monthlyMinor: inWindow, openMinor: null,
+      text: `Spend about ${whole(inWindow)} a month less on ${cat.name} from today and you stay above your buffer to ${dayLabel(c.lastDay)}. ${spent}`,
+    };
+  }
+  const saving = c.surplus + cap;
+  const n = saving > 0n ? Number(ceilDiv(c.gap, saving)) : null;
+  const then = n === null ? " Your outgoings would still be above your income, so this alone is not enough."
+    : c.monthsToSave === null ? ` That leaves you a surplus each month, enough to save the ${about(c.gap)} gap in about ${plural(n, "month")}.`
+    : c.monthsToSave > n ? ` With your usual surplus, that saves the ${about(c.gap)} gap in about ${plural(n, "month")} instead of ${c.monthsToSave}.`
+    : ` That is ${about(cap)} more each month toward the ${about(c.gap)} gap.`;
+  return {
+    kind: "cut", subject: cat.category, monthlyMinor: cap, openMinor: null,
+    text: `Cut ${cat.name} by about ${about(cap)} a month. ${spent}${then}`,
+  };
+}
+
+function oneOffAdvice(c: AdviceContext): AdviceLine | null {
+  // Annual rent or a family payment is a bill even when Ledger has seen it once, so only spending is suggested here.
+  const spends = c.oneOffs.filter((o) => !OBLIGATION_CATEGORIES.includes(o.category));
+  if (!spends.length) return null;
+  const big = spends[0];
+  const total = sum(spends.map((o) => o.amountMinor));
+  const text = spends.length === 1
+    ? `A one-off spend took ${whole(big.amountMinor)} on ${dayLabel(big.date)} (${big.name}). It is not a bill, so holding off on more like it until you have bought this keeps that cash free.`
+    : `One-off spends took ${whole(total)} since ${dayLabel(c.data.oneOffsSince ?? big.date)} (${plural(spends.length, "payment")}, the biggest ${whole(big.amountMinor)} to ${big.name} on ${dayLabel(big.date)}). They are not bills, so holding off on more like them until you have bought this keeps that cash free.`;
+  return { kind: "one_off", text, subject: big.name, monthlyMinor: null, openMinor: null };
+}
+
+/**
+ * What would help, in priority order: loans still being repaid, then discretionary categories to cut,
+ * then one-off spends. Every figure comes from the ledger. A yes gets at most one tip.
+ */
+function buildAdvice(c: AdviceContext): AdviceLine[] {
+  const lenders = activeLenders(c);
+  if (c.verdict === "yes") {
+    const l = lenders.find((x) => x.monthlyMinor !== null);
+    return l ? [{
+      kind: "debt", subject: l.name, monthlyMinor: l.monthlyMinor, openMinor: l.openMinor,
+      text: `You still repay ${l.name} about ${about(l.monthlyMinor!)} a month. Clearing it first leaves more room for what comes next.`,
+    }] : [];
+  }
+  const lines: AdviceLine[] = lenders.slice(0, 2).map(debtAdvice);
+  for (const cat of spendingToCut(c).slice(0, 2)) {
+    const line = cutAdvice(c, cat);
+    if (line) lines.push(line);
+  }
+  const oneOff = oneOffAdvice(c);
+  if (oneOff) lines.push(oneOff);
+  if (!lines.length) {
+    lines.push({ kind: "none", subject: null, monthlyMinor: null, openMinor: null, text: `Ledger found no loans, big spending categories or one-off spends to point to ${spanLabel(c) || "yet"}.` });
+  }
+  return lines.slice(0, MAX_ADVICE);
 }
 
 /** Reads everything the check needs from the user's ledger. Scoped by the server-derived userId. */
@@ -294,19 +584,23 @@ export async function loadAffordabilityData(userId: string, now = new Date()): P
   const asOf = naira.reduce<Date | null>((d, a) => (a.balanceUpdatedAt && (!d || a.balanceUpdatedAt > d) ? a.balanceUpdatedAt : d), null);
 
   const months: MonthFigures[] = [];
+  let since: Date | null = null;
   if (first) {
     for (let i = 1; i <= SEARCH_MONTHS && months.length < LOOKBACK_MONTHS; i++) {
       const p = monthPeriod(now, -i);
       if (p.to <= first.transactionDate) break;
       const m = await monthFigures(userId, p, false, now);
-      if (m) months.push(m);
+      if (m) { months.push(m); since = p.from; }
     }
     if (!months.length) {
-      const m = await monthFigures(userId, monthPeriod(now, 0), true, now);
-      if (m) months.push(m);
+      const p = monthPeriod(now, 0);
+      const m = await monthFigures(userId, p, true, now);
+      if (m) { months.push(m); since = p.from; }
     }
   }
 
+  const regularIds = new Set(obligations.flatMap((o) => o.transactionIds));
+  const [lenders, oneOffs] = await Promise.all([lenderActivity(userId, now), since ? bigOneOffs(userId, since, regularIds) : []]);
   const item = (r: (typeof obligations)[number]): RegularItem => ({
     name: r.name, category: r.category, label: r.label, amountMinor: r.averageMinor, lastDate: r.lastDate, nextExpected: r.nextExpected,
   });
@@ -316,20 +610,73 @@ export async function loadAffordabilityData(userId: string, now = new Date()): P
     months,
     obligations: obligations.map(item),
     income: income.map(item),
+    lenders,
+    oneOffs,
+    oneOffsSince: since,
   };
 }
 
+/**
+ * Debt rows grouped by lender over the search window. "LOAN TO <name>" memos (subcategory Loans) are left
+ * out: the narration cannot say whether the user lent or borrowed, so Ledger does not tell them to clear it.
+ */
+async function lenderActivity(userId: string, now: Date): Promise<LenderActivity[]> {
+  const rows = await db.transaction.findMany({
+    where: { userId, category: "Debt", currency: BASE_CURRENCY, transferPairId: null, transactionDate: { gte: monthPeriod(now, -(SEARCH_MONTHS - 1)).from } },
+    orderBy: { transactionDate: "asc" },
+    select: { type: true, amountMinor: true, transactionDate: true, merchantName: true, counterparty: true, subcategory: true },
+  });
+  const by = new Map<string, LenderActivity>();
+  for (const r of rows) {
+    const name = r.merchantName ?? r.counterparty;
+    if (!name || (r.type === "DEBIT" && r.subcategory === "Loans")) continue;
+    const l = by.get(name.toLowerCase()) ?? { name, repayments: [], proceeds: [] };
+    (r.type === "CREDIT" ? l.proceeds : l.repayments).push({ date: r.transactionDate, amountMinor: r.amountMinor });
+    by.set(name.toLowerCase(), l);
+  }
+  return [...by.values()];
+}
+
+/** Big single debits since `since` that are not part of a regular stream. A wallet withdrawal to the user's bank is not a spend. */
+async function bigOneOffs(userId: string, since: Date, regularIds: Set<string>): Promise<SpendItem[]> {
+  const rows = await db.transaction.findMany({
+    where: {
+      userId, type: "DEBIT", currency: BASE_CURRENCY, transferPairId: null, category: { notIn: [OWN_TRANSFER, "Fees", "Debt"] },
+      amountMinor: { gte: ONE_OFF_FLOOR_MINOR }, transactionDate: { gte: since },
+    },
+    orderBy: { amountMinor: "desc" },
+    take: 100,
+    select: { id: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, amountMinor: true, transactionDate: true },
+  });
+  return rows
+    .filter((r) => !regularIds.has(r.id) && !(r.category === "Transfers" && r.subcategory === "Withdrawal"))
+    .map((r) => ({
+      name: r.merchantName ?? r.counterparty ?? r.description.slice(0, 40), category: r.category, label: r.subcategory ?? undefined,
+      amountMinor: r.amountMinor, date: r.transactionDate,
+    }));
+}
+
 async function monthFigures(userId: string, p: ReturnType<typeof monthPeriod>, partial: boolean, now: Date): Promise<MonthFigures | null> {
-  const [s, loans] = await Promise.all([
+  const range = { gte: p.from, lt: p.to };
+  const [s, loans, categories] = await Promise.all([
     summary(userId, p),
     db.transaction.aggregate({
-      where: { userId, type: "DEBIT", category: "Debt", currency: BASE_CURRENCY, transferPairId: null, transactionDate: { gte: p.from, lt: p.to } },
+      where: { userId, type: "DEBIT", category: "Debt", currency: BASE_CURRENCY, transferPairId: null, transactionDate: range },
+      _sum: { amountMinor: true },
+    }),
+    db.transaction.groupBy({
+      by: ["category", "subcategory"],
+      where: { userId, type: "DEBIT", currency: BASE_CURRENCY, transferPairId: null, category: { not: OWN_TRANSFER }, transactionDate: range },
       _sum: { amountMinor: true },
     }),
   ]);
   if (s.count === 0) return null;
   const days = partial ? Math.max(1, Math.ceil((now.getTime() - p.from.getTime()) / DAY_MS)) : Math.round((p.to.getTime() - p.from.getTime()) / DAY_MS);
-  return { label: p.label, incomeMinor: s.income, spendingMinor: s.expenses, loanRepaymentsMinor: loans._sum.amountMinor ?? 0n, partial, days };
+  return {
+    label: p.label, incomeMinor: s.income, spendingMinor: s.expenses, loanRepaymentsMinor: loans._sum.amountMinor ?? 0n,
+    categories: categories.map((c) => ({ category: c.category, subcategory: c.subcategory, totalMinor: c._sum.amountMinor ?? 0n })),
+    partial, days,
+  };
 }
 
 export async function checkAffordability(userId: string, req: AffordabilityRequest, now = new Date()) {

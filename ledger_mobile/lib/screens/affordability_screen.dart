@@ -108,6 +108,7 @@ class AffordabilityAnswer extends StatelessWidget {
 
   static const _bufferRule = {'obligations': 'a month of bills', 'floor': 'minimum', 'yours': 'yours'};
   static const _incomeRule = {'paydays': 'your paydays', 'monthly': 'typical month', 'none': 'none counted'};
+  static const _adviceTag = {'debt': 'Loan', 'cut': 'Cut back', 'one_off': 'One-off', 'none': 'Checked'};
 
   @override
   Widget build(BuildContext context) {
@@ -150,14 +151,49 @@ class AffordabilityAnswer extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+        if (r.advice.isNotEmpty)
+          Card(
+            key: const Key('afford-advice'),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(r.verdict == 'yes' ? 'One tip' : 'What would help', style: theme.textTheme.titleMedium?.copyWith(color: scheme.primary)),
+                  for (final a in r.advice)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 72,
+                            margin: const EdgeInsets.only(top: 1),
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            decoration: BoxDecoration(color: scheme.primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999)),
+                            child: Text(
+                              _adviceTag[a.kind] ?? a.kind,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.labelSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(a.text, style: theme.textTheme.bodyMedium)),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
         _Section(
           title: 'Your typical month',
           subtitle: r.incomeMonths.isEmpty ? 'No months imported yet' : 'From ${r.incomeMonths.join(', ')}',
           rows: [
             _Line('Income', money(r.monthlyIncomeMinor)),
-            _Line('Fixed obligations', out(r.monthlyObligationsMinor)),
+            _Line('Recurring bills', out(r.monthlyObligationsMinor)),
             for (final o in r.obligations) _Line('${o.name} · ${o.label ?? o.category}', money(o.monthlyMinor), sub: true),
-            if (r.otherLoanRepaymentsMinor != '0') _Line('Other loan repayments', money(r.otherLoanRepaymentsMinor), sub: true),
+            if (r.otherLoanRepaymentsMinor != '0') _Line('Loan repayments, not monthly', money(r.otherLoanRepaymentsMinor), sub: true),
             _Line('Everyday spending', out(r.monthlyEverydayMinor)),
             _Line('Usual surplus', money(r.monthlySurplusMinor), strong: true),
           ],
@@ -167,7 +203,7 @@ class AffordabilityAnswer extends StatelessWidget {
           rows: [
             _Line(r.cashKnown ? 'Cash${r.cashAsOf == null ? '' : ', ${formatDay(r.cashAsOf!)}'}' : 'Cash on file (none)', money(r.cashMinor)),
             _Line('Income in (${_incomeRule[r.incomeRule] ?? r.incomeRule})', '+${money(r.incomeInMinor)}'),
-            _Line('Fixed obligations due', out(r.obligationsOutMinor)),
+            _Line('Recurring bills due', out(r.obligationsOutMinor)),
             _Line('Everyday spending, estimated', out(r.everydayOutMinor)),
             _Line(r.description == null ? 'This purchase' : 'This purchase (${r.description})', out(r.amountMinor)),
             _Line('Lowest point, ${formatDay(r.lowestOn)}', money(r.lowestMinor), strong: true),
@@ -175,6 +211,17 @@ class AffordabilityAnswer extends StatelessWidget {
             _Line('Room above buffer', money(r.headroomMinor), strong: true),
           ],
         ),
+        if (r.oneOffsSince != null)
+          _Section(
+            title: 'One-off spends since ${formatDay(r.oneOffsSince!)}',
+            subtitle: 'Single payments of ${money(r.oneOffMinMinor)} or more that are not regular bills. Already in your past spending, not in the recurring bills.',
+            rows: r.oneOffs.isEmpty
+                ? const [_Line('None found', '')]
+                : [
+                    for (final o in r.oneOffs) _Line('${o.name} · ${o.label ?? o.category}, ${formatDay(o.date)}', money(o.amountMinor)),
+                    _Line('All one-offs', money(r.oneOffsTotalMinor), strong: true),
+                  ],
+          ),
         for (final note in r.notes)
           Padding(
             padding: const EdgeInsets.only(top: 8),

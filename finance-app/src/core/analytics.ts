@@ -230,6 +230,8 @@ export interface RecurringItem {
   months: number;
   lastDate: Date;
   nextExpected: Date;
+  /** The rows in this stream, so callers can tell a regular payment from a one-off. */
+  transactionIds: string[];
 }
 
 const lagosMonth = (d: Date) => new Date(d.getTime() + 3600_000).toISOString().slice(0, 7);
@@ -247,7 +249,7 @@ export async function recurring(userId: string, now: Date, type: "DEBIT" | "CRED
   const rows = await db.transaction.findMany({
     where: { userId, type, currency: BASE_CURRENCY, ...countable, transactionDate: { gte: from } },
     orderBy: { transactionDate: "asc" },
-    select: { description: true, merchantName: true, counterparty: true, category: true, subcategory: true, classificationSource: true, amountMinor: true, transactionDate: true },
+    select: { id: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, classificationSource: true, amountMinor: true, transactionDate: true },
   });
 
   type Row = (typeof rows)[number];
@@ -300,6 +302,7 @@ export async function recurring(userId: string, now: Date, type: "DEBIT" | "CRED
         months: months.size,
         lastDate: last.transactionDate,
         nextExpected: new Date(last.transactionDate.getTime() + Math.round(medGap) * 86400_000),
+        transactionIds: sorted.map((r) => r.id),
       });
     }
   }

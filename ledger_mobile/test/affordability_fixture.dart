@@ -28,14 +28,21 @@ const affordabilityResponse = <String, Object?>{
         'monthlyMinor': '25000000',
         'dueInWindowMinor': '25000000',
         'nextDue': '2026-10-26T11:00:00.000Z',
+        'kind': 'recurring',
       },
-      {'name': 'FairMoney', 'category': 'Debt', 'label': 'Loan repayment', 'monthlyMinor': '5000000', 'dueInWindowMinor': '0', 'nextDue': null},
+      {'name': 'FairMoney', 'category': 'Debt', 'label': 'Loan repayment', 'monthlyMinor': '5000000', 'dueInWindowMinor': '0', 'nextDue': null, 'kind': 'recurring'},
     ],
     'otherLoanRepaymentsMinor': '0',
     'monthlyEverydayMinor': '8000000',
     'monthlySurplusMinor': '52000000',
     'bufferMinor': '40000000',
     'bufferRule': 'obligations',
+    'oneOffs': [
+      {'name': 'Fouani Showroom', 'category': 'Shopping', 'label': 'Electronics', 'amountMinor': '45000000', 'date': '2026-08-12T09:00:00.000Z', 'kind': 'one_off'},
+    ],
+    'oneOffsTotalMinor': '45000000',
+    'oneOffMinMinor': '10000000',
+    'oneOffsSince': '2026-06-30T23:00:00.000Z',
   },
   'projection': {
     'incomeInMinor': '100000000',
@@ -49,4 +56,20 @@ const affordabilityResponse = <String, Object?>{
     'headroomMinor': '-19833334',
   },
   'monthsToSave': 1,
+  'advice': [
+    {
+      'kind': 'debt',
+      'text': 'Clear FairMoney first. You repay about ₦50,000 a month. Ledger has not seen this loan paid out, so it cannot tell how much is left. Check with FairMoney. Once it is done, that ₦50,000 a month is free.',
+      'subject': 'FairMoney',
+      'monthlyMinor': '5000000',
+      'openMinor': null,
+    },
+    {
+      'kind': 'one_off',
+      'text': 'A one-off spend took ₦450,000 on 12 Aug (Fouani Showroom). It is not a bill, so holding off on more like it until you have bought this keeps that cash free.',
+      'subject': 'Fouani Showroom',
+      'monthlyMinor': null,
+      'openMinor': null,
+    },
+  ],
 };
