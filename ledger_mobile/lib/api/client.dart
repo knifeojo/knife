@@ -56,6 +56,22 @@ class LedgerApi {
     return _parse(_object(_uri('/api/v1/summary', {'offset': '$offset'}), _get), HomeSummary.fromJson);
   }
 
+  /// `horizon` is "month_end" or a number of days from 1 to 120.
+  Future<AffordabilityCheck> affordability({required String amountMinor, String? description, String horizon = 'month_end', String? bufferMinor}) {
+    return _parse(
+      _object(
+        _uri('/api/v1/affordability'),
+        (uri) => _post(uri, {
+          'amountMinor': amountMinor,
+          if (description != null && description.trim().isNotEmpty) 'description': description.trim(),
+          'horizon': horizon,
+          'bufferMinor': ?bufferMinor,
+        }),
+      ),
+      AffordabilityCheck.fromJson,
+    );
+  }
+
   Future<List<StatementFileResult>> uploadStatement({required String filename, required Uint8List bytes, String? password}) async {
     final request = http.MultipartRequest('POST', _uri('/api/v1/statements'));
     request.headers.addAll(_headers());

@@ -102,6 +102,10 @@ class LedgerController extends ChangeNotifier {
     return _guard((api) => api.transactions(category: category, query: query));
   }
 
+  Future<AffordabilityCheck> affordability({required String amountMinor, String? description, String horizon = 'month_end', String? bufferMinor}) {
+    return _guard((api) => api.affordability(amountMinor: amountMinor, description: description, horizon: horizon, bufferMinor: bufferMinor));
+  }
+
   Future<List<StatementFileResult>> upload({required String filename, required Uint8List bytes, String? password}) {
     return _guard((api) => api.uploadStatement(filename: filename, bytes: bytes, password: password));
   }

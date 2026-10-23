@@ -7,6 +7,8 @@ import 'package:http/testing.dart';
 import 'package:ledger_mobile/api/client.dart';
 import 'package:ledger_mobile/api/models.dart';
 
+import 'affordability_fixture.dart';
+
 void main() {
   test('sends the bearer token and keeps minor units as strings', () async {
     late http.Request seen;
@@ -102,5 +104,23 @@ void main() {
       httpClient: MockClient((request) async => http.Response(jsonEncode({'ok': true, 'service': 'other', 'version': 1}), 200)),
     );
     expect(await api.health(), isFalse);
+  });
+
+  test('posts an affordability check as JSON with kobo as a string', () async {
+    late http.Request seen;
+    final api = LedgerApi(
+      baseUrl: 'http://100.64.0.8:3000',
+      token: 'session-token-value',
+      httpClient: MockClient((request) async {
+        seen = request;
+        return http.Response(jsonEncode(affordabilityResponse), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+      }),
+    );
+    final check = await api.affordability(amountMinor: '160000000', description: '  a car deposit ', horizon: '30');
+    expect(seen.method, 'POST');
+    expect(seen.url.path, '/api/v1/affordability');
+    expect(seen.headers['authorization'], 'Bearer session-token-value');
+    expect(jsonDecode(seen.body), {'amountMinor': '160000000', 'description': 'a car deposit', 'horizon': '30'});
+    expect(check.verdict, 'stretch');
   });
 }

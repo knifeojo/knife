@@ -21,6 +21,7 @@ import { phraseAnswer } from "@/core/ask/llm";
 import type { Facts } from "@/core/ask/answer";
 import { applyNoteLabel, matchNotes, monthFromHeading, parseNotes, type NoteMatch } from "@/core/notes";
 import { specificMonth } from "@/core/analytics";
+import { affordabilityJson, checkAffordability, cleanDescription, parseAmountInput, parseHorizon, type AffordabilityJson } from "@/core/affordability";
 import { MAX_STATEMENT_FILES, StatementFormatError, importStatement, recordFailedImport, resolveIssueByAdding, resolveIssueByIgnoring, type StatementImportSummary } from "@/core/statement-import";
 
 export type SyncState = { ok?: string; error?: string } | undefined;
@@ -284,4 +285,22 @@ export async function applyNotesAction(form: FormData) {
   }
   revalidatePath("/app", "layout");
   return applied;
+}
+
+export type AffordState = { result: AffordabilityJson } | { error: string } | undefined;
+
+/** "Can I really afford this?" Read-only: nothing in the ledger changes. */
+export async function affordAction(_: AffordState, form: FormData): Promise<AffordState> {
+  const user = await requireUser();
+  const amountMinor = parseAmountInput(String(form.get("amount") ?? "").slice(0, 40));
+  if (amountMinor === null) return { error: "Enter an amount, like 250,000 or 2.5m." };
+  const horizon = parseHorizon(String(form.get("horizon") ?? "month_end")) ?? { kind: "month_end" as const };
+  const bufferRaw = String(form.get("buffer") ?? "").trim().slice(0, 40);
+  const bufferMinor = bufferRaw ? (/^[₦n]?\s*0+$/i.test(bufferRaw) ? 0n : parseAmountInput(bufferRaw)) : undefined;
+  if (bufferMinor === null) return { error: "Enter the buffer as an amount, like 200,000, or leave it empty." };
+  if ((await db.transaction.count({ where: { userId: user.id } })) === 0) {
+    return { error: "Import a statement first so Ledger has your income and spending to go on." };
+  }
+  const result = await checkAffordability(user.id, { amountMinor, description: cleanDescription(form.get("description")), horizon, bufferMinor });
+  return { result: affordabilityJson(result) };
 }

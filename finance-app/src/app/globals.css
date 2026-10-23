@@ -16,6 +16,10 @@
   --warn-bg: #fff4d6;
   --warn-ink: #6b4a00;
   --danger: #b42318;
+  /* Ledger brand blue (matches the mobile app) */
+  --brand: #1d4ed8;
+  --brand-ink: #ffffff;
+  --brand-soft: #e6edff;
   /* chart roles (validated reference palette) */
   --series-1: #2a78d6;
   --series-2: #eb6834;
@@ -39,6 +43,9 @@
     --warn-bg: #3a2e0c;
     --warn-ink: #f5d78a;
     --danger: #f97066;
+    --brand: #6b8eff;
+    --brand-ink: #0a1430;
+    --brand-soft: #18234a;
     --series-1: #3987e5;
     --series-2: #d95926;
     --grid: #2a2b28;
@@ -60,6 +67,9 @@
   --color-warn-bg: var(--warn-bg);
   --color-warn-ink: var(--warn-ink);
   --color-danger: var(--danger);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 

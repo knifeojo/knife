@@ -98,6 +98,21 @@ describe("lenders (FairMoney and Renmoney are loans, not wallets)", () => {
     });
     expect(categorize({ description: "NIP FROM RENMONEY", type: "CREDIT" }).category).not.toBe("Income");
   });
+
+  it("treats a repayment into a lender account in the borrower's own name as debt, not an own transfer", () => {
+    const owners = ["JANE ADA DOE"];
+    for (const [description, lender] of [
+      ["Instant Payment Outward 0001 TO FAIRMONEY MFB - JANE ADA DOE", "FairMoney"],
+      ["TRANSFER FROM JANE ADA DOE TO FAIRMONEY - JANE ADA DOE", "FairMoney"],
+      ["Instant Payment Outward 0002 TO RENMONEY MFB - JANE ADA DOE", "Renmoney"],
+    ]) {
+      expect(categorize({ description, type: "DEBIT" }, [], owners)).toMatchObject({
+        category: "Debt", subcategory: "Loan repayment", merchantName: lender, counterparty: lender,
+      });
+    }
+    // A transfer to the user's own account at a real bank is still an own transfer.
+    expect(categorize({ description: "Instant Payment Outward 0003 TO OPAY - JANE ADA DOE", type: "DEBIT" }, [], owners).category).toBe("Own transfer");
+  });
 });
 
 describe("Deel and Pesa narrations", () => {

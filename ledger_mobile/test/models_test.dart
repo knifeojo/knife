@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ledger_mobile/api/models.dart';
 
+import 'affordability_fixture.dart';
+
 void main() {
   test('reads money as minor-unit strings', () {
     final summary = HomeSummary.fromJson({
@@ -46,6 +48,23 @@ void main() {
       },
     });
     expect(result.describe(), 'GTBank ••4521: 7 new, 0 already imported.');
+  });
+
+  test('reads an affordability answer with every amount as minor units', () {
+    final check = AffordabilityCheck.fromJson(affordabilityResponse);
+    expect(check.verdict, 'stretch');
+    expect(check.monthlyIncomeMinor, '100000000');
+    expect(check.headroomMinor, '-19833334');
+    expect(check.obligations.map((o) => o.category), ['Housing', 'Debt']);
+    expect(check.obligations.last.nextDue, isNull);
+    expect(check.monthsToSave, 1);
+    expect(check.lowestOn, DateTime.utc(2026, 10, 25, 11));
+  });
+
+  test('rejects an affordability answer with a numeric amount or an unknown verdict', () {
+    final inputs = Map<String, Object?>.from(affordabilityResponse['inputs']! as Map);
+    expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'inputs': {...inputs, 'cashMinor': 181500000}}), throwsFormatException);
+    expect(() => AffordabilityCheck.fromJson({...affordabilityResponse, 'verdict': 'maybe'}), throwsFormatException);
   });
 }
 

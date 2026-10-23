@@ -13,6 +13,8 @@ import 'package:ledger_mobile/state/ledger_controller.dart';
 import 'package:ledger_mobile/storage/settings_store.dart';
 import 'package:ledger_mobile/theme.dart';
 
+import 'affordability_fixture.dart';
+
 void main() {
   testWidgets('asks for a server and rejects a URL that is not an origin', (tester) async {
     var calls = 0;
@@ -57,8 +59,15 @@ void main() {
 
     await tester.tap(find.text('Afford'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('not built yet'), findsOneWidget);
-    expect(find.textContaining('FairMoney'), findsOneWidget);
+    expect(find.text('Can I really afford this?'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('afford-amount')), '1.6m');
+    await tester.enterText(find.byKey(const Key('afford-description')), 'a car deposit');
+    await tester.ensureVisible(find.byKey(const Key('afford-check')));
+    await tester.tap(find.byKey(const Key('afford-check')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Stretch'), 200, scrollable: find.descendant(of: find.byKey(const Key('afford-list')), matching: find.byType(Scrollable)).first);
+    expect(find.text('Stretch'), findsOneWidget);
+    expect(find.textContaining("It's a stretch."), findsOneWidget);
     controller.dispose();
   });
 
@@ -117,12 +126,20 @@ void main() {
     expect(find.textContaining('₦45,250.50'), findsOneWidget);
   });
 
-  testWidgets('affordability screen is an honest placeholder', (tester) async {
-    await tester.pumpWidget(MaterialApp(theme: ledgerTheme(Brightness.light), home: const Scaffold(body: AffordabilityScreen())));
-    expect(find.text('Can I really afford this?'), findsOneWidget);
-    expect(find.textContaining('Renmoney'), findsOneWidget);
-    expect(find.textContaining('buffer'), findsOneWidget);
-    expect(find.textContaining('not built yet'), findsOneWidget);
+  testWidgets('affordability answer shows the verdict and the inputs behind it', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ledgerTheme(Brightness.light),
+        home: Scaffold(body: ListView(children: [AffordabilityAnswer(result: AffordabilityCheck.fromJson(affordabilityResponse))])),
+      ),
+    );
+    expect(find.text('Stretch'), findsOneWidget);
+    expect(find.textContaining('below your ₦400,000.00 safety buffer'), findsOneWidget);
+    expect(find.text('₦1,000,000.00'), findsOneWidget);
+    expect(find.text('FairMoney · Loan repayment'), findsOneWidget);
+    expect(find.text('-₦1,600,000.00'), findsOneWidget);
+    expect(find.text('-₦198,333.34'), findsOneWidget);
+    expect(find.textContaining('—'), findsNothing);
   });
 }
 
@@ -176,6 +193,10 @@ Future<http.Response> _api(http.Request request) async {
   }
   if (path.endsWith('/accounts')) {
     return http.Response(jsonEncode({'accounts': [], 'totalBaseMinor': '0', 'totalBaseCurrency': 'NGN'}), 200);
+  }
+  if (path.endsWith('/affordability')) {
+    expect(jsonDecode(request.body), {'amountMinor': '160000000', 'description': 'a car deposit', 'horizon': 'month_end'});
+    return http.Response(jsonEncode(affordabilityResponse), 200, headers: {'content-type': 'application/json; charset=utf-8'});
   }
   if (path.endsWith('/transactions')) {
     return http.Response(jsonEncode({'transactions': [], 'total': 0, 'page': 1, 'pageSize': 50, 'categories': ['Food', 'Income']}), 200);

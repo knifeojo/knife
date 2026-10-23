@@ -14,7 +14,7 @@ npm run dev            # http://localhost:3000
 ```
 
 ```bash
-npm test               # parsers, statements (PDF/CSV/XLSX), transfer pairing, AI categorizer and assistant (simulated model), benchmark, dedup, pipeline, authz, Google sign-in, mobile API, AI facts
+npm test               # parsers, statements (PDF/CSV/XLSX), transfer pairing, AI categorizer and assistant (simulated model), benchmark, dedup, pipeline, authz, Google sign-in, mobile API, AI facts, affordability
 npm run build
 ```
 
@@ -36,6 +36,7 @@ Ways to get data in:
 | `src/core/providers/` | `EmailSource` (Gmail, fixtures) and the future `FinancialDataProvider` interface |
 | `src/core/analytics.ts` | User-scoped aggregates, recurring detection, recategorize |
 | `src/core/ask/` | Intent parser → SQL facts → optional Claude phrasing with a number guard |
+| `src/core/affordability.ts` | "Can I really afford this?" Pure BigInt formula (`assessAffordability`) and the ledger reads behind it |
 | `src/core/statements.ts` | CSV parser, header detection, bank/currency/account detection, row normalization |
 | `src/core/pdf-statement.ts` | Rebuilds statement tables from PDF text positions (via `unpdf`), handles passwords, wrapped narrations, multi-page headers |
 | `src/core/statement-import.ts` | Statement upload into the ledger (xlsx via `read-excel-file`) |
@@ -64,6 +65,7 @@ Money is a string of minor units (`"198361100"` is ₦1,983,611.00). Dates are I
 | GET | `/api/v1/transactions` | bearer | Paged ledger. Filters: `category`, `type`, `accountId`, `q`, `from`, `to`, `page`, `pageSize` |
 | GET | `/api/v1/summary` | bearer | Month income, expenses, net, category totals, recent rows. `month=YYYY-MM` or `offset=-1` |
 | POST | `/api/v1/statements` | bearer | Multipart PDF, CSV or XLSX (`file` or `files`). Optional `password` for a PDF, used once in memory |
+| POST | `/api/v1/affordability` | bearer | `{ amountMinor: "250000000", description?, horizon?: "month_end" \| 1..120 (days), bufferMinor? }` → `{ verdict: "yes" \| "stretch" \| "no", headline, detail, notes, inputs, projection, monthsToSave }`. 409 until the user has transactions |
 
 Run the server so a phone on the same tailnet can reach it:
 
@@ -72,6 +74,36 @@ npx next dev -H 0.0.0.0 -p 3000
 ```
 
 How to build the app and point it at this machine: [../ledger_mobile/README.md](../ledger_mobile/README.md).
+
+## Can I really afford this?
+
+Web: **Can I afford it?** in the sidebar (`/app/afford`). Phone: the **Afford** tab. Both call the same code (`src/core/affordability.ts`) and show the same breakdown, so the user can check every input. Nothing in the ledger changes, and all maths is on integer kobo (`bigint`).
+
+**Inputs, all from the user's ledger**
+
+| Input | Where it comes from | Default when data is thin |
+|---|---|---|
+| Cash | Sum of the latest reported naira balances (statement or alert). Other currencies are listed as not counted | No balance on file: starts from ₦0 and says so. Balances are never estimated |
+| Typical monthly income | `summary()` income (loan proceeds, fee refunds and own transfers already excluded) for the 3 most recent full calendar months with data | Middle of 3 months. With 1 or 2 months: the **lowest**. With no full month: ₦0 |
+| Typical monthly spending | `summary()` expenses for the same months | Middle of 3. With 1 or 2: the **highest**. Only the month in progress: scaled to 30 days |
+| Fixed obligations | Regular monthly payments (`recurring()`) in Housing, Family, Debt, Utilities, Subscriptions, Business. So rent, family support, FairMoney or Renmoney repayments | A payment more than 45 days past due is treated as finished |
+| Other loan repayments | Debt debits in the typical month that are not a monthly stream (weekly app repayments), spread evenly over the days ahead | Highest month when fewer than 3 |
+| Everyday spending | Typical spending minus fixed obligations | Never below ₦0 |
+| Safety buffer | One month of fixed obligations, or the user's own figure | Never below ₦50,000 (`BUFFER_FLOOR_MINOR`) |
+
+**Window.** To month end (default), or the next 30 or 90 days (API: 1 to 120). It starts at the balance date if that is in the past, so spending since then is estimated instead of ignored.
+
+**Projection, day by day.** Start with cash. Take off each fixed obligation on its expected date (one that is overdue by under 45 days is due today), everyday spending and other loan repayments spread evenly, and the purchase today. Add income on the dates of regular paydays Ledger has found. A payday more than 10 days late is not assumed. If no payday has been found, one typical month of income is added for each full 30 days ahead, at the end of those 30 days. Outgoings land before income on the same day.
+
+**Verdict** from the lowest point of that running balance:
+
+- **Yes**: the lowest point stays at or above the buffer.
+- **Stretch**: it stays at or above ₦0 but dips into the buffer.
+- **No**: it goes below ₦0.
+
+Not yes? The answer adds how many months of the usual surplus (income minus obligations minus everyday spending) would close the gap, or says there is no surplus. Notes flag every caveat: no balance, an old balance, under 3 months of history, no income, outgoings above income, a price above a month's income.
+
+Loan repayments only count if they are categorized as Debt. A repayment into a lender account in the borrower's own name ("TO FAIRMONEY MFB - JANE DOE") is now Debt / Loan repayment, not an own transfer. Run **Re-apply categories** in Settings to fix rows imported before this change.
 
 ## Environment
 
