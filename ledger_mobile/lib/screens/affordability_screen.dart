@@ -106,8 +106,8 @@ class AffordabilityAnswer extends StatelessWidget {
 
   final AffordabilityCheck result;
 
-  static const _bufferRule = {'obligations': 'one month of fixed bills', 'floor': 'Ledger minimum', 'yours': 'your choice'};
-  static const _incomeRule = {'paydays': 'regular paydays', 'monthly': 'typical month', 'none': 'none counted'};
+  static const _bufferRule = {'obligations': 'a month of bills', 'floor': 'minimum', 'yours': 'yours'};
+  static const _incomeRule = {'paydays': 'your paydays', 'monthly': 'typical month', 'none': 'none counted'};
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +221,7 @@ class _Section extends StatelessWidget {
                     Expanded(
                       child: Text(
                         row.label,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: row.sub ? theme.textTheme.bodySmall : theme.textTheme.bodyMedium?.copyWith(fontWeight: row.strong ? FontWeight.w600 : null),
                       ),

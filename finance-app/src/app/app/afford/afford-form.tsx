@@ -16,8 +16,8 @@ const VERDICT = {
   no: { label: "No", cls: "bg-danger text-white" },
 } as const;
 
-const BUFFER_RULE = { obligations: "one month of fixed obligations", floor: "Ledger's minimum", yours: "your choice" } as const;
-const INCOME_RULE = { paydays: "regular paydays Ledger found", monthly: "one typical month per full 30 days", none: "none counted" } as const;
+const BUFFER_RULE = { obligations: "a month of bills", floor: "minimum", yours: "yours" } as const;
+const INCOME_RULE = { paydays: "your paydays", monthly: "typical month", none: "none counted" } as const;
 
 export function AffordForm() {
   const [state, action, pending] = useActionState<AffordState, FormData>(affordAction, undefined);
@@ -127,7 +127,7 @@ function Answer({ r }: { r: AffordabilityJson }) {
 function Row({ label, value, strong, sub }: { label: string; value: string; strong?: boolean; sub?: boolean }) {
   return (
     <div className={`flex justify-between gap-3 py-1.5 ${sub ? "pl-3 text-xs text-ink-3" : "border-b border-border"} ${strong ? "font-semibold" : ""}`}>
-      <dt className="truncate">{label}</dt>
+      <dt className="min-w-0 break-words">{label}</dt>
       <dd className="num shrink-0">{value}</dd>
     </div>
   );
