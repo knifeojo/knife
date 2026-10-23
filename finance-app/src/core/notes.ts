@@ -93,7 +93,7 @@ function interpret(label: string, parent: string | undefined, aliases: { pattern
   if (/^parents?$/.test(l)) return { people: people(/\b(dad|mum|mom|mother|father|parent|in ?law)/i), proposal: { category: "Family", subcategory: "Parents" }, how: "the people you labelled as parents and in-laws" };
   if (/^rm\b|renmoney/.test(l)) return { words: ["renmoney", "remb"], proposal: { category: "Debt", subcategory: "Renmoney loan" }, how: "Renmoney" };
   if (/^fm\b|fairmoney/.test(l)) return { words: ["fairmoney"], proposal: { category: "Debt", subcategory: "FairMoney loan" }, how: "FairMoney" };
-  if (/^tite|^tithe/.test(l)) return { words: ["tithe", "tite", "grace", "church"], proposal: { category: "Other", subcategory: "Tithe" }, how: "payments to your church" };
+  if (/^tite|^tithe/.test(l)) return { words: ["tithe", "tite", "grace", "church"], proposal: { category: "Giving", subcategory: "Tithe" }, how: "payments to your church" };
   if (/^saving/.test(l)) return { categories: [OWN_TRANSFER], words: ["saving", "savings", "piggyvest", "cowrywise"], proposal: { category: OWN_TRANSFER, subcategory: "Savings" }, how: "transfers to your savings" };
   if (/service charge|house light/.test(l)) return { words: ["service", "homeserve", "electric", "light", "nepa"], proposal: { category: "Housing", subcategory: "Light and service charge" }, how: "service charge and electricity payments" };
   if (/^staff/.test(l)) return { categories: ["Housing"], subcategories: ["Home services"], proposal: { category: "Housing", subcategory: "Staff" }, how: "people you labelled as staff or home services" };

@@ -216,7 +216,7 @@ const RELATIONSHIP_WORDS: [RegExp, { category: string; subcategory?: string }][]
   [/\b(landlord|landlady|caretaker|agent|rent|house|apartment)/, { category: "Housing" }],
   [/\b(driver|cleaner|nanny|gardener|security|guard|cook|chef|maid|house ?help|steward|plumber|electrician)/, { category: "Housing", subcategory: "Home services" }],
   [/\b(employee|staff|contractor|freelancer|developer|designer|assistant|vendor for work|client)/, { category: "Business" }],
-  [/\b(church|tithe|offering|mosque|charity|donation|pastor)/, { category: "Other", subcategory: "Giving" }],
+  [/\b(church|tithe|offering|mosque|charity|donation|pastor)/, { category: "Giving" }],
   [/\b(savings?|invest|piggyvest|cowrywise|stocks?|crypto)/, { category: OWN_TRANSFER, subcategory: "Savings" }],
   [/\b(funded my|fund(ed|ing)? (my )?wallet|top ?up my|my (\w+ )?wallet)/, { category: OWN_TRANSFER, subcategory: "Wallet top-up" }],
   [/\b(rest[au]{0,2}r[ae]?nt|resturant|resturent|restaurent|eatery|small chops|suya|canteen|buka|food|lunch|dinner)/, { category: "Food", subcategory: "Eating out" }],

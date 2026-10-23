@@ -1,9 +1,11 @@
 import type { Classification, TransactionType } from "./types";
 
 export const EXPENSE_CATEGORIES = [
-  "Food", "Transport", "Housing", "Utilities", "Shopping", "Subscriptions", "Family",
+  "Food", "Transport", "Housing", "Utilities", "Shopping", "Subscriptions", "Family", "Giving",
   "Debt", "Healthcare", "Travel", "Business", "Transfers", "Fees", "Other",
 ] as const;
+/** Giving used to be a subcategory of Other. Rows and rules labelled Other with one of these move to Giving. */
+export const LEGACY_GIVING_SUBCATEGORIES = ["Giving", "Tithe", "Offering", "Charity", "Donation", "Donations"];
 export const INCOME_CATEGORY = "Income";
 export const INCOME_SUBCATEGORIES = ["Salary", "Consulting", "Business income", "Transfer", "Refund", "Interest", "Other income"] as const;
 /** Moves between the user's own accounts. Excluded from both income and spending totals. */
@@ -17,6 +19,38 @@ interface Rule {
   subcategory?: string;
   only?: TransactionType;
 }
+
+/** Loan apps and lenders. A transfer TO one of them is a repayment; money FROM one is loan proceeds. */
+const LENDERS: [RegExp, string][] = [
+  [/\bfairmoney\b/, "FairMoney"],
+  [/\brenmoney\b|\bremb\b/, "Renmoney"],
+  [/\bpalm ?credit\b/, "PalmCredit"],
+  [/\bcarbon\b|\bonefi\b|\bpaylater\b/, "Carbon"],
+  [/\bbranch international\b|\bbranch\.co\b/, "Branch"],
+  [/\baella ?credit\b/, "Aella"],
+  [/\bquick ?check\b/, "QuickCheck"],
+  [/\bokash\b/, "OKash"],
+  [/\beasemoni\b/, "EaseMoni"],
+  [/\blendigo\b/, "Lendigo"],
+  [/\bspecta\b/, "Specta"],
+  [/\bnewcredit\b/, "NewCredit"],
+  [/\bsokoloan\b/, "SokoLoan"],
+  [/\bzedvance\b/, "Zedvance"],
+];
+const LENDER_WORDS = new RegExp(LENDERS.map(([re]) => re.source).join("|"));
+
+/**
+ * Savings and investment apps, and banks' own lock-away products. Money sent there is still the
+ * user's, so it is an own transfer (Savings), never spending. Bare "savings" is NOT here: it is also
+ * an account type ("FROM EZE ADA SAVINGS TO KEMI").
+ */
+const SAVINGS = /piggy ?vest|piggybank|cowrywise|risevest|\brise vest\b|bamboo (?:invest|systems)|investbamboo|trove finance|\bchaka\b|\bladda\b|\bowealth\b|\bcashbox\b|alat goals?|target savings|fixed deposit|safe ?lock|savings (?:plan|goal)|money market fund|mutual fund/;
+const SAVINGS_NAMES: [RegExp, string][] = [
+  [/piggy ?vest|piggybank/, "PiggyVest"], [/cowrywise/, "Cowrywise"], [/risevest|rise vest/, "Risevest"], [/bamboo/, "Bamboo"],
+  [/trove/, "Trove"], [/\bchaka\b/, "Chaka"], [/\bladda\b/, "Ladda"], [/owealth/, "OWealth"], [/cashbox/, "PalmPay CashBox"],
+];
+
+const BETTING = /bet9ja|sportybet|betking|1xbet|nairabet|merrybet|\bmsport\b|bangbet|betway|parimatch|accessbet|surebet|lottomania|baba ijebu|premier lotto|naijabet|betland/;
 
 // Ordered: first match wins. Patterns run against the lowercased description.
 const RULES: Rule[] = [
@@ -34,76 +68,105 @@ const RULES: Rule[] = [
   { match: /sms alert|alert charge|commission|stamp duty|\bvat|maintenance fee|card maint|\bcot\b|nip charge|transfer charge|charges?\b|transfer levy|\bemtl\b/, merchant: "Bank charges", category: "Fees" },
 
   // Cash. "cash withdrawal" must stay above the general withdrawal rule.
-  { match: /\batm\b|cash wdl|cash withdrawal|\bwdl\b/, merchant: "Cash withdrawal", category: "Other", subcategory: "Cash" },
+  { match: /\batm\b|cash wdl|cash withdrawal|\bwdl\b|pos (?:cash )?withdrawal|\bcash ?out\b/, merchant: "Cash withdrawal", category: "Other", subcategory: "Cash" },
   // Deel (and similar) withdrawals are money leaving a wallet for a bank, not uncategorized spend.
   { match: /\bwithdraw(?:al|als)?\b/, category: "Transfers", subcategory: "Withdrawal", only: "DEBIT" },
+
+  // Betting wallets. Winnings paid back out are income; stakes are spending, never a transfer.
+  { match: BETTING, category: INCOME_CATEGORY, subcategory: "Other income", only: "CREDIT" },
+  { match: BETTING, category: "Other", subcategory: "Betting", only: "DEBIT" },
+
+  // Food delivery first: "BOLT FOOD" is food, not a ride, and "JUMIA FOOD" is not shopping.
+  { match: /bolt ?food/, merchant: "Bolt Food", category: "Food", subcategory: "Delivery" },
+  { match: /jumia ?food/, merchant: "Jumia Food", category: "Food", subcategory: "Delivery" },
+  { match: /uber ?eats/, merchant: "Uber Eats", category: "Food", subcategory: "Delivery" },
+  { match: /chowdeck/, merchant: "Chowdeck", category: "Food", subcategory: "Delivery" },
+  { match: /glovo/, merchant: "Glovo", category: "Food", subcategory: "Delivery" },
+  { match: /heyfood|foodcourt/, category: "Food", subcategory: "Delivery" },
 
   // Transport
   { match: /\buber\b/, merchant: "Uber", category: "Transport", subcategory: "Ride hailing" },
   { match: /\bbolt\b|taxify/, merchant: "Bolt", category: "Transport", subcategory: "Ride hailing" },
-  { match: /indrive|lagride|rida\b/, merchant: "inDrive", category: "Transport", subcategory: "Ride hailing" },
-  { match: /total ?energies|\bmobil\b|oando|conoil|ardova|nnpc|filling station|\bfuel\b|\bdiesel\b|\bpetrol\b/, category: "Transport", subcategory: "Fuel" },
+  { match: /indrive/, merchant: "inDrive", category: "Transport", subcategory: "Ride hailing" },
+  { match: /lagride|\brida\b|gokada|safeboda|\boride\b|max\.ng|\bmaxng\b/, category: "Transport", subcategory: "Ride hailing" },
+  { match: /shuttlers|\blagbus\b|\bbrt\b|primero|cowry ?card|\bcowry\b(?!wise)|\bdanfo\b|\bkeke\b|\bokada\b|\bt ?fare\b|transport fare/, category: "Transport", subcategory: "Public transport" },
+  { match: /abc transport|god is good motors|\bgig ?m\b|gig motors|guo transport|peace mass transit|chisco|young shall grow|libra motors/, category: "Transport", subcategory: "Interstate bus" },
+  // Diesel for the generator powers the home, not a car.
+  { match: /\b(?:gen|generator)\b.*\bdiesel\b|\bdiesel\b.*\b(?:gen|generator)\b/, category: "Housing", subcategory: "Generator & diesel" },
+  { match: /total ?energies|\bmobil\b|oando|conoil|ardova|nnpc|mrs oil|\b11 ?plc\b|forte ?oil|nipco|rain ?oil|matrix energy|eterna|filling station|\bfuel\b|\bdiesel\b|\bpetrol\b|\bpms\b/, category: "Transport", subcategory: "Fuel" },
   { match: /\blcc\b|toll/, category: "Transport", subcategory: "Tolls" },
+  { match: /\bparking\b|park ?fee/, category: "Transport", subcategory: "Parking" },
+
+  // Fitness before subscriptions: a gym membership is health, not software.
+  { match: /\bgym\b|i-?fitness|fitness|bodyline/, category: "Healthcare", subcategory: "Fitness" },
 
   // Subscriptions
   { match: /netflix/, merchant: "Netflix", category: "Subscriptions", subcategory: "Streaming" },
   { match: /spotify/, merchant: "Spotify", category: "Subscriptions", subcategory: "Streaming" },
   { match: /showmax/, merchant: "Showmax", category: "Subscriptions", subcategory: "Streaming" },
   { match: /youtube/, merchant: "YouTube", category: "Subscriptions", subcategory: "Streaming" },
+  { match: /prime ?video|amazon prime/, merchant: "Prime Video", category: "Subscriptions", subcategory: "Streaming" },
+  { match: /disney|boomplay|audiomack|deezer|apple music/, category: "Subscriptions", subcategory: "Streaming" },
   { match: /apple\.com|itunes|icloud/, merchant: "Apple", category: "Subscriptions" },
   { match: /openai|chatgpt/, merchant: "OpenAI", category: "Subscriptions", subcategory: "Software" },
   { match: /anthropic|claude\.ai/, merchant: "Anthropic", category: "Subscriptions", subcategory: "Software" },
   { match: /google \*|google\.com|gsuite|workspace/, merchant: "Google", category: "Subscriptions", subcategory: "Software" },
-  { match: /canva|notion|figma|slack|zoom/, category: "Subscriptions", subcategory: "Software" },
+  { match: /canva|notion|figma|slack|zoom|microsoft|office ?365|adobe|github|dropbox|linkedin/, category: "Subscriptions", subcategory: "Software" },
 
-  // Utilities
+  // Utilities (bills)
   { match: /\bdstv\b|\bgotv\b|multichoice/, merchant: "MultiChoice", category: "Utilities", subcategory: "TV" },
-  { match: /ikeja electric|ekedc|eko electric|aedc|phcn|prepaid meter|electricity/, category: "Utilities", subcategory: "Electricity" },
-  { match: /spectranet|starlink|smile|fibre|internet/, category: "Utilities", subcategory: "Internet" },
-  { match: /\bmtn\b|airtel|\bglo\b|9mobile|airtime|data bundle|\bvtu\b/, category: "Utilities", subcategory: "Airtime & data" },
-  { match: /lawma|water/, category: "Utilities" },
+  { match: /startimes/, merchant: "StarTimes", category: "Utilities", subcategory: "TV" },
+  { match: /ikeja electric|\bikedc\b|ekedc|eko electric|aedc|ibedc|\bphed\b|\beedc\b|kaedco|\bjed\b|\bbedc\b|\byedc\b|phcn|\bnepa\b|prepaid meter|electricity|buypower|power token|light bill/, category: "Utilities", subcategory: "Electricity" },
+  { match: /spectranet|starlink|smile|fibre|internet|\bipnx\b|tizeti|wifi\.com|fiberone|swift ?networks/, category: "Utilities", subcategory: "Internet" },
+  { match: /\bmtn\b|airtel|\bglo\b|9mobile|airtime|data bundle|data purchase|\bdata sub\b|\bvtu\b|recharge card/, category: "Utilities", subcategory: "Airtime & data" },
+  { match: /lawma|\bwater\b|\bpsp\b|waste (?:bill|levy|collection)/, category: "Utilities" },
+  { match: /vtpass|\bbaxi\b|irecharge|paybills|bills? payment/, category: "Utilities" },
 
   // Food and groceries
   { match: /shoprite/, merchant: "Shoprite", category: "Food", subcategory: "Groceries" },
   { match: /\bspar\b/, merchant: "Spar", category: "Food", subcategory: "Groceries" },
-  { match: /ebeano|justrite|market square|hubmart|supermarket/, category: "Food", subcategory: "Groceries" },
-  { match: /chowdeck/, merchant: "Chowdeck", category: "Food", subcategory: "Delivery" },
-  { match: /glovo/, merchant: "Glovo", category: "Food", subcategory: "Delivery" },
-  { match: /chicken republic|kfc|domino|cold stone|mr bigg|sweet sensation|kilimanjaro|the place|restaurant|cafe|eatery/, category: "Food", subcategory: "Eating out" },
+  { match: /ebeano|justrite|market square|hubmart|supermarket|foodco|sahad|grand square|addide|park ?n ?shop|farm ?city|mega ?plaza/, category: "Food", subcategory: "Groceries" },
+  { match: /chicken republic|kfc|domino|cold stone|mr ?bigg|sweet sensation|kilimanjaro|the place|tantali[sz]ers|bukka hut|chopstix|debonairs|pizza ?hut|burger king|krispy kreme|yellow chilli|ofada boy|restaurant|cafe|eatery/, category: "Food", subcategory: "Eating out" },
 
   // Shopping
   { match: /jumia/, merchant: "Jumia", category: "Shopping" },
   { match: /konga/, merchant: "Konga", category: "Shopping" },
-  { match: /amazon|aliexpress|temu|shein/, category: "Shopping", subcategory: "Online" },
-
+  { match: /\bjiji\b|payporte|mr ?price|\bzara\b|\bh&m\b|ikea|decathlon|game stores|miniso/, category: "Shopping" },
+  { match: /amazon|aliexpress|temu|shein|\bebay\b|\betsy\b/, category: "Shopping", subcategory: "Online" },
   // Housing
-  { match: /\brent\b|landlord|service charge|estate dues/, category: "Housing", subcategory: "Rent" },
+  { match: /\brent\b|landlord|service charge|estate dues|agency fee|caution fee|estate levy|security levy/, category: "Housing", subcategory: "Rent" },
 
   // Healthcare
-  { match: /pharmac|medplus|hospital|clinic|\bhmo\b|diagnostic/, category: "Healthcare" },
+  { match: /pharmac|medplus|health ?plus|hospital|clinic|\bhmo\b|diagnostic|hygeia|reliance ?hmo|avon ?hmo|clina-?lancet|synlab|\bdental\b|optical/, category: "Healthcare" },
 
   // Travel
-  { match: /air peace|arik|ibom air|united nigeria|emirates|qatar airways|british airways|booking\.com|airbnb|hotel/, category: "Travel" },
+  { match: /air peace|arik|ibom air|united nigeria|overland airways|green africa|valuejet|max air|aero contractors|dana air|emirates|qatar airways|british airways|kenya airways|ethiopian airlines|rwandair|lufthansa|\bklm\b|turkish airlines|virgin atlantic|wakanow|travelstart|hotels\.ng|booking\.com|expedia|agoda|airbnb|hotel|\bvfs\b|visa fee|embassy/, category: "Travel" },
 
-  // Debt. FairMoney and Renmoney are loan apps the user is repaying, not wallets he holds.
-  // Credits from these lenders are loan proceeds (see lenderMerchant), not income.
-  { match: /loan repay|carbon|fairmoney|palmcredit|renmoney|\bremb\b|credit card/, merchant: undefined, category: "Debt", subcategory: "Loan repayment" },
+  // Debt. Lenders are loan apps the user is repaying, not wallets he holds. Credits from them are
+  // loan proceeds (see lenderMerchant), not income.
+  { match: new RegExp(`loan repay|credit card|${LENDER_WORDS.source}`), merchant: undefined, category: "Debt", subcategory: "Loan repayment" },
 
   // Family / education
-  { match: /school fees|tuition/, category: "Family", subcategory: "Education" },
+  { match: /school fees|tuition|\bcreche\b|\bwaec\b|\bjamb\b|\bneco\b|pta levy|school bus|text ?books?/, category: "Family", subcategory: "Education" },
+
+  // Giving: churches and mosques by name, then the memo words people type.
+  { match: /\brccg\b|winners chapel|living faith|daystar|\bmfm\b|deeper life|salvation ministries|harvesters|house on the rock|koinonia|cathedral|\bparish\b/, category: "Giving", subcategory: "Church" },
 
   // Business
-  { match: /\bcac\b|\bfirs\b|tax payment|remita/, category: "Business", subcategory: "Tax & compliance" },
+  { match: /\bcac\b|\bfirs\b|\blirs\b|tax payment|remita/, category: "Business", subcategory: "Tax & compliance" },
 
   // Memo keywords people type on transfers ("CLOTHES TO ...", "HAIR TO ...", "LOAN TO ...")
   { match: /\b(clothes|clothing|fashion|boutique|shoes?|tailor|fabric|aso ?ebi)\b/, category: "Shopping", subcategory: "Clothing" },
   { match: /\b(hair|salon|barb(er|ing)|spa|nails?|make ?up|lashes|pedicure|manicure)\b/, category: "Shopping", subcategory: "Personal care" },
-  { match: /\b(cleaning|cleaner|laundry|dry ?clean|gardener|security|plumber|electrician|fumigation|generator repair|house ?help|nanny|maid)\b/, category: "Housing", subcategory: "Home services" },
+  { match: /\b(cleaning|cleaner|laundry|dry ?clean|gardener|security|plumber|electrician|fumigation|generator|house ?help|nanny|maid|driver|gateman|steward|house ?boy|house ?girl)\b/, category: "Housing", subcategory: "Home services" },
   { match: /\b(tyres?|tires?|mechanic|vulcani[sz]er|car wash|car repair|spare parts?|autos?\b|panel beat)/, category: "Transport", subcategory: "Car" },
   { match: /\b(birthday|gift|wedding|condolence|baby shower|bday)\b/, category: "Family", subcategory: "Gifts" },
-  { match: /\b(daddy|daddys|dad|father|mummy|mummys|mum|mom|mother|parents|upkeep|allowance|pocket money|feeding)\b/, category: "Family", subcategory: "Family support" },
-  { match: /\b(tithe|offering|church|mosque|zakat|donation|charity|seed)\b/, category: "Other", subcategory: "Giving" },
-  { match: /\b(food ?stuff|groceries|market|lunch|dinner|breakfast|food)\b/, category: "Food" },
+  { match: /\b(wife|hubby|husband)\b/, category: "Family", subcategory: "Partner" },
+  { match: /\b(daddy|daddys|dad|father|mummy|mummys|mum|mom|mother|parents|upkeep|allowance|pocket money|feeding|aunty|auntie|uncle|grandma|granny|in ?laws?|kids|children)\b/, category: "Family", subcategory: "Family support" },
+  { match: /\b(tithe|tithes|offering|church|mosque|zakat|sadaqah|donation|charity|seed|pledge)\b/, category: "Giving" },
+  { match: /\b(drugs|medication|medicine|lab test|scan)\b/, category: "Healthcare" },
+  { match: /\b(flight|air ?ticket)\b/, category: "Travel" },
+  { match: /\b(food ?stuffs?|groceries|market|lunch|dinner|breakfast|food|suya|drinks|small chops|shawarma|meat|fish)\b/, category: "Food" },
   { match: /\bsubscriptions?\b/, category: "Subscriptions" },
   { match: /\b(loan|lend|borrow)\b/, category: "Debt", subcategory: "Loans" },
   { match: /\b(sq ?uad|squad|paystack|flutterwave|interswitch|opay merchant|monnify)\b/, category: "Shopping", subcategory: "Online payment" },
@@ -112,7 +175,12 @@ const RULES: Rule[] = [
 // Merchant normalization: noisy narrations -> one canonical name ("UBER *TRIP", "UBER BV" -> "Uber").
 // Global aliases here; user corrections add user-scoped aliases in the merchant_aliases table.
 const MERCHANT_ALIASES: [RegExp, string][] = [
-  [/\buber\b/, "Uber"], [/\bbolt\b|taxify/, "Bolt"], [/indrive/, "inDrive"],
+  [/bolt ?food/, "Bolt Food"], [/uber ?eats/, "Uber Eats"], [/jumia ?food/, "Jumia Food"], [/heyfood/, "Heyfood"], [/foodcourt/, "FoodCourt"],
+  [/\buber\b/, "Uber"], [/\bbolt\b|taxify/, "Bolt"], [/indrive/, "inDrive"], [/lagride/, "LagRide"], [/gokada/, "Gokada"], [/shuttlers/, "Shuttlers"],
+  [/prime ?video|amazon prime/, "Prime Video"], [/startimes/, "StarTimes"], [/buypower/, "BuyPower"], [/health ?plus/, "HealthPlus"],
+  [/bet9ja/, "Bet9ja"], [/sportybet/, "SportyBet"], [/betking/, "BetKing"], [/1xbet/, "1xBet"],
+  ...LENDERS,
+  ...SAVINGS_NAMES,
   [/total ?energies/, "TotalEnergies"], [/conoil/, "Conoil"], [/\bmobil\b/, "Mobil"], [/oando/, "Oando"], [/nnpc/, "NNPC"],
   [/cold stone/, "Cold Stone Creamery"], [/chicken republic/, "Chicken Republic"], [/\bkfc\b/, "KFC"], [/domino/, "Domino's"],
   [/the place/, "The Place"], [/kilimanjaro/, "Kilimanjaro"], [/chowdeck/, "Chowdeck"], [/glovo/, "Glovo"],
@@ -122,7 +190,7 @@ const MERCHANT_ALIASES: [RegExp, string][] = [
   [/ikeja electric/, "Ikeja Electric"], [/ekedc|eko electric/, "Eko Electric"], [/spectranet/, "Spectranet"], [/starlink/, "Starlink"],
   [/\bmtn\b/, "MTN"], [/airtel/, "Airtel"], [/\bglo\b/, "Glo"],
   [/jumia/, "Jumia"], [/konga/, "Konga"], [/amazon/, "Amazon"], [/air peace/, "Air Peace"], [/ibom air/, "Ibom Air"],
-  [/medplus/, "MedPlus"], [/carbon/, "Carbon"], [/fairmoney/, "FairMoney"], [/renmoney|\bremb\b/, "Renmoney"], [/palmcredit/, "PalmCredit"], [/piggyvest/, "PiggyVest"], [/cowrywise/, "Cowrywise"],
+  [/medplus/, "MedPlus"],
   [/upwork/, "Upwork"], [/payoneer/, "Payoneer"], [/\bpesa\b(?!peer)/, "Pesa"],
 ];
 
@@ -134,12 +202,13 @@ export function normalizeMerchant(description: string): string | undefined {
 const TRANSFER_MARKER = /\b(trf|nip|fip|transfer|mob\/utu|ussd)\b|instant payment|outward|inward/;
 
 /** Loan apps the user repays. A credit from one of these is disbursement, not salary or business income. */
-function lenderMerchant(desc: string): string | undefined {
-  if (/\bfairmoney\b/.test(desc)) return "FairMoney";
-  if (/\brenmoney\b|\bremb\b/.test(desc)) return "Renmoney";
-  if (/\bpalmcredit\b/.test(desc)) return "PalmCredit";
-  if (/\bcarbon\b/.test(desc)) return "Carbon";
-  return undefined;
+export function lenderMerchant(desc: string): string | undefined {
+  const d = desc.toLowerCase();
+  return LENDERS.find(([re]) => re.test(d))?.[1];
+}
+
+function savingsMerchant(desc: string): string | undefined {
+  return SAVINGS_NAMES.find(([re]) => re.test(desc))?.[1];
 }
 
 function titleCase(s: string): string {
@@ -174,6 +243,38 @@ function recipientAfterTo(d: string): string | undefined {
   if (!candidate) return undefined;
   // Stop at the first digit or full stop inside the name segment.
   return cleanName(candidate.split(/\d|\.(?:\s|$)/)[0]);
+}
+
+const lettersOnly = (s: string) => s.replace(/[^A-Za-z ]/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * The other person's bank as written in a multi-part narration: "TO CARBON - JOHN SMITH",
+ * "TO JOHN SMITH/CARBON" (debits) or "0001-JOHN SMITH-CARBON" (credits). Returned as written.
+ */
+function bankSegment(d: string, type: TransactionType): string | undefined {
+  let text = d;
+  if (type === "DEBIT") {
+    const idx = d.search(/\bTO\s+/i);
+    if (idx < 0) return undefined;
+    text = d.slice(idx).replace(/^TO\s+/i, "");
+  }
+  const parts = text.split(type === "DEBIT" ? /\s+-\s+|\s*\/\s*/ : /\s*[-/]\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return undefined;
+  return parts.find((p) => BANK_CODE.test(lettersOnly(p.split(/\d|\bref\b/i)[0])));
+}
+
+// Card and POS narrations: "POS/WEB PMNT @ ABC STORES LEKKI LA NG" (GTBank), "POS PURCHASE: ABC STORES" (First Bank),
+// "POS-Web Purchase-ABC STORES-LA-NG" (Sterling), "WEB PURCHASE ABC.COM".
+const CARD_PURCHASE = /\b(?:pos|web)\b(?:[\s/-]*(?:web|purchase|purch|pmnt|pmt|payment|trans(?:action)?|txn|terminal)\b)*[\s@:-]*(?:at\s+)?(.+)$/i;
+const PLACE_WORDS = /\b(la|lag|lagos|ng|nga|lang|abuja|abj|ph|kano|ibadan|ikeja|lekki|vi|ikoyi|yaba|surulere|ajah)\b.*$/i;
+
+/** The shop on a card or POS payment, without the town and terminal codes. */
+export function cardMerchant(description: string): string | undefined {
+  const m = description.replace(/\s+/g, " ").match(CARD_PURCHASE);
+  if (!m) return undefined;
+  if (/\b(to|from|transfer|trf|nip|withdrawal)\b/i.test(m[1])) return undefined;
+  const name = m[1].split(/\d|\/|\s+-\s+|-|\*/)[0];
+  return cleanName(name.replace(PLACE_WORDS, "").trim() || name);
 }
 
 /** Sender of an inward transfer written as "...-RECIPIENT-CODE-SENDER" or "XXXX-MONIE MFB-DEEL INC". */
@@ -244,8 +345,8 @@ const NAME_HINTS: [RegExp, NameHint][] = [
   [/propert|realt|homes\b|estate|apartment|shortlet|facility/, { label: "Property or estate", category: "Housing" }],
   [/travel|tours|airline|airways|hotel|suites|resort|booking/, { label: "Travel", category: "Travel" }],
   [/gym|fitness|wellness|yoga/, { label: "Fitness", category: "Healthcare", subcategory: "Fitness" }],
-  [/church|ministr|chapel|mosque|cathedral|parish|christian|gospel|fellowship/, { label: "Church or religious body", category: "Other", subcategory: "Giving" }],
-  [/foundation|charity|ngo\b|trust fund/, { label: "Charity", category: "Other", subcategory: "Giving" }],
+  [/church|ministr|chapel|mosque|cathedral|parish|christian|gospel|fellowship/, { label: "Church or religious body", category: "Giving", subcategory: "Church" }],
+  [/foundation|charity|ngo\b|trust fund/, { label: "Charity", category: "Giving", subcategory: "Charity" }],
   [/event|planner|decorations|rentals|photograph|studio|media|print/, { label: "Events or media", category: "Shopping", subcategory: "Services" }],
   [/laundry|dry ?clean|cleaning|fumigat/, { label: "Cleaning service", category: "Housing", subcategory: "Home services" }],
   [/insurance|assurance/, { label: "Insurance", category: "Business", subcategory: "Insurance" }],
@@ -336,7 +437,19 @@ export function categorize(
   const rawCounterparty = extractCounterparty(input.description, input.type);
   // A recipient that is a known business gets its proper name ("Remb" -> "Renmoney").
   const counterparty = rawCounterparty ? (normalizeMerchant(rawCounterparty) ?? rawCounterparty) : undefined;
-  const merchant = normalizeMerchant(input.description);
+
+  // The other person's bank is where they keep money, not what the money was for: "TO MTN MOMO PSB - JOHN"
+  // is not airtime, and "TO CARBON - JOHN SMITH" is a transfer to John, who banks with Carbon, not a loan
+  // repayment. Lenders count as a bank only when someone else is named and nothing mentions repaying.
+  const bank = bankSegment(input.description, input.type);
+  const bankLender = bank ? lenderMerchant(bank) : undefined;
+  const lenderIsOnlyTheirBank = !!bankLender && !!counterparty && !isSelf(counterparty, owners) && !lenderMerchant(counterparty)
+    && !lenderMerchant(desc.replace(bank!.toLowerCase(), " ")) && !/repay|disburs/.test(desc);
+  const ignoreBank = !!bank && !!counterparty && !SAVINGS.test(bank.toLowerCase()) && (!bankLender || lenderIsOnlyTheirBank);
+  // Text the merchant and category rules read: the narration without the recipient's bank.
+  const ruleDesc = ignoreBank ? desc.replace(bank!.toLowerCase(), " ") : desc;
+  const merchant = normalizeMerchant(ruleDesc);
+  const card = input.type === "DEBIT" ? cardMerchant(input.description) : undefined;
 
   // "REVERSED : Commission on NIP TransferCHARGES" is the bank giving a fee back. It stays in Fees
   // so it nets against fee spend, and it is a credit — not another fee debit and not income.
@@ -379,9 +492,15 @@ export function categorize(
   }
   // Lenders collect repayments into accounts named after the borrower ("TO FAIRMONEY MFB - <you>").
   // That is a loan repayment, not a move between the user's own accounts.
-  const lender = lenderMerchant(desc);
+  const lender = lenderMerchant(ruleDesc);
   if (lender && input.type === "DEBIT" && isSelf(counterparty, owners)) {
     return { category: "Debt", subcategory: "Loan repayment", merchantName: lender, counterparty: lender, source: "rule", confidence: 0.9 };
+  }
+  // Savings apps hold the user's own money, whoever the deposit account is named after ("TO PIGGYVEST SAVINGS").
+  // A credit that says interest is left to the interest rule, because interest is income.
+  if (SAVINGS.test(desc) && !(input.type === "CREDIT" && /interest/.test(desc))) {
+    const app = savingsMerchant(desc);
+    return { category: OWN_TRANSFER, subcategory: "Savings", merchantName: app ?? counterparty, counterparty, source: "rule", confidence: 0.85 };
   }
   if (isSelf(counterparty, owners)) {
     return { category: OWN_TRANSFER, subcategory: "Between own accounts", merchantName: counterparty, counterparty, source: "rule", confidence: 0.9 };
@@ -404,17 +523,26 @@ export function categorize(
 
   for (const rule of RULES) {
     if (rule.only && rule.only !== input.type) continue;
-    if (!rule.match.test(desc)) continue;
+    if (!rule.match.test(ruleDesc)) continue;
     // A debit to a person that mentions rent is housing; a credit mentioning rent is not.
     if (rule.category !== INCOME_CATEGORY && input.type === "CREDIT" && rule.category !== "Fees") continue;
     return {
       category: rule.category,
       subcategory: rule.subcategory,
-      merchantName: rule.merchant ?? merchant ?? counterparty,
+      merchantName: rule.merchant ?? merchant ?? counterparty ?? card,
       counterparty,
       source: "rule",
       confidence: 0.9,
     };
+  }
+
+  // A card payment at a shop no rule knows: the shop's name may still say what it sells. If it does not,
+  // it is still a purchase (not a transfer), filed under Shopping and flagged for review.
+  if (card) {
+    const hint = nameHint(card);
+    const name = normalizeMerchant(card) ?? card;
+    if (hint) return { category: hint.category, subcategory: hint.subcategory, merchantName: name, counterparty, source: "rule", confidence: hint.label === "A business" ? 0.55 : 0.75 };
+    return { category: "Shopping", subcategory: "Card purchase", merchantName: name, counterparty, source: "default", confidence: 0.45 };
   }
 
   if (input.type === "DEBIT" && counterparty) {

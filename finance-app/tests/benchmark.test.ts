@@ -19,4 +19,4 @@ describe("categorizer benchmark", () => {
 });
 
 // Raise this when the rules improve. Never lower it without a reason in the commit message.
-const BASELINE = 0.925;
+const BASELINE = 0.97;
