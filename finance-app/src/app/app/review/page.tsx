@@ -52,10 +52,30 @@ export default async function Review() {
                   </table>
                 </div>
               )}
+              {q.narrationHints && q.narrationHints.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-ink-3">From the narration:</span>
+                  {q.narrationHints.map((h) => (
+                    <form key={h.words} action={answerQuestionAction}>
+                      <input type="hidden" name="kind" value={q.kind} />
+                      <input type="hidden" name="key" value={q.key} />
+                      <input type="hidden" name="value" value="other" />
+                      <input type="hidden" name="otherText" value={h.words} />
+                      <input type="hidden" name="otherCategory" value={h.category === "Other" ? "" : h.category} />
+                      <button className="inline-flex rounded-full bg-accent-soft text-accent px-2.5 py-0.5 text-xs font-medium hover:opacity-90" title="Use this as the answer">
+                        &ldquo;{h.words.toUpperCase()}&rdquo;{h.category !== "Other" ? ` → ${h.category}` : ""}
+                      </button>
+                    </form>
+                  ))}
+                </div>
+              )}
               {q.examples.length > 0 && (
-                <ul className="mt-3 space-y-1">
-                  {q.examples.map((e, k) => <li key={k} className="text-xs text-ink-3 font-mono truncate">{e}</li>)}
-                </ul>
+                <div className="mt-3">
+                  <p className="text-xs text-ink-3">{q.examples.length === 1 ? "What your bank wrote" : `What your bank wrote (${q.examples.length} of ${q.count})`}</p>
+                  <ul className="mt-1 space-y-1">
+                    {q.examples.map((e, k) => <li key={k} className="text-xs text-ink-2 font-mono break-words whitespace-pre-wrap rounded bg-surface-2 px-2 py-1">{e}</li>)}
+                  </ul>
+                </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2">
                 {q.options.map((o, k) => (
