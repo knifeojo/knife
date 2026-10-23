@@ -318,7 +318,14 @@ void main() {
   });
 
   testWidgets('Review shows each full narration and the purpose words found in it', (tester) async {
-    final controller = await _signedIn((request) async => _json(reviewResponse));
+    final posts = <Object?>[];
+    final controller = await _signedIn((request) async {
+      if (request.method == 'POST') {
+        posts.add(jsonDecode(request.body));
+        return _json({'updated': 2});
+      }
+      return _json(reviewResponse);
+    });
     await tester.pumpWidget(_app(controller, const ReviewScreen()));
     await tester.pumpAndSettle();
     expect(find.text('Who is Emeka John Obi?'), findsOneWidget);
@@ -329,6 +336,15 @@ void main() {
     expect(find.text('"WARDROBE" → Housing'), findsOneWidget);
     expect(find.text('Family'), findsOneWidget);
     expect(find.text('Can’t remember'), findsOneWidget);
+
+    // "Car": a mechanic, parts or repairs, filed under Transport / Car on the server.
+    await tester.ensureVisible(find.text('Car (mechanic, parts, repairs, car purchase)'));
+    await tester.tap(find.text('Car (mechanic, parts, repairs, car purchase)'));
+    await tester.pumpAndSettle();
+    expect(posts, [
+      {'kind': 'person', 'key': 'emeka john obi', 'value': 'car'},
+    ]);
+    expect(find.text('Saved. 2 payments relabelled.'), findsOneWidget);
     controller.dispose();
   });
 

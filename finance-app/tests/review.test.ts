@@ -4,6 +4,7 @@ import { importStatement } from "@/core/statement-import";
 import { ingestTransaction } from "@/core/ledger";
 import { answerQuestion, askAgain, buildQuestions, inferFromText, memoOf } from "@/core/review";
 import { nameHint, sameName } from "@/core/categorize";
+import { spendingByCategory, specificMonth } from "@/core/analytics";
 
 const STATEMENT = Buffer.from([
   "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
@@ -91,6 +92,39 @@ describe("review questions", () => {
     expect(after).not.toContain("monthly");
     expect(after).not.toContain("deel inc");
     expect(after.some((k) => /mensah/.test(k))).toBe(false);
+  });
+});
+
+describe("the Car answer", () => {
+  const MECHANIC = Buffer.from([
+    "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
+    "01-Sep-2026,C1,,500000.00,500000.00,NIP ACME TECHNOLOGIES SALARY",
+    "05-Sep-2026,C2,45000.00,,455000.00,Instant Payment Outward 0905 TO OPAY - TUNDE ADEWALE BALOGUN",
+    "19-Sep-2026,C3,80000.00,,375000.00,NIP TRANSFER TO PALMPAY - BALOGUN TUNDE",
+  ].join("\n"));
+
+  it("labels a mechanic or car vendor as Transport / Car, learns the name, and counts it in Transport spend", async () => {
+    const u = await db.user.create({ data: { email: "car@test.dev" } });
+    await importStatement(u.id, { name: "s.csv", bytes: MECHANIC }, { institution: "GTBank" });
+    const q = (await buildQuestions(u.id)).find((x) => x.kind === "person" && /tunde/.test(x.key))!;
+    expect(q.options).toContainEqual(expect.objectContaining({ value: "car", category: "Transport", subcategory: "Car" }));
+
+    expect(await answerQuestion(u.id, "person", q.key, "car")).toBe(2);
+    const rows = await db.transaction.findMany({ where: { userId: u.id, reference: { in: ["C2", "C3"] } } });
+    expect(rows.every((r) => r.category === "Transport" && r.subcategory === "Car" && r.classificationSource === "user")).toBe(true);
+    const alias = await db.merchantAlias.findFirstOrThrow({ where: { userId: u.id, category: "Transport" } });
+    expect(alias.subcategory).toBe("Car");
+
+    const later = await ingestTransaction(u.id, {
+      institution: "GTBank", source: "statement", sourceTransactionId: "car-later", type: "DEBIT", amountMinor: 3_000_000n, currency: "NGN",
+      transactionDate: new Date("2026-10-03T10:00:00Z"), description: "Instant Payment Outward 1003 TO OPAY - TUNDE ADEWALE BALOGUN",
+      reference: "C4", accountLast4: undefined, confidence: 1,
+    });
+    expect(await db.transaction.findUniqueOrThrow({ where: { id: later.transactionId } })).toMatchObject({ category: "Transport", subcategory: "Car" });
+
+    const transport = (await spendingByCategory(u.id, specificMonth(2026, 8))).find((c) => c.category === "Transport");
+    expect(transport).toMatchObject({ total: 12_500_000n, count: 2 });
+    expect((await buildQuestions(u.id)).some((x) => /tunde/.test(x.key))).toBe(false);
   });
 });
 

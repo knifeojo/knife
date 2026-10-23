@@ -205,7 +205,9 @@ void main() {
     expect(q.examples.single, wardrobeNarration);
     expect(q.narrationHints.single.words, 'wardrobe');
     expect(q.narrationHints.single.category, 'Housing');
-    expect(q.options.map((o) => o.value), ['family', 'friend']);
+    expect(q.options.map((o) => o.value), ['family', 'friend', 'car']);
+    expect(q.options.last.category, 'Transport');
+    expect(q.options.last.subcategory, 'Car');
     expect(q.allowsOther, isTrue);
     expect(queue.categories, contains('Housing'));
     expect(CategorizeResult.fromJson({'checked': 40, 'changed': 3, 'message': 'Re-checked 40'}).changed, 3);
