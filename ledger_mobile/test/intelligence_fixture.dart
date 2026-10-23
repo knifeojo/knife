@@ -123,7 +123,7 @@ const reviewResponse = {
       'options': [
         {'value': 'family', 'label': 'Family', 'category': 'Family', 'subcategory': null},
         {'value': 'friend', 'label': 'Friend', 'category': 'Transfers', 'subcategory': 'Friend'},
-        {'value': 'car', 'label': 'Car (mechanic, parts, repairs, car purchase)', 'category': 'Transport', 'subcategory': 'Car'},
+        {'value': 'csr', 'label': 'CSR (black tax)', 'category': 'Family', 'subcategory': 'Black tax'},
       ],
       'currentCategory': 'Transfers',
       'hint': null,

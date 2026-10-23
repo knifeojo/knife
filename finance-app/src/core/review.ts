@@ -79,7 +79,7 @@ export const PERSON_OPTIONS: Option[] = [
   { value: "friend", label: "Friend", category: "Transfers", subcategory: "Friends" },
   { value: "landlord", label: "Landlord or rent", category: "Housing", subcategory: "Rent" },
   { value: "staff", label: "Someone I employ (driver, cleaner, nanny)", category: "Housing", subcategory: "Home services" },
-  { value: "car", label: "Car (mechanic, parts, repairs, car purchase)", category: "Transport", subcategory: "Car" },
+  { value: "csr", label: "CSR (black tax)", category: "Family", subcategory: "Black tax" },
   { value: "vendor", label: "A business or vendor I buy from", category: "Shopping", subcategory: "Vendors" },
   { value: "work", label: "Work or business expense", category: "Business", subcategory: "Business expense" },
   { value: "loan", label: "Loan (given or repaid)", category: "Debt", subcategory: "Loans" },

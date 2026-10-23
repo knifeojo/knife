@@ -337,12 +337,12 @@ void main() {
     expect(find.text('Family'), findsOneWidget);
     expect(find.text('Can’t remember'), findsOneWidget);
 
-    // "Car": a mechanic, parts or repairs, filed under Transport / Car on the server.
-    await tester.ensureVisible(find.text('Car (mechanic, parts, repairs, car purchase)'));
-    await tester.tap(find.text('Car (mechanic, parts, repairs, car purchase)'));
+    // "CSR (black tax)": support for extended family, filed under Family / Black tax on the server.
+    await tester.ensureVisible(find.text('CSR (black tax)'));
+    await tester.tap(find.text('CSR (black tax)'));
     await tester.pumpAndSettle();
     expect(posts, [
-      {'kind': 'person', 'key': 'emeka john obi', 'value': 'car'},
+      {'kind': 'person', 'key': 'emeka john obi', 'value': 'csr'},
     ]);
     expect(find.text('Saved. 2 payments relabelled.'), findsOneWidget);
     controller.dispose();
