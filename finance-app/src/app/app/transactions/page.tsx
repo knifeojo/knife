@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { listTransactions, monthPeriod, type TransactionFilters } from "@/core/analytics";
-import { cadenceWhere, everydayReviewQuestions, loadCadence, parseCadenceView, spendingSplit } from "@/core/cadence";
-import { EverydayBreakdownView, EverydayReviewCta } from "@/components/everyday";
+import { cadenceWhere, payeeWhere, reviewQuestionsFor, loadCadence, parseCadenceView, spendingSplit } from "@/core/cadence";
+import { EverydayBreakdownView, ReviewCta } from "@/components/everyday";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { formatMoney, parseAmountToMinor } from "@/lib/money";
@@ -25,6 +25,7 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
   const cadenceView = parseCadenceView(one(sp.cadence));
   const cadence = await loadCadence(user.id);
   const from = lagosDayStart(one(sp.from));
+  const payee = one(sp.payee)?.slice(0, 80);
   const f: TransactionFilters = {
     q: one(sp.q)?.slice(0, 80),
     type: one(sp.type) === "DEBIT" || one(sp.type) === "CREDIT" ? (one(sp.type) as "DEBIT" | "CREDIT") : undefined,
@@ -36,17 +37,19 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
     minMinor: one(sp.min) ? parseAmountToMinor(one(sp.min)!) ?? undefined : undefined,
     maxMinor: one(sp.max) ? parseAmountToMinor(one(sp.max)!) ?? undefined : undefined,
     cadence: cadenceView ? await cadenceWhere(user.id, cadence, cadenceView) : undefined,
+    payee: payee ? await payeeWhere(user.id, payee) : undefined,
   };
   // The everyday breakdown covers the chosen dates (or everything Ledger can label), before category and search filters.
   const everydayPeriod = cadenceView === "everyday"
     ? { from: f.from && f.from > cadence.since ? f.from : cadence.since, to: f.to ?? monthPeriod(new Date(), 0).to, label: "" }
     : undefined;
-  const [data, accounts, everyday] = await Promise.all([
+  const [data, accounts, everydaySplit] = await Promise.all([
     listTransactions(user.id, f, page, 50),
     db.account.findMany({ where: { userId: user.id }, select: { id: true, accountName: true } }),
-    everydayPeriod ? spendingSplit(user.id, everydayPeriod, cadence).then((s) => s.everyday) : undefined,
+    everydayPeriod ? spendingSplit(user.id, everydayPeriod, cadence) : undefined,
   ]);
-  const reviewQuestions = everyday && !user.isDemo ? await everydayReviewQuestions(user.id, everyday) : 0;
+  const everyday = everydaySplit?.everyday;
+  const reviewQuestions = everydaySplit && !user.isDemo ? await reviewQuestionsFor(user.id, everydaySplit.unlabelled) : 0;
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
   const qs = (p: number) => {
     const u = new URLSearchParams();
@@ -59,7 +62,7 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
     <>
       <PageHeader title="Transactions" subtitle={`${data.total.toLocaleString()} transactions. Change a category and similar transactions learn from it.`} />
       <Card className="mb-4">
-        <form className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 items-end">
+        <form id="filters" className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 items-end">
           <div className="col-span-2">
             <label className="label" htmlFor="q">Search</label>
             <input id="q" name="q" defaultValue={f.q} placeholder="Merchant, person, reference" className="input mt-1" />
@@ -111,12 +114,18 @@ export default async function Transactions({ searchParams }: { searchParams: Pro
       {everyday && everydayPeriod && (
         <Card title={`Everyday spending: ${formatMoney(everyday.totalMinor, "NGN", { compact: true })} in ${everyday.count} payments`} className="mb-4">
           <div className="space-y-4">
-            <EverydayReviewCta everyday={everyday} reviewQuestions={reviewQuestions} period={everydayPeriod} />
+            <ReviewCta unlabelled={everydaySplit!.unlabelled} reviewQuestions={reviewQuestions} period={everydayPeriod} />
             <EverydayBreakdownView everyday={everyday} period={everydayPeriod} />
           </div>
         </Card>
       )}
       <Card>
+        {payee && (
+          <p className="text-sm mb-3">
+            Payments matched to <strong>{payee}</strong>, under any spelling in your bank narrations. <Link href="/app/transactions" className="text-accent underline">Clear</Link>
+            <input type="hidden" form="filters" name="payee" value={payee} />
+          </p>
+        )}
         {cadenceView && (
           <p className="text-xs text-ink-3 mb-3">
             {cadenceView === "recurring"

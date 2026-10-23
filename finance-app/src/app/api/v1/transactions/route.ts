@@ -1,7 +1,7 @@
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { listTransactions, type TransactionFilters } from "@/core/analytics";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
-import { cadenceWhere, loadCadence, parseCadenceView } from "@/core/cadence";
+import { cadenceWhere, loadCadence, parseCadenceView, payeeWhere } from "@/core/cadence";
 import { minor, transactionJson } from "@/lib/mobile/serialize";
 
 export const runtime = "nodejs";
@@ -43,6 +43,7 @@ export async function GET(req: Request) {
   const cadenceView = parseCadenceView(cadenceParam);
   if (cadenceParam && !cadenceView) return apiError(400, "cadence must be recurring, one_off or everyday");
 
+  const payee = url.searchParams.get("payee")?.trim().slice(0, 80) || undefined;
   const cadence = await loadCadence(auth.user.id);
 
   const filters: TransactionFilters = {
@@ -53,6 +54,7 @@ export async function GET(req: Request) {
     from,
     to: toStart ? new Date(toStart.getTime() + 86400_000) : undefined,
     cadence: cadenceView ? await cadenceWhere(auth.user.id, cadence, cadenceView) : undefined,
+    payee: payee ? await payeeWhere(auth.user.id, payee) : undefined,
   };
   const data = await listTransactions(auth.user.id, filters, page, pageSize);
   return apiJson({

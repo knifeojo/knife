@@ -23,6 +23,8 @@ export async function GET(req: Request) {
       options: q.options.map((o) => ({ value: o.value, label: o.label, category: o.category, subcategory: o.subcategory ?? null })),
       currentCategory: q.currentCategory ?? null,
       hint: q.hint ?? null,
+      /** Answer one with { value: "other", otherText: words, otherCategory: category unless "Other" }. */
+      narrationHints: (q.narrationHints ?? []).map((h) => ({ words: h.words, category: h.category, subcategory: h.subcategory })),
       /** Holder and conversion questions take only the listed options. */
       allowsOther: q.kind !== "holder" && q.kind !== "conversion",
     })),
