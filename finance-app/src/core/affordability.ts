@@ -510,7 +510,8 @@ function cutThatKeepsBuffer(c: AdviceContext, cap: bigint): bigint | null {
 }
 
 function cutAdvice(c: AdviceContext, cat: { category: string; monthly: bigint; name: string }): AdviceLine | null {
-  const cap = cat.monthly * CUT_MAX_PERCENT / 100n < c.maxCut ? cat.monthly * CUT_MAX_PERCENT / 100n : c.maxCut;
+  const part = cat.monthly * CUT_MAX_PERCENT / 100n;
+  const cap = part < c.maxCut ? part : c.maxCut;
   if (cap <= 0n) return null;
   const spent = `You spent about ${about(cat.monthly)} a month there ${spanLabel(c)}.`;
   const inWindow = cutThatKeepsBuffer(c, cap);
