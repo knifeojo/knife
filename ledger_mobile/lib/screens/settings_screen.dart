@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../api/models.dart';
 import '../server_url.dart';
 import '../state/ledger_controller.dart';
+import 'loans_screen.dart';
 import 'review_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -39,6 +40,12 @@ class SettingsScreen extends StatelessWidget {
             onPressed: () => openReview(context),
             child: const Text('Review payments that need a purpose'),
           ),
+          const SizedBox(height: 24),
+          Text('Loans', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          const Text('Statements show repayments, not what is left. Enter the balance from your loan app so Afford can use it.'),
+          const SizedBox(height: 8),
+          OutlinedButton(key: const Key('settings-loans'), onPressed: () => openLoans(context), child: const Text('Your loans')),
           const SizedBox(height: 24),
           OutlinedButton(onPressed: controller.signOut, child: const Text('Sign out')),
           const SizedBox(height: 8),

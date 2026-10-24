@@ -5,6 +5,7 @@ import '../api/models.dart';
 import '../format.dart';
 import '../state/ledger_controller.dart';
 import '../widgets/common.dart';
+import 'loans_screen.dart';
 
 class AffordabilityScreen extends StatefulWidget {
   const AffordabilityScreen({super.key});
@@ -178,7 +179,15 @@ class AffordabilityAnswer extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          Expanded(child: Text(a.text, style: theme.textTheme.bodyMedium)),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(a.text, style: theme.textTheme.bodyMedium),
+                                if (a.kind == 'debt') _LoanBalance(advice: a),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -228,6 +237,48 @@ class AffordabilityAnswer extends StatelessWidget {
             child: Text(note, style: theme.textTheme.bodySmall),
           ),
       ],
+    );
+  }
+}
+
+/// Under a loan line: the balance the user entered, or a way to add one. Statements never show what is left.
+class _LoanBalance extends StatelessWidget {
+  const _LoanBalance({required this.advice});
+
+  final AffordabilityAdvice advice;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final loan = advice.loan;
+    const compact = VisualDensity(horizontal: -4, vertical: -4);
+    if (loan == null) {
+      return TextButton(
+        key: Key('add-balance-${advice.subject}'),
+        style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: compact),
+        onPressed: () => openLoanForm(context, lender: advice.subject),
+        child: const Text('Add your balance'),
+      );
+    }
+    final end = loan.endsOn == null ? '' : ' · last payment ${formatCalendarDay(loan.endsOn!)}';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '${formatMinor(loan.outstandingMinor)} left$end${loan.repaymentsSince > 0 ? ' · out of date' : ''}',
+              key: Key('loan-balance-${loan.id}'),
+              style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: compact),
+            onPressed: () => openLoans(context),
+            child: const Text('Update'),
+          ),
+        ],
+      ),
     );
   }
 }

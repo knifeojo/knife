@@ -757,7 +757,7 @@ class AffordabilityOneOff {
 
 /// One rule-based next step from the server, built from the user's ledger.
 class AffordabilityAdvice {
-  const AffordabilityAdvice({required this.kind, required this.text, this.subject, this.monthlyMinor, this.openMinor});
+  const AffordabilityAdvice({required this.kind, required this.text, this.subject, this.monthlyMinor, this.openMinor, this.loan});
 
   static const kinds = ['debt', 'cut', 'one_off', 'none'];
 
@@ -766,6 +766,9 @@ class AffordabilityAdvice {
   final String? subject;
   final String? monthlyMinor;
   final String? openMinor;
+
+  /// Set when the user entered this loan, so [openMinor] is their real balance. Older servers never send it.
+  final AdviceLoan? loan;
 
   factory AffordabilityAdvice.fromJson(Map<String, dynamic> json) {
     final kind = _string(json, 'kind');
@@ -776,8 +779,159 @@ class AffordabilityAdvice {
       subject: _optionalString(json, 'subject'),
       monthlyMinor: _optionalMinor(json, 'monthlyMinor'),
       openMinor: _optionalMinor(json, 'openMinor'),
+      loan: json['loan'] == null ? null : AdviceLoan.fromJson(_map(json, 'loan')),
     );
   }
+}
+
+/// The loan behind a debt line, as the user entered it.
+class AdviceLoan {
+  const AdviceLoan({
+    required this.id,
+    required this.outstandingMinor,
+    required this.balanceAsOf,
+    this.endsOn,
+    this.instalmentsLeft,
+    this.repaymentsSince = 0,
+    this.repaidSinceMinor = '0',
+  });
+
+  final String id;
+  final String outstandingMinor;
+  final DateTime balanceAsOf;
+  final DateTime? endsOn;
+  final int? instalmentsLeft;
+
+  /// Repayments the bank shows since the balance was entered. Above 0 means it is out of date.
+  final int repaymentsSince;
+  final String repaidSinceMinor;
+
+  factory AdviceLoan.fromJson(Map<String, dynamic> json) {
+    return AdviceLoan(
+      id: _string(json, 'id'),
+      outstandingMinor: _minor(json, 'outstandingMinor'),
+      balanceAsOf: DateTime.parse(_string(json, 'balanceAsOf')),
+      endsOn: _optionalDate(json, 'endsOn'),
+      instalmentsLeft: _optionalInt(json, 'instalmentsLeft'),
+      repaymentsSince: _optionalInt(json, 'repaymentsSince') ?? 0,
+      repaidSinceMinor: _optionalMinor(json, 'repaidSinceMinor') ?? '0',
+    );
+  }
+}
+
+/// A loan the user typed in from their lender's app, from `/api/v1/loans`. Dates are calendar days at 00:00 UTC.
+class LedgerLoan {
+  const LedgerLoan({
+    required this.id,
+    required this.lender,
+    required this.outstandingMinor,
+    this.instalmentMinor,
+    this.instalmentsPaid,
+    this.instalmentsTotal,
+    this.instalmentsLeft,
+    this.nextDueDate,
+    this.endDate,
+    this.payoffDate,
+    this.notes,
+    required this.status,
+    required this.balanceAsOf,
+    this.closedAt,
+    this.repaymentsSince = 0,
+    this.repaidSinceMinor = '0',
+    this.lastRepaymentSince,
+  });
+
+  final String id;
+  final String lender;
+  final String outstandingMinor;
+  final String? instalmentMinor;
+  final int? instalmentsPaid;
+  final int? instalmentsTotal;
+  final int? instalmentsLeft;
+  final DateTime? nextDueDate;
+  final DateTime? endDate;
+
+  /// The end date, or one the server worked out from the instalments left.
+  final DateTime? payoffDate;
+  final String? notes;
+  final String status; // open | closed
+  final DateTime balanceAsOf;
+  final DateTime? closedAt;
+  final int repaymentsSince;
+  final String repaidSinceMinor;
+  final DateTime? lastRepaymentSince;
+
+  bool get isOpen => status != 'closed';
+
+  factory LedgerLoan.fromJson(Map<String, dynamic> json) {
+    final since = json['repaymentsSince'] == null ? const <String, dynamic>{} : _map(json, 'repaymentsSince');
+    return LedgerLoan(
+      id: _string(json, 'id'),
+      lender: _string(json, 'lender'),
+      outstandingMinor: _minor(json, 'outstandingMinor'),
+      instalmentMinor: _optionalMinor(json, 'instalmentMinor'),
+      instalmentsPaid: _optionalInt(json, 'instalmentsPaid'),
+      instalmentsTotal: _optionalInt(json, 'instalmentsTotal'),
+      instalmentsLeft: _optionalInt(json, 'instalmentsLeft'),
+      nextDueDate: _optionalDate(json, 'nextDueDate'),
+      endDate: _optionalDate(json, 'endDate'),
+      payoffDate: _optionalDate(json, 'payoffDate'),
+      notes: _optionalString(json, 'notes'),
+      status: _optionalString(json, 'status') ?? 'open',
+      balanceAsOf: DateTime.parse(_string(json, 'balanceAsOf')),
+      closedAt: _optionalDate(json, 'closedAt'),
+      repaymentsSince: _optionalInt(since, 'count') ?? 0,
+      repaidSinceMinor: _optionalMinor(since, 'totalMinor') ?? '0',
+      lastRepaymentSince: _optionalDate(since, 'lastDate'),
+    );
+  }
+}
+
+class LoanList {
+  const LoanList({required this.loans, required this.lenders});
+
+  final List<LedgerLoan> loans;
+
+  /// The lender names a loan can be filed under, the same ones the server's lender detection uses.
+  final List<String> lenders;
+
+  factory LoanList.fromJson(Map<String, dynamic> json) {
+    return LoanList(loans: _list(json, 'loans').map(LedgerLoan.fromJson).toList(), lenders: _stringList(json, 'lenders'));
+  }
+}
+
+/// What the loan form sends. Kobo as strings, days as YYYY-MM-DD.
+class LoanDraft {
+  const LoanDraft({
+    required this.lender,
+    required this.outstandingMinor,
+    this.instalmentMinor,
+    this.instalmentsPaid,
+    this.instalmentsTotal,
+    this.nextDueDate,
+    this.endDate,
+    this.notes,
+  });
+
+  final String lender;
+  final String outstandingMinor;
+  final String? instalmentMinor;
+  final int? instalmentsPaid;
+  final int? instalmentsTotal;
+  final String? nextDueDate;
+  final String? endDate;
+  final String? notes;
+
+  Map<String, Object?> toJson() => {
+    'lender': lender,
+    'outstandingMinor': outstandingMinor,
+    'instalmentMinor': instalmentMinor,
+    'instalmentsPaid': instalmentsPaid,
+    'instalmentsTotal': instalmentsTotal,
+    'nextDueDate': nextDueDate,
+    'endDate': endDate,
+    'notes': notes,
+  };
 }
 
 /// Answer from `POST /api/v1/affordability`. Every amount stays a minor-unit string.
@@ -943,6 +1097,8 @@ int _int(Map<String, dynamic> json, String key) {
   if (value is int) return value;
   throw FormatException('Expected $key to be an integer');
 }
+
+int? _optionalInt(Map<String, dynamic> json, String key) => json[key] == null ? null : _int(json, key);
 
 Map<String, dynamic> _map(Map<String, dynamic> json, String key) => _asMap(json[key]);
 

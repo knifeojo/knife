@@ -114,6 +114,15 @@ class LedgerController extends ChangeNotifier {
     return _guard((api) => api.affordability(amountMinor: amountMinor, description: description, horizon: horizon, bufferMinor: bufferMinor));
   }
 
+  Future<LoanList> loans() => _guard((api) => api.loans());
+
+  /// Adds a loan, or saves an edit when [id] is set.
+  Future<LedgerLoan> saveLoan(LoanDraft draft, {String? id}) {
+    return _guard((api) => id == null ? api.createLoan(draft) : api.updateLoan(id, draft));
+  }
+
+  Future<LedgerLoan> setLoanStatus(String id, String status) => _guard((api) => api.setLoanStatus(id, status));
+
   Future<List<StatementFileResult>> upload({required String filename, required Uint8List bytes, String? password}) {
     return _guard((api) => api.uploadStatement(filename: filename, bytes: bytes, password: password));
   }
