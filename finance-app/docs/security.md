@@ -15,9 +15,10 @@
 
 ## AI data flow
 
-- Off by default per user (Settings), and unavailable unless the server has an Anthropic API key.
-- Sent to Anthropic when on: transaction descriptions with every run of 6+ digits removed, extracted payee names and memos, the user's own category labels, and a profile summary (account names, balances, income sources, labelled people, averages). Never logins, passwords, full account numbers or files.
-- The model never writes amounts, dates or balances: the categorizer's output schema only allows category, subcategory, confidence and reason; the assistant's figures must come from tool results computed in the database, enforced by a number guard.
+- Off by default per user (Settings). The server default is a local model (Ollama on `localhost`); `OLLAMA_BASE_URL` pointing anywhere but loopback is refused before any request is made.
+- The categorizer sends, per uncertain row only: the narration with every run of 6+ digits removed, payee, merchant name, amount, direction and date (`AiRow` in `src/core/ai/categorizer.ts`, enforced by a test). Never balances, account names or numbers, the profile or other labels, logins or files.
+- The cloud (Anthropic) runs only with `AI_PROVIDER=anthropic` set explicitly plus a key; a key alone does nothing. The Insights assistant and answer phrasing are cloud-only, so they are off unless that is set. The assistant sends the user's question, a profile summary and tool results.
+- The categorizer only suggests. Its output is validated against the category taxonomy and stored as a suggestion; a transaction changes only when the owner confirms it in Review. The model never writes amounts, dates or balances, and the assistant's figures must come from tool results computed in the database, enforced by a number guard.
 - Every tool is scoped to the signed-in user server-side; the model cannot choose whose data it reads.
 
 ## Authentication and authorization

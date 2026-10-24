@@ -64,8 +64,11 @@ Money is a string of minor units (`"198361100"` is ₦1,983,611.00). Dates are I
 | GET | `/api/v1/accounts` | bearer | Accounts, masked numbers, balances |
 | GET | `/api/v1/transactions` | bearer | Paged ledger. Filters: `category`, `type`, `accountId`, `q`, `from`, `to`, `cadence` (`recurring` \| `one_off` \| `everyday`), `payee` (one matched name, every spelling), `page`, `pageSize`. Each row has `cadence` (`"recurring"`, `"one_off"` or `null`) and `recurringBill`; the page has `oneOffMinMinor` and `cadenceSince` |
 | GET | `/api/v1/summary` | bearer | Month income, expenses, net, category totals (with `recurringMinor`, `oneOffMinor`), recent rows (with `cadence`), and `spendingSplit`: `{ recurringBillsMinor, recurringOtherMinor, oneOffMinor, everydayMinor, oneOffMinMinor, labelled, oneOffs[], everyday: { totalMinor, count, byCategory[], byPayee[] }, payees[], unlabelled: { count, totalMinor, needsReview, reviewQuestions } }`, and `recurring[]` (`{ name, label, category, kind: "fixed" \| "variable" \| "frequent", bill, averageMinor, occurrences, months, lastDate, nextExpected, aliases[] }`). `payees[]`: `{ name, label, category, totalMinor, count, recurringMinor, oneOffMinor, everydayMinor, regular, unlabelledMinor, variants[], unnamed }`. `month=YYYY-MM` or `offset=-1` |
-| GET | `/api/v1/review` | bearer | The web Review questions: `{ questions[]: { kind, key, title, prompt, totalMinor, count, examples[] (full narrations), options[], currentCategory, hint, narrationHints[]: { words, category, subcategory }, allowsOther }, totalMinor, categories }` |
+| GET | `/api/v1/review` | bearer | The web Review questions: `{ questions[]: { kind, key, title, prompt, totalMinor, count, examples[] (full narrations), options[], currentCategory, hint, narrationHints[]: { words, category, subcategory }, allowsOther, aiSuggestion }, suggestions[], totalMinor, categories }`. `aiSuggestion` (or null) and each `suggestions[]` item: `{ id, display, direction, category, subcategory, reason, confidence, model, count, totalMinor, currentCategory, examples[], classificationSource: "ai" }` |
 | POST | `/api/v1/review` | bearer | `{ kind, key, value, otherText?, otherCategory? }` → `{ updated }`. `value: "unknown"` is "Can't remember"; a narration hint is answered as `value: "other"` with its words |
+| POST | `/api/v1/review/suggestions` | bearer | `{ id, action: "confirm" \| "dismiss" }` → `{ updated }`. Confirm saves the AI's label as a rule for the payee. 404 if already answered |
+| GET | `/api/v1/ai` | bearer | `{ provider: "ollama" \| "anthropic" \| "off", model, cloud, reachable, modelInstalled, message, enabled, available, pendingSuggestions, backlog }` |
+| POST | `/api/v1/ai` | bearer | `{ enabled: boolean }`: the Settings toggle → the same status. 409 when the server has AI off |
 | POST | `/api/v1/categorize` | bearer | Re-run categorization, the same as the web Settings button → `{ checked, changed, message }`. Hand labels and Review answers are kept |
 | POST | `/api/v1/statements` | bearer | Multipart PDF, CSV or XLSX (`file` or `files`). Optional `password` for a PDF, used once in memory |
 | POST | `/api/v1/affordability` | bearer | `{ amountMinor: "250000000", description?, horizon?: "month_end" \| 1..120 (days), bufferMinor? }` → `{ verdict: "yes" \| "stretch" \| "no", headline, detail, notes, inputs, projection, monthsToSave, advice }`. `advice[]`: `{ kind: "debt" \| "cut" \| "one_off" \| "none", text, subject, monthlyMinor, openMinor, loan? }`. `loan` is set on a debt line when the user entered that loan: `{ id, outstandingMinor, balanceAsOf, endsOn, instalmentsLeft, repaymentsSince, repaidSinceMinor }`. Obligations may carry `loanId` and `endsOn`. Older clients can ignore the new keys. `inputs.obligations[].kind` is `"recurring"`; `inputs.oneOffs[]` (`kind: "one_off"`), `oneOffsTotalMinor`, `oneOffMinMinor`, `oneOffsSince`. 409 until the user has transactions |
@@ -141,7 +144,7 @@ Loan repayments only count if they are categorized as Debt. A repayment into a l
 
 ## Categories
 
-`categorize()` in `src/core/categorize.ts` is rule-based and deterministic: the same narration always gets the same category, with no model call. The optional AI categorizer (`ANTHROPIC_API_KEY` plus the per-user toggle) only looks at rows the rules leave generic or low-confidence and is off by default; no test needs it. Synthetic GTBank, First Bank and Sterling narrations in `tests/categorization/nigerian-narrations.test.ts` and `tests/fixtures/benchmark.ts` pin the behaviour.
+`categorize()` in `src/core/categorize.ts` is rule-based and deterministic: the same narration always gets the same category, with no model call. The optional AI categorizer (a local model by default, plus the per-user toggle) only looks at rows the rules leave generic or low-confidence, only suggests, and is off by default; no test needs a model. See [Local AI categorization](#local-ai-categorization-ollama). Synthetic GTBank, First Bank and Sterling narrations in `tests/categorization/nigerian-narrations.test.ts` and `tests/fixtures/benchmark.ts` pin the behaviour.
 
 Spending categories: Food, Transport, Housing, Utilities, Shopping, Subscriptions, Family, **Giving** (new: church, tithe, offering, charity; it used to be a subcategory of Other), Debt, Healthcare, Travel, Business, Transfers, Fees, Other. Plus Income and Own transfer, which are left out of spending. Finer detail lives in subcategories (Food / Eating out, Family / Education, Housing / Generator & diesel, Other / Cash, Healthcare / Fitness).
 
@@ -179,6 +182,43 @@ The recipient's bank is cut out of the narration before rules run ("TO JOHN SMIT
 
 **Re-apply categories to existing data.** Rows imported before this change keep their old categories until re-applied. Web: **Settings → Re-apply categories**. CLI: `npm run recategorize -- --email you@example.com`. It also moves old Other / Giving, Tithe, Offering and Charity labels (including hand-made ones and merchant aliases) to the Giving category. Hand-labelled rows otherwise keep their label.
 
+## Local AI categorization (Ollama)
+
+An optional second opinion for payments the rules could not label (plain Transfers, uncategorized, low-confidence card purchases). It runs a small model on your own Mac through [Ollama](https://ollama.com), so nothing leaves the machine.
+
+- **Rules first.** Rows labelled by a rule, by you, by a Review answer or a learned MerchantAlias are never sent. Own-transfer pairs are never sent.
+- **What the model sees:** the narration (account numbers and long references removed), payee, merchant name, amount, direction and date. Never balances, account names or numbers, your profile or your other labels.
+- **Only the existing categories.** Answers outside the category / subcategory list (`src/core/taxonomy.ts`: Family / Black tax, Debt / Loan repayment, Own transfer, Giving / Church and the rest), in the wrong direction (Income on money out), generic, or under 60% confidence are rejected.
+- **Suggestions, not changes.** Answers are stored as suggestions (`classificationSource: "ai"`). Review (web and phone) shows each one pre-selected; **Confirm** applies it and saves a rule for the payee, so the next statement labels them by rule and the AI is not asked again. **Not right** drops it. Until you confirm, totals, Spending and **Afford are unchanged**: Afford stays rule-based and only sees labels you confirmed.
+
+**Set it up on the Mac**
+
+```bash
+brew install ollama
+ollama serve                 # or open the Ollama app; leave it running
+ollama pull qwen2.5:3b       # ~2 GB, the default
+```
+
+Add to `.env` (these are the defaults, so this is optional):
+
+```bash
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:3b
+```
+
+Restart `npm run dev`, then **Settings → AI categorization → Turn AI on** (or the switch in the phone's Settings). Settings shows the provider, model and whether Ollama answers. Then work through the backlog:
+
+```bash
+npm run ai:suggest -- --limit 50
+```
+
+It prints progress per batch, stores suggestions as it goes and can be stopped at any time; running it again carries on where it stopped. `--dry-run` asks the model and prints what it would suggest without storing anything. Also: `--email` (when there is more than one account), `--batch N`, `--retry-failed`, `--enable` (turns the toggle on). If Ollama is not running it says so and exits; the server works the same without AI. After each statement upload, the server also asks about up to 40 new rows in the background.
+
+**Which model.** 8 GB RAM (MacBook Air base): a 3B model, `qwen2.5:3b` (default) or `llama3.2:3b`. 16 GB or more: a 7 to 8B model is more accurate, `qwen2.5:7b` or `llama3.1:8b`. Change `OLLAMA_MODEL`, `ollama pull` it, restart. `--retry-failed` re-asks rows the smaller model could not answer.
+
+**Cloud is opt-in only.** `OLLAMA_BASE_URL` must be `localhost` or `127.0.0.1`; anything else is refused. The Anthropic path (and the Insights assistant) runs only with `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY` both set; a key on its own does nothing. `AI_PROVIDER=off` disables AI.
+
 ## Environment
 
 | Var | Required | Purpose |
@@ -187,7 +227,10 @@ The recipient's bank is cut out of the narration before rules run ("TO JOHN SMIT
 | `ENCRYPTION_KEY` | yes | 32 bytes base64. Encrypts OAuth tokens at rest |
 | `APP_URL` | yes | Public origin, used for the OAuth redirect URI |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for Gmail | OAuth web client |
-| `ANTHROPIC_API_KEY` | no | Enables the AI categorizer and assistant (each user must also turn AI on in Settings) |
+| `AI_PROVIDER` | no | `ollama` (default, local), `anthropic` (cloud, explicit opt-in) or `off`. Each user must also turn AI on in Settings |
+| `OLLAMA_BASE_URL` | no | Default `http://localhost:11434`. Must be this machine |
+| `OLLAMA_MODEL` | no | Default `qwen2.5:3b`. Any model you have pulled |
+| `ANTHROPIC_API_KEY` | no | Used only when `AI_PROVIDER=anthropic`: cloud categorizer and Insights assistant |
 | `GMAIL_QUERY_GTBANK` | no | Override the Gmail search for GTBank alerts |
 
 ## Status against the Definition of Done
