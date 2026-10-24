@@ -1,5 +1,4 @@
-import { aiCategorize } from "@/core/ai/categorizer";
-import { aiAllowed } from "@/core/ai/client";
+import { suggestInBackground } from "@/core/ai/categorizer";
 import {
   MAX_STATEMENT_BYTES,
   MAX_STATEMENT_FILES,
@@ -60,6 +59,6 @@ export async function POST(req: Request) {
       await recordFailedImport(auth.user.id, name, message);
     }
   }
-  if (results.some((result) => "ok" in result) && (await aiAllowed(auth.user.id))) await aiCategorize(auth.user.id).catch(() => undefined);
+  if (results.some((result) => "ok" in result)) suggestInBackground(auth.user.id);
   return apiJson({ results });
 }

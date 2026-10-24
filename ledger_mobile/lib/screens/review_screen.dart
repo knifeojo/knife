@@ -69,6 +69,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
   }
 
+  Future<void> _suggestion(AiSuggestion s, String action) async {
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final updated = await context.read<LedgerController>().answerSuggestion(id: s.id, action: action);
+      if (action == 'confirm') _changed = true;
+      messenger.showSnackBar(
+        SnackBar(content: Text(action == 'confirm' ? 'Saved as ${s.label}. $updated payment${updated == 1 ? '' : 's'} relabelled.' : 'Suggestion dismissed.')),
+      );
+      await _load();
+    } on ApiException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _other(ReviewQuestion q, List<String> categories) async {
     final result = await showDialog<({String text, String? category})>(
       context: context,
@@ -102,7 +119,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
               const SizedBox(height: 12),
               if (_error != null) ErrorText(_error),
               if (queue == null && _error == null) const Text('Loading…'),
-              if (queue != null && queue.questions.isEmpty) const EmptyNote('Nothing to review. Ledger has labelled everything it can.'),
+              if (queue != null && queue.questions.isEmpty && queue.suggestions.isEmpty) const EmptyNote('Nothing to review. Ledger has labelled everything it can.'),
               if (queue != null)
                 for (final (i, q) in queue.questions.indexed)
                   ReviewQuestionCard(
@@ -113,7 +130,19 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     busy: _busy,
                     onAnswer: (value, {otherText, otherCategory}) => _answer(q, value, otherText: otherText, otherCategory: otherCategory),
                     onOther: () => _other(q, queue.categories),
+                    onSuggestion: _suggestion,
                   ),
+              if (queue != null && queue.suggestions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Suggested by AI', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  'Payments the rules could not label. Nothing changes until you confirm; confirming also labels future payments to the same payee.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                for (final s in queue.suggestions) AiSuggestionCard(key: Key('suggestion-${s.id}'), suggestion: s, busy: _busy, onAnswer: _suggestion),
+              ],
             ],
           ),
         ),
@@ -124,6 +153,91 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
 typedef ReviewAnswer = void Function(String value, {String? otherText, String? otherCategory});
 
+/// `action` is "confirm" or "dismiss".
+typedef SuggestionAnswer = void Function(AiSuggestion suggestion, String action);
+
+/// The AI's pick, pre-selected: one tap confirms it and saves it as a rule for this payee.
+class AiPick extends StatelessWidget {
+  const AiPick({super.key, required this.suggestion, required this.busy, required this.onAnswer});
+
+  final AiSuggestion suggestion;
+  final bool busy;
+  final SuggestionAnswer onAnswer;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = suggestion;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Suggested by AI (${s.model}) · ${(s.confidence * 100).round()}% sure', style: theme.textTheme.labelSmall),
+          const SizedBox(height: 2),
+          Text(s.reason.isEmpty ? s.label : '${s.label} · ${s.reason}', style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            children: [
+              FilledButton(key: Key('confirm-${s.id}'), onPressed: busy ? null : () => onAnswer(s, 'confirm'), child: Text('Confirm ${s.label}')),
+              TextButton(key: Key('dismiss-${s.id}'), onPressed: busy ? null : () => onAnswer(s, 'dismiss'), child: const Text('Not right')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// An AI suggestion for a payee no Review question covers.
+class AiSuggestionCard extends StatelessWidget {
+  const AiSuggestionCard({super.key, required this.suggestion, required this.busy, required this.onAnswer});
+
+  final AiSuggestion suggestion;
+  final bool busy;
+  final SuggestionAnswer onAnswer;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = suggestion;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(s.display, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 2),
+            Text(
+              '${formatMinor(s.totalMinor)} · ${s.count} payment${s.count == 1 ? '' : 's'} ${s.direction == 'in' ? 'in' : 'out'} · now "${s.currentCategory}"',
+              style: theme.textTheme.bodySmall,
+            ),
+            for (final e in s.examples)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(6)),
+                child: SelectableText(e, style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),
+              ),
+            AiPick(suggestion: s, busy: busy, onAnswer: onAnswer),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class ReviewQuestionCard extends StatelessWidget {
   const ReviewQuestionCard({
     super.key,
@@ -133,6 +247,7 @@ class ReviewQuestionCard extends StatelessWidget {
     required this.busy,
     required this.onAnswer,
     required this.onOther,
+    this.onSuggestion,
   });
 
   final ReviewQuestion question;
@@ -141,6 +256,7 @@ class ReviewQuestionCard extends StatelessWidget {
   final bool busy;
   final ReviewAnswer onAnswer;
   final VoidCallback onOther;
+  final SuggestionAnswer? onSuggestion;
 
   @override
   Widget build(BuildContext context) {
@@ -198,13 +314,14 @@ class ReviewQuestionCard extends StatelessWidget {
                   child: SelectableText(e, style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),
                 ),
             ],
+            if (q.aiSuggestion != null && onSuggestion != null) AiPick(suggestion: q.aiSuggestion!, busy: busy, onAnswer: onSuggestion!),
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 for (final (k, o) in q.options.indexed)
-                  k == 0 && o.value == 'hint'
+                  k == 0 && o.value == 'hint' && q.aiSuggestion == null
                       ? FilledButton(onPressed: busy ? null : () => onAnswer(o.value), child: Text(o.label))
                       : OutlinedButton(onPressed: busy ? null : () => onAnswer(o.value), child: Text(o.label)),
               ],

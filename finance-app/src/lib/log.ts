@@ -24,6 +24,7 @@ type Level = "info" | "warn" | "error";
 
 function emit(level: Level, event: string, data?: Record<string, unknown>) {
   if (process.env.NODE_ENV === "test") return;
+  if (level === "info" && process.env.LOG_LEVEL === "warn") return;
   const line = JSON.stringify({ t: new Date().toISOString(), level, event, ...(data ? (redact(data) as object) : {}) });
   (level === "error" ? console.error : console.log)(line);
 }

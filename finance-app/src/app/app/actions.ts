@@ -10,8 +10,9 @@ import { ALL_CATEGORIES } from "@/core/categorize";
 import { NotFoundError, monthPeriod, recategorize } from "@/core/analytics";
 import { reapplyCategories, reapplyMessage, syncEmailSource } from "@/core/ledger";
 import { QUESTION_KINDS, answerQuestion, askAgain, type QuestionKind } from "@/core/review";
-import { aiAllowed, aiConfigured } from "@/core/ai/client";
-import { aiCategorize, aiClassifier } from "@/core/ai/categorizer";
+import { aiAllowed, aiConfig, cloudAiAllowed } from "@/core/ai/client";
+import { aiClassifier, suggestCategories, suggestInBackground } from "@/core/ai/categorizer";
+import { SuggestionNotFoundError, confirmSuggestion, dismissSuggestion } from "@/core/ai/suggestions";
 import { askAssistant, type AssistantTurn, type ToolCallLog } from "@/core/ai/assistant";
 import { rulesClassifier, scoreUser } from "@/core/eval";
 import { FixtureEmailSource } from "@/core/providers/fixture";
@@ -98,7 +99,7 @@ export async function askAction(_: AskState, form: FormData): Promise<AskState> 
   const question = String(form.get("q") ?? "").trim().slice(0, 300);
   if (!question) return { error: "Type a question first." };
   const { facts } = await ask(user.id, question);
-  const phrased = await phraseAnswer(question, facts);
+  const phrased = (await cloudAiAllowed(user.id)) ? await phraseAnswer(question, facts) : { text: facts.headline, source: "template" as const };
   return { question, answer: phrased.text, answerSource: phrased.source, facts };
 }
 
@@ -143,7 +144,7 @@ export async function importStatementsAction(_: StatementState, form: FormData):
       await recordFailedImport(user.id, f.name, message);
     }
   }
-  if (results.some((r) => "ok" in r) && (await aiAllowed(user.id))) await aiCategorize(user.id).catch(() => undefined);
+  if (results.some((r) => "ok" in r)) suggestInBackground(user.id);
   revalidatePath("/app", "layout");
   return { results };
 }
@@ -183,11 +184,35 @@ export async function setAiConsentAction(form: FormData) {
 
 export async function runAiCategorizeAction(): Promise<SyncState> {
   const user = await requireUser();
-  if (!aiConfigured()) return { error: "AI is not set up on this server (no Anthropic API key)." };
+  const config = aiConfig();
+  if (config.provider === "off" || config.problem) return { error: config.problem ?? "AI is off on this server." };
   if (!(await aiAllowed(user.id))) return { error: "Turn on AI in Settings first." };
-  const r = await aiCategorize(user.id);
+  const r = await suggestCategories(user.id, { limit: 40 });
   revalidatePath("/app", "layout");
-  return { ok: r.asked ? `AI looked at ${r.asked} uncertain transactions and confidently categorized ${r.updated}. The rest stay as they were.` : "Nothing uncertain left to categorize." };
+  if (r.stopped && !r.asked) return { error: r.stopped };
+  const more = r.remaining ? ` ${r.remaining} still to look at: run again, or use npm run ai:suggest for the whole backlog.` : "";
+  const stop = r.stopped ? ` Stopped early: ${r.stopped}` : "";
+  return { ok: r.asked ? `AI looked at ${r.asked} uncertain transactions and has ${r.suggested} suggestions waiting in Review. Nothing changes until you confirm.${more}${stop}` : "Nothing uncertain left for the AI to look at." };
+}
+
+export async function confirmSuggestionAction(form: FormData) {
+  const user = await requireUser();
+  try {
+    await confirmSuggestion(user.id, String(form.get("id")).slice(0, 40));
+  } catch (e) {
+    if (!(e instanceof SuggestionNotFoundError)) throw e;
+  }
+  revalidatePath("/app", "layout");
+}
+
+export async function dismissSuggestionAction(form: FormData) {
+  const user = await requireUser();
+  try {
+    await dismissSuggestion(user.id, String(form.get("id")).slice(0, 40));
+  } catch (e) {
+    if (!(e instanceof SuggestionNotFoundError)) throw e;
+  }
+  revalidatePath("/app", "layout");
 }
 
 export async function measureAccuracyAction(): Promise<SyncState> {
@@ -212,7 +237,7 @@ export async function chatAction(question: string, history: AssistantTurn[]): Pr
   const user = await requireUser();
   const q = question.trim().slice(0, 400);
   if (!q) return { error: "Type a question first." };
-  if (await aiAllowed(user.id)) {
+  if (await cloudAiAllowed(user.id)) {
     try {
       const r = await askAssistant(user.id, q, history.slice(-6).map((t) => ({ role: t.role, text: String(t.text).slice(0, 2000) })));
       return plain({ mode: "ai" as const, ...r });

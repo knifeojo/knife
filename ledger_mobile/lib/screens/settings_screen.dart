@@ -41,6 +41,10 @@ class SettingsScreen extends StatelessWidget {
             child: const Text('Review payments that need a purpose'),
           ),
           const SizedBox(height: 24),
+          Text('AI categorization', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          const AiSettingsCard(),
+          const SizedBox(height: 24),
           Text('Loans', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 4),
           const Text('Statements show repayments, not what is left. Enter the balance from your loan app so Afford can use it.'),
@@ -91,6 +95,84 @@ class _RerunCategorizationButtonState extends State<RerunCategorizationButton> {
       key: const Key('rerun-categorization'),
       onPressed: _running ? null : _run,
       child: Text(_running ? 'Re-running…' : 'Re-run categorization'),
+    );
+  }
+}
+
+/// AI status (provider, model, reachable) and the on/off toggle, the same as the web Settings card.
+class AiSettingsCard extends StatefulWidget {
+  const AiSettingsCard({super.key});
+
+  @override
+  State<AiSettingsCard> createState() => _AiSettingsCardState();
+}
+
+class _AiSettingsCardState extends State<AiSettingsCard> {
+  AiStatus? _status;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final status = await context.read<LedgerController>().aiStatus();
+      if (!mounted) return;
+      setState(() {
+        _status = status;
+        _error = null;
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    }
+  }
+
+  Future<void> _toggle(bool enabled) async {
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final status = await context.read<LedgerController>().setAiEnabled(enabled);
+      if (mounted) setState(() => _status = status);
+    } on ApiException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final status = _status;
+    if (status == null) {
+      return Text(_error == null ? 'Checking AI…' : 'AI status unavailable: $_error', key: const Key('ai-status'));
+    }
+    final state = status.ready ? 'Reachable' : status.reachable ? 'Model not installed' : 'Not reachable';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('${status.providerLabel} · ${status.model.isEmpty ? 'no model' : status.model}', key: const Key('ai-provider')),
+        const SizedBox(height: 2),
+        Text(state, key: const Key('ai-status'), style: theme.textTheme.bodyMedium?.copyWith(color: status.ready ? theme.colorScheme.primary : theme.colorScheme.error)),
+        const SizedBox(height: 4),
+        Text(status.message, style: theme.textTheme.bodySmall),
+        SwitchListTile(
+          key: const Key('ai-toggle'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Suggest categories with AI'),
+          subtitle: Text(
+            status.enabled
+                ? '${status.pendingSuggestions} suggestion${status.pendingSuggestions == 1 ? '' : 's'} waiting in Review · ${status.backlog} not looked at yet'
+                : 'Only payments the rules cannot label. You confirm each one in Review.',
+          ),
+          value: status.enabled,
+          onChanged: _saving || (!status.enabled && !status.available) ? null : _toggle,
+        ),
+      ],
     );
   }
 }

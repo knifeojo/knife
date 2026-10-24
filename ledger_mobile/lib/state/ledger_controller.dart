@@ -108,6 +108,12 @@ class LedgerController extends ChangeNotifier {
     return _guard((api) => api.answerReview(kind: kind, key: key, value: value, otherText: otherText, otherCategory: otherCategory));
   }
 
+  Future<int> answerSuggestion({required String id, required String action}) => _guard((api) => api.answerSuggestion(id: id, action: action));
+
+  Future<AiStatus> aiStatus() => _guard((api) => api.aiStatus());
+
+  Future<AiStatus> setAiEnabled(bool enabled) => _guard((api) => api.setAiEnabled(enabled));
+
   Future<CategorizeResult> rerunCategorization() => _guard((api) => api.rerunCategorization());
 
   Future<AffordabilityCheck> affordability({required String amountMinor, String? description, String horizon = 'month_end', String? bufferMinor}) {

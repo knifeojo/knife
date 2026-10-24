@@ -1,16 +1,17 @@
 import { ALL_CATEGORIES } from "@/core/categorize";
-import { QUESTION_KINDS, answerQuestion, buildQuestions, type QuestionKind } from "@/core/review";
+import { QUESTION_KINDS, answerQuestion, type QuestionKind } from "@/core/review";
+import { reviewWithSuggestions } from "@/core/ai/suggestions";
 import { apiError, apiJson, readJsonObject, requireApiUser } from "@/lib/mobile/http";
-import { minor } from "@/lib/mobile/serialize";
+import { minor, suggestionJson } from "@/lib/mobile/serialize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET: the same "Help Ledger get this right" questions as the web Review page. */
+/** GET: the same "Help Ledger get this right" questions and AI suggestions as the web Review page. */
 export async function GET(req: Request) {
   const auth = await requireApiUser(req);
   if ("response" in auth) return auth.response;
-  const questions = await buildQuestions(auth.user.id);
+  const { questions, suggestions } = await reviewWithSuggestions(auth.user.id);
   return apiJson({
     questions: questions.map((q) => ({
       kind: q.kind,
@@ -27,7 +28,11 @@ export async function GET(req: Request) {
       narrationHints: (q.narrationHints ?? []).map((h) => ({ words: h.words, category: h.category, subcategory: h.subcategory })),
       /** Holder and conversion questions take only the listed options. */
       allowsOther: q.kind !== "holder" && q.kind !== "conversion",
+      /** The AI's pick for this payee, shown pre-selected. Null when it has none. */
+      aiSuggestion: q.aiSuggestion ? suggestionJson(q.aiSuggestion) : null,
     })),
+    /** AI suggestions for payees no question covers. */
+    suggestions: suggestions.map(suggestionJson),
     totalMinor: minor(questions.reduce((t, q) => t + q.totalMinor, 0n)),
     categories: ALL_CATEGORIES,
   });

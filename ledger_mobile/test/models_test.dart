@@ -211,6 +211,24 @@ void main() {
     expect(q.allowsOther, isTrue);
     expect(queue.categories, contains('Housing'));
     expect(CategorizeResult.fromJson({'checked': 40, 'changed': 3, 'message': 'Re-checked 40'}).changed, 3);
+    expect(q.aiSuggestion, isNull);
+    expect(queue.suggestions, isEmpty);
+  });
+
+  test('reads AI suggestions on questions and on their own, and the AI status', () {
+    final queue = ReviewQueue.fromJson(reviewWithAiResponse);
+    final pick = queue.questions.single.aiSuggestion!;
+    expect(pick.label, 'Family / Black tax');
+    expect(pick.confidence, 0.84);
+    expect(pick.totalMinor, '15000000');
+    expect(queue.suggestions.single.label, 'Giving / Church');
+    expect(() => AiSuggestion.fromJson({...blackTaxSuggestion, 'confidence': 'high'}), throwsFormatException);
+
+    final status = AiStatus.fromJson(aiStatusResponse);
+    expect(status.ready, isTrue);
+    expect(status.providerLabel, contains('Ollama'));
+    expect(status.enabled, isFalse);
+    expect(AiStatus.fromJson({...aiStatusResponse, 'reachable': false}).ready, isFalse);
   });
 }
 

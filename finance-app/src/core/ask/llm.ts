@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { log } from "@/lib/log";
+import { aiConfig } from "../ai/client";
 import type { Facts } from "./answer";
 
 // Optional phrasing layer. Receives only pre-computed facts, never raw transactions,
@@ -23,8 +24,10 @@ export function onlyUsesFactNumbers(text: string, facts: Facts): boolean {
   return numbersIn(text).every((n) => allowed.has(n));
 }
 
+/** Cloud phrasing runs only when AI_PROVIDER=anthropic is set explicitly. */
 export function llmEnabled() {
-  return !!process.env.ANTHROPIC_API_KEY;
+  const c = aiConfig();
+  return c.provider === "anthropic" && !c.problem;
 }
 
 export async function phraseAnswer(question: string, facts: Facts): Promise<{ text: string; source: "llm" | "template" }> {

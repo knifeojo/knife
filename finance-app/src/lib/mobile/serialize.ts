@@ -1,5 +1,6 @@
 import type { Account, Transaction } from "@prisma/client";
 import { cadenceOf, type CadenceIndex } from "@/core/cadence";
+import type { SuggestionGroup } from "@/core/ai/suggestions";
 
 type TxWithAccount = Transaction & {
   account?: Pick<Account, "accountName" | "institution" | "maskedAccountNumber"> | null;
@@ -43,5 +44,24 @@ export function transactionJson(tx: TxWithAccount, cadence?: CadenceIndex) {
     category: tx.category,
     subcategory: tx.subcategory,
     ...(cadence && { cadence: kind ?? null, recurringBill: kind === "recurring" && !!cadence.recurring.get(tx.id)?.bill }),
+  };
+}
+
+/** An AI suggestion as the phone sees it. Confirm or dismiss with POST /api/v1/review/suggestions { id, action }. */
+export function suggestionJson(g: SuggestionGroup) {
+  return {
+    id: g.id,
+    display: g.display,
+    direction: g.type === "CREDIT" ? "in" : "out",
+    category: g.category,
+    subcategory: g.subcategory,
+    reason: g.reason,
+    confidence: g.confidence,
+    model: g.model,
+    count: g.count,
+    totalMinor: minor(g.totalMinor),
+    currentCategory: g.currentCategory,
+    examples: g.examples,
+    classificationSource: "ai",
   };
 }
