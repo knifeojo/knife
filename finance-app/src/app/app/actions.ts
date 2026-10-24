@@ -111,6 +111,7 @@ export async function deleteMyData() {
     db.processedEmail.deleteMany({ where: { userId: user.id } }),
     db.merchantAlias.deleteMany({ where: { userId: user.id } }),
     db.syncRun.deleteMany({ where: { userId: user.id } }),
+    db.loan.deleteMany({ where: { userId: user.id } }),
     db.financialConnection.updateMany({ where: { userId: user.id }, data: { lastSyncedAt: null, gmailHistoryId: null, lastProcessedMessageId: null } }),
   ]);
   revalidatePath("/app", "layout");

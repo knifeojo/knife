@@ -102,6 +102,35 @@ class LedgerApi {
     );
   }
 
+  Future<LoanList> loans() => _loans(_parse(_object(_uri('/api/v1/loans'), _get), LoanList.fromJson));
+
+  Future<LedgerLoan> createLoan(LoanDraft draft) {
+    return _loans(_parse(_object(_uri('/api/v1/loans'), (uri) => _post(uri, draft.toJson())), LedgerLoan.fromJson));
+  }
+
+  Future<LedgerLoan> updateLoan(String id, LoanDraft draft) {
+    return _loans(_parse(_object(_loanUri(id), (uri) => _patch(uri, draft.toJson())), LedgerLoan.fromJson));
+  }
+
+  /// `status` is "closed" (paid off) or "open".
+  Future<LedgerLoan> setLoanStatus(String id, String status) {
+    return _loans(_parse(_object(_loanUri(id), (uri) => _patch(uri, {'status': status})), LedgerLoan.fromJson));
+  }
+
+  Uri _loanUri(String id) => _uri('/api/v1/loans/${Uri.encodeComponent(id)}');
+
+  /// A server from before loans answers 404 with an HTML page.
+  Future<T> _loans<T>(Future<T> call) async {
+    try {
+      return await call;
+    } on ApiException catch (error) {
+      if (error.status == 404 && !error.message.contains('Loan')) {
+        throw const ApiException(404, 'This Ledger server does not have Loans yet. Update it to add loans from the phone.');
+      }
+      rethrow;
+    }
+  }
+
   Future<List<StatementFileResult>> uploadStatement({required String filename, required Uint8List bytes, String? password}) async {
     final request = http.MultipartRequest('POST', _uri('/api/v1/statements'));
     request.headers.addAll(_headers());
@@ -142,8 +171,12 @@ class LedgerApi {
 
   Future<http.Response> _get(Uri uri) => _http.get(uri, headers: _headers()).timeout(_timeout);
 
-  Future<http.Response> _post(Uri uri, Map<String, String> body) {
+  Future<http.Response> _post(Uri uri, Map<String, Object?> body) {
     return _http.post(uri, headers: _headers(json: true), body: jsonEncode(body)).timeout(_timeout);
+  }
+
+  Future<http.Response> _patch(Uri uri, Map<String, Object?> body) {
+    return _http.patch(uri, headers: _headers(json: true), body: jsonEncode(body)).timeout(_timeout);
   }
 
   Future<Map<String, dynamic>> _object(Uri uri, Future<http.Response> Function(Uri uri) send) async {

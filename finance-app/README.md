@@ -68,7 +68,12 @@ Money is a string of minor units (`"198361100"` is ₦1,983,611.00). Dates are I
 | POST | `/api/v1/review` | bearer | `{ kind, key, value, otherText?, otherCategory? }` → `{ updated }`. `value: "unknown"` is "Can't remember"; a narration hint is answered as `value: "other"` with its words |
 | POST | `/api/v1/categorize` | bearer | Re-run categorization, the same as the web Settings button → `{ checked, changed, message }`. Hand labels and Review answers are kept |
 | POST | `/api/v1/statements` | bearer | Multipart PDF, CSV or XLSX (`file` or `files`). Optional `password` for a PDF, used once in memory |
-| POST | `/api/v1/affordability` | bearer | `{ amountMinor: "250000000", description?, horizon?: "month_end" \| 1..120 (days), bufferMinor? }` → `{ verdict: "yes" \| "stretch" \| "no", headline, detail, notes, inputs, projection, monthsToSave, advice }`. `advice[]`: `{ kind: "debt" \| "cut" \| "one_off" \| "none", text, subject, monthlyMinor, openMinor }`. `inputs.obligations[].kind` is `"recurring"`; `inputs.oneOffs[]` (`kind: "one_off"`), `oneOffsTotalMinor`, `oneOffMinMinor`, `oneOffsSince`. 409 until the user has transactions |
+| POST | `/api/v1/affordability` | bearer | `{ amountMinor: "250000000", description?, horizon?: "month_end" \| 1..120 (days), bufferMinor? }` → `{ verdict: "yes" \| "stretch" \| "no", headline, detail, notes, inputs, projection, monthsToSave, advice }`. `advice[]`: `{ kind: "debt" \| "cut" \| "one_off" \| "none", text, subject, monthlyMinor, openMinor, loan? }`. `loan` is set on a debt line when the user entered that loan: `{ id, outstandingMinor, balanceAsOf, endsOn, instalmentsLeft, repaymentsSince, repaidSinceMinor }`. Obligations may carry `loanId` and `endsOn`. Older clients can ignore the new keys. `inputs.obligations[].kind` is `"recurring"`; `inputs.oneOffs[]` (`kind: "one_off"`), `oneOffsTotalMinor`, `oneOffMinMinor`, `oneOffsSince`. 409 until the user has transactions |
+
+| GET | `/api/v1/loans` | bearer | `{ loans[], lenders[] }`. A loan: `{ id, lender, outstandingMinor, instalmentMinor, instalmentsPaid, instalmentsTotal, instalmentsLeft, nextDueDate, endDate, payoffDate, notes, status: "open" \| "closed", balanceAsOf, closedAt, repaymentsSince: { count, totalMinor, lastDate } }`. Dates are calendar days (`YYYY-MM-DD` at 00:00 UTC) |
+| POST | `/api/v1/loans` | bearer | `{ lender, outstandingMinor, instalmentMinor?, instalmentsPaid?, instalmentsTotal?, nextDueDate?: "YYYY-MM-DD", endDate?, notes? }` → 201 `{ loan }`. 400 with `error` on a bad field |
+| PATCH | `/api/v1/loans/:id` | bearer | The same fields to edit, or `{ status: "open" \| "closed" }` alone to close or reopen. 404 for another user's loan |
+| DELETE | `/api/v1/loans/:id` | bearer | Removes the loan |
 
 Run the server so a phone on the same tailnet can reach it:
 
@@ -116,6 +121,19 @@ Under the verdict, a short list of next steps. Rule-based, built only from ledge
 | **Cut back** (up to 2) | Shopping, Food, Transport, Travel or Subscriptions averaging at least ₦20,000 a month over the typical-month months, one-offs taken out. Bills, family, health and giving are never suggested | Names the category and its main subcategory when that is half or more ("Food (mostly eating out)"). The suggested cut is the smallest whole ₦1,000 a month that keeps the buffer through the window, found by re-running the same day-by-day projection with everyday spending lower from today. If even half the category does not do that, it suggests half and says how many months of saving (usual surplus plus the cut) close the gap, and how much sooner than without it |
 | **One-off** (1) | A single naira debit outside every regular stream, at least ₦50,000 or a tenth of typical monthly income, whichever is more, since the first typical-month month. Not Debt, Fees, own transfers or wallet withdrawals | The total and the biggest one, with payee and date. One-offs in bill categories (a year's rent, school fees) are listed in the breakdown but not suggested for holding off |
 | **Checked** | None of the above | Says that no loan, big category or one-off stood out |
+
+### Loans you enter yourself
+
+A bank statement shows repayments, not what is left. **Loans** in the sidebar (`/app/loans`, or the phone's Settings → Your loans) lets the user type in what the lender's app shows: lender, balance left, instalment, instalments paid out of the total, next due date, last payment date and a note. The lender list is the one `categorize.ts` detects (FairMoney, Renmoney, Carbon, PalmCredit and the rest), and a typed name is matched to it, so the loan lines up with the Debt rows Ledger already names. A loan advice line with no balance links to the Loans page ("Add your balance").
+
+When a loan is entered, Afford uses it instead of guessing from the statement:
+
+- **Advice** quotes the real balance and end: "Clear Renmoney: ₦360k left, last payment 28 Dec. 3 of 6 instalments to go. After that, ₦120,000 a month is free." The manual balance always wins over borrowed minus repaid.
+- **Projection.** The entered instalment, from the next due date, is a fixed obligation only up to the last payment (the end date, else the next due date plus the instalments left). After that it is not counted, so a longer window shows the money freed up, and a note says so.
+- **Paid off or closed.** The lender's repayments are taken out of the typical month too, so everyday spending is not inflated by a loan that is over. If the statement shows a repayment more than 10 days after the loan ended, Ledger assumes a new loan, keeps counting it, and asks the user to add it.
+- **Out of date.** Debt repayments to the same lender dated after the balance was entered are matched by lender. The advice says how much was repaid since and what the balance may be down to; the Loans page shows the same and has **Count them**, which adds them to instalments paid, takes them off the balance and moves the next due date on. Nothing is updated without that click.
+
+Everything is rule-based on integer kobo. Closing a loan keeps it in the list; Delete removes it. "Delete my data" in Settings removes loans as well. The `Loan` table is additive (no existing column changes); this project has no migrations folder, so `npm run db:push` (part of `npm run setup`) creates it.
 
 The breakdown labels monthly obligations **Recurring bills** (rent, family support, loan instalments, utilities, subscriptions) and lists **One-off spends** in their own card, with the threshold. One-offs are already in past spending; they are not counted as recurring. Debt rows whose memo only says "loan", "lend" or "borrow" are not named as a loan to clear, because the narration cannot say which way the money went.
 

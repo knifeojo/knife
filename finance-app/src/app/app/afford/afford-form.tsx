@@ -89,7 +89,14 @@ function Answer({ r }: { r: AffordabilityJson }) {
             {r.advice.map((a) => (
               <li key={a.text} className="flex items-start gap-3 text-sm">
                 <span className="mt-0.5 w-[4.75rem] shrink-0 rounded-full bg-brand-soft px-2 py-0.5 text-center text-xs font-semibold text-brand">{ADVICE_TAG[a.kind]}</span>
-                <span className="leading-relaxed">{a.text}</span>
+                <span className="leading-relaxed">
+                  {a.text}
+                  {a.kind === "debt" && a.subject && (
+                    a.loan
+                      ? <> <Link href={`/app/loans#loan-${a.loan.id}`} className="text-brand underline">Update</Link></>
+                      : <> <Link href={`/app/loans?lender=${encodeURIComponent(a.subject)}`} className="font-medium text-brand underline">Add your balance</Link></>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

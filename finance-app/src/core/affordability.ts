@@ -2,6 +2,10 @@ import { db } from "@/lib/db";
 import { formatMoney, parseAmountToMinor } from "@/lib/money";
 import { BASE_CURRENCY, monthPeriod, recurring, summary } from "./analytics";
 import { INCOME_CATEGORY, OWN_TRANSFER } from "./categorize";
+import {
+  addMonths, endOfDay, finishedOn, instalmentsCovered, instalmentsLeft, isFinished, payoffDate, repaymentsSince, sameLender, toManualLoan,
+  type ManualLoan,
+} from "./loans";
 
 // "Can I really afford this?" Every figure comes from the user's ledger, in integer minor units.
 // The judgment calls (which months, which payments count as fixed, how big the buffer is) are
@@ -33,6 +37,8 @@ const CUT_MAX_PERCENT = 50n;
 export const ONE_OFF_FLOOR_MINOR = 5_000_000n;
 const ONE_OFFS_SHOWN = 5;
 const MAX_ADVICE = 5;
+/** A repayment to a lender this long after a loan the user entered finished means a new loan, not the old one. */
+const NEW_LOAN_AFTER_DAYS = 10;
 
 export type Verdict = "yes" | "stretch" | "no";
 export type Horizon = { kind: "month_end" } | { kind: "days"; days: number };
@@ -97,6 +103,8 @@ export interface AffordabilityData {
   oneOffs: SpendItem[];
   /** Start of the oldest month searched for one-offs. */
   oneOffsSince: Date | null;
+  /** Loans the user entered by hand, open and closed. Missing means none. */
+  loans?: ManualLoan[];
 }
 
 export interface AffordabilityRequest {
@@ -114,6 +122,9 @@ export interface ObligationLine {
   dueInWindowMinor: bigint;
   nextDue: Date | null;
   kind: "recurring";
+  /** A loan the user entered: its id and last payment. Nothing is counted after that day. */
+  loanId?: string;
+  endsOn?: Date | null;
 }
 
 export interface OneOffLine {
@@ -135,8 +146,21 @@ export interface AdviceLine {
   subject: string | null;
   /** Debt: the usual monthly repayment. Cut: the suggested monthly cut. */
   monthlyMinor: bigint | null;
-  /** Debt only: borrowed minus repaid, as far as the ledger shows. null when Ledger cannot tell. */
+  /** Debt only: the balance the user entered, else borrowed minus repaid as far as the ledger shows. null when Ledger cannot tell. */
   openMinor: bigint | null;
+  /** Debt only, and only when the user entered this loan. Without it there is no real balance yet. */
+  loan?: AdviceLoan;
+}
+
+export interface AdviceLoan {
+  id: string;
+  outstandingMinor: bigint;
+  balanceAsOf: Date;
+  endsOn: Date | null;
+  instalmentsLeft: number | null;
+  /** Repaid to this lender on statements after the balance was entered. Both 0 when it is up to date. */
+  repaymentsSince: number;
+  repaidSinceMinor: bigint;
 }
 
 export interface AffordabilityResult {
@@ -198,6 +222,128 @@ const about = (m: bigint) => {
 };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const monthOf = (d: Date) => monthPeriod(d, 0).label;
+/** Balances at a glance: ₦1.28m, ₦450k, or the exact figure under ₦1,000. */
+const short = (m: bigint) => {
+  if (m >= 99_950_000n) {
+    const h = (m + 500_000n) / 1_000_000n;
+    const frac = h % 100n ? `.${String(h % 100n).padStart(2, "0").replace(/0$/, "")}` : "";
+    return `₦${h / 100n}${frac}m`;
+  }
+  if (m >= 100_000n) return `₦${(m + 50_000n) / 100_000n}k`;
+  return whole(m);
+};
+
+/** A dated stream of payments to project: a statement pattern, or a loan's own schedule. */
+interface Stream {
+  item: RegularItem;
+  /** Nothing is due from this instant on (the end of the last payment day). */
+  until: number;
+  /** At most this many more payments. null when unknown. */
+  left: number | null;
+  loanId?: string;
+  endsOn?: Date | null;
+  /** Its payments are already in past spending. A new loan's are not, so they are not taken out of everyday spending. */
+  inHistory: boolean;
+}
+
+interface OpenLoan {
+  loan: ManualLoan;
+  payoff: Date | null;
+  /** Statement repayments after the balance was entered. */
+  since: Dated[];
+  sinceMinor: bigint;
+}
+
+interface LoanPlan {
+  months: MonthFigures[];
+  streams: Stream[];
+  open: OpenLoan[];
+  /** Lenders whose loan the user says is done, with no repayment seen since. Left out of loan advice. */
+  finished: string[];
+  notes: string[];
+}
+
+/**
+ * How the loans the user entered change the picture. An open loan replaces the statement pattern for its
+ * lender with its own instalment and dates, and stops at its last payment. A finished loan's repayments
+ * come out of past months, so they stop counting against cash flow, unless the bank shows a repayment to the
+ * same lender well after it finished, which is a new loan.
+ */
+function planLoans(data: AffordabilityData, start: Date, end: Date): LoanPlan {
+  const loans = data.loans ?? [];
+  let months = data.months;
+  let statement = [...data.obligations];
+  const streams: Stream[] = [];
+  const open: OpenLoan[] = [];
+  const finished: string[] = [];
+  const notes: string[] = [];
+  const repaymentsTo = (lender: string) => data.lenders.filter((l) => sameLender(l.name, lender)).flatMap((l) => l.repayments);
+  const isStream = (o: RegularItem, lender: string) => o.category === "Debt" && sameLender(o.name, lender);
+  const hasOpen = (lender: string) => loans.some((l) => l.lender === lender && !isFinished(l, start));
+
+  for (const loan of loans) {
+    if (!isFinished(loan, start)) continue;
+    const reps = repaymentsTo(loan.lender);
+    const done = finishedOn(loan);
+    const later = reps.filter((r) => r.date.getTime() > done.getTime() + NEW_LOAN_AFTER_DAYS * DAY_MS);
+    if (later.length) {
+      const last = later[later.length - 1];
+      if (!hasOpen(loan.lender)) notes.push(`Ledger saw ${whole(last.amountMinor)} repaid to ${loan.lender} on ${dayLabel(last.date)}, after the loan you entered ${loan.status === "closed" ? "was closed" : "ended"}. If it is a new loan, add it under Loans.`);
+      continue;
+    }
+    const streamsBefore = statement.length;
+    statement = statement.filter((o) => !isStream(o, loan.lender));
+    let stripped = false;
+    months = months.map((m) => {
+      const v = sum(reps.filter((r) => monthOf(r.date) === m.label).map((r) => r.amountMinor));
+      if (!v) return m;
+      stripped = true;
+      return { ...m, spendingMinor: max(0n, m.spendingMinor - v), loanRepaymentsMinor: max(0n, m.loanRepaymentsMinor - v) };
+    });
+    finished.push(loan.lender);
+    if (stripped || statement.length < streamsBefore) {
+      const when = loan.status === "closed" ? `closed on ${dayLabel(done)}` : `last payment ${dayLabel(done)}`;
+      notes.push(`${loan.lender} is paid off (${when}), so its repayments are left out of your typical month.`);
+    }
+  }
+
+  const seen = new Set(months.map((m) => m.label));
+  const graceStart = start.getTime() - OBLIGATION_GRACE_DAYS * DAY_MS;
+  for (const loan of loans) {
+    if (isFinished(loan, start)) continue;
+    const reps = repaymentsTo(loan.lender);
+    const since = repaymentsSince(loan, reps);
+    const payoff = payoffDate(loan);
+    open.push({ loan, payoff, since, sinceMinor: sum(since.map((r) => r.amountMinor)) });
+    const stream = statement.find((o) => isStream(o, loan.lender));
+    const until = payoff ? endOfDay(payoff).getTime() : Infinity;
+    const amount = loan.instalmentMinor ?? stream?.amountMinor ?? null;
+    const inHistory = !!stream || reps.some((r) => seen.has(monthOf(r.date)));
+    const label = payoff ? `Loan, last payment ${dayLabel(payoff)}` : "Loan repayment";
+    let left = instalmentsLeft(loan);
+    let next = loan.nextDueDate;
+    if (next) {
+      // Repayments the bank shows since the user's update, and due dates long past, are instalments already paid.
+      const covered = instalmentsCovered(loan, since);
+      next = addMonths(next, covered);
+      if (left !== null) left -= covered;
+      while (next.getTime() < graceStart && next.getTime() < until) {
+        next = addMonths(next, 1);
+        if (left !== null) left -= 1;
+      }
+    } else {
+      next = stream?.nextExpected ?? null;
+    }
+    if (stream) statement = statement.filter((o) => o !== stream);
+    if (amount && next && (left === null || left > 0)) {
+      const item: RegularItem = { name: loan.lender, category: "Debt", label, amountMinor: amount, lastDate: addMonths(next, -1), nextExpected: next };
+      streams.push({ item, until, left, loanId: loan.id, endsOn: payoff, inHistory });
+      if (payoff && until < end.getTime()) notes.push(`${loan.lender}'s last payment is on ${dayLabel(payoff)}. Its ${whole(amount)} a month is not counted after that.`);
+    }
+  }
+  streams.unshift(...statement.map((item) => ({ item, until: Infinity, left: null, inHistory: true })));
+  return { months, streams, open, finished, notes };
+}
 
 /** The middle of 3+ months; with fewer, the cautious end (lowest income, highest spending). */
 export function typical(values: bigint[], cautious: "low" | "high"): bigint {
@@ -231,6 +377,18 @@ function occurrences(item: RegularItem, start: number, end: number, kind: "oblig
     }
   }
   for (; t < end; t += gap) out.push(t);
+  return out;
+}
+
+/** A loan's instalments: the same calendar day each month. One that is overdue but recent is due at the start. */
+function monthlyOccurrences(first: Date, start: number, end: number): number[] {
+  const out: number[] = [];
+  let t = first;
+  if (t.getTime() < start) {
+    out.push(start);
+    while (t.getTime() < start) t = addMonths(t, 1);
+  }
+  for (; t.getTime() < end; t = addMonths(t, 1)) out.push(t.getTime());
   return out;
 }
 
@@ -278,31 +436,37 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
   const dayOf = (t: number) => Math.min(totalDays, Math.max(0, Math.floor((t - startMs) / DAY_MS)));
   const purchaseDay = dayOf(now.getTime());
 
+  const plan = planLoans(data, start, end);
+
   // Typical month
-  const full = data.months.filter((m) => !m.partial);
-  const partial = full.length ? undefined : data.months.find((m) => m.partial);
+  const full = plan.months.filter((m) => !m.partial);
+  const partial = full.length ? undefined : plan.months.find((m) => m.partial);
   const scale = (m: MonthFigures, v: bigint) => ceilDiv(v * 30n, BigInt(Math.max(7, m.days)));
   const monthlyIncome = full.length ? typical(full.map((m) => m.incomeMinor), "low") : 0n;
   const monthlySpending = full.length ? typical(full.map((m) => m.spendingMinor), "high") : partial ? scale(partial, partial.spendingMinor) : 0n;
   const monthlyLoans = full.length ? typical(full.map((m) => m.loanRepaymentsMinor), "high") : partial ? scale(partial, partial.loanRepaymentsMinor) : 0n;
 
   // Fixed obligations
-  const active = data.obligations.filter((o) => OBLIGATION_CATEGORIES.includes(o.category) && isActiveObligation(o, start));
+  const active = plan.streams.filter((s) => OBLIGATION_CATEGORIES.includes(s.item.category) && isActiveObligation(s.item, start));
   const out = new Array<bigint>(totalDays + 1).fill(0n);
   const inn = new Array<bigint>(totalDays + 1).fill(0n);
-  const obligations: ObligationLine[] = active.map((o) => {
-    const due = occurrences(o, startMs, endMs, "obligation");
+  const obligations: ObligationLine[] = active.map(({ item: o, until, left, loanId, endsOn }) => {
+    const stop = Math.min(endMs, until);
+    let due = loanId ? monthlyOccurrences(o.nextExpected, startMs, stop) : occurrences(o, startMs, stop, "obligation");
+    if (left !== null) due = due.slice(0, left);
     for (const t of due) out[dayOf(t)] += o.amountMinor;
     return {
       name: o.name, category: o.category, label: o.label, monthlyMinor: o.amountMinor,
       dueInWindowMinor: o.amountMinor * BigInt(due.length), nextDue: due.length ? new Date(due[0]) : null, kind: "recurring",
+      ...(loanId && { loanId, endsOn: endsOn ?? null }),
     };
   });
-  const regularMonthly = sum(active.map((o) => o.amountMinor));
-  const regularLoans = sum(active.filter((o) => o.category === "Debt").map((o) => o.amountMinor));
+  const regularMonthly = sum(active.map((s) => s.item.amountMinor));
+  const regularLoans = sum(active.filter((s) => s.item.category === "Debt" && s.inHistory).map((s) => s.item.amountMinor));
+  const newLoans = sum(active.filter((s) => !s.inHistory).map((s) => s.item.amountMinor));
   const otherLoans = max(0n, monthlyLoans - regularLoans);
   const monthlyObligations = regularMonthly + otherLoans;
-  const monthlyEveryday = max(0n, monthlySpending - monthlyObligations);
+  const monthlyEveryday = max(0n, monthlySpending - (monthlyObligations - newLoans));
   const monthlySurplus = monthlyIncome - monthlyObligations - monthlyEveryday;
 
   // Income coming in: dated paydays when Ledger has found them, else one typical month per full 30 days ahead.
@@ -372,13 +536,14 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
   if (monthlyIncome > 0n && amount >= monthlyIncome) notes.push("This costs more than a month of your income.");
   if (incomeRule === "monthly") notes.push("No regular payday found, so Ledger counts one typical month of income for each full 30 days ahead.");
   if (otherLoans > 0n) notes.push(`${fmt(otherLoans)} a month of loan repayments does not follow a monthly pattern and is spread across the days ahead.`);
+  notes.push(...plan.notes);
 
   const oneOffMin = oneOffMinimum(monthlyIncome);
   const oneOffs = data.oneOffs.filter((o) => o.amountMinor >= oneOffMin).sort((a, b) => (b.amountMinor > a.amountMinor ? 1 : b.amountMinor < a.amountMinor ? -1 : 0));
   const lookback = full.length ? full.slice(0, LOOKBACK_MONTHS) : partial ? [partial] : [];
   const advice = buildAdvice({
     verdict, data, start, now, lastDay, buffer, gap: buffer - lowest, surplus: monthlySurplus, monthsToSave,
-    lookback, partialOnly: !full.length, scale, oneOffs, maxCut: monthlyEveryday,
+    lookback, partialOnly: !full.length, scale, oneOffs, maxCut: monthlyEveryday, loans: plan,
     keepsBuffer: (cut) => project(cut).lowest >= buffer,
   });
 
@@ -424,6 +589,7 @@ interface AdviceContext {
   maxCut: bigint;
   /** Re-runs the same day-by-day projection with everyday spending cut by this much a month from today. */
   keepsBuffer: (cut: bigint) => boolean;
+  loans: LoanPlan;
 }
 
 interface Lender {
@@ -434,6 +600,8 @@ interface Lender {
   openMinor: bigint | null;
   firstBorrowed: Date | null;
   borrowings: number;
+  /** The loan the user entered for this lender. Its balance wins over borrowed minus repaid. */
+  manual?: OpenLoan;
 }
 
 /**
@@ -446,26 +614,71 @@ function activeLenders(c: AdviceContext): Lender[] {
   const cutoff = c.start.getTime() - OBLIGATION_GRACE_DAYS * DAY_MS;
   const labels = c.partialOnly ? [] : c.lookback.map((m) => m.label);
   const out: Lender[] = [];
+  const unmatched = [...c.loans.open];
   for (const l of c.data.lenders) {
+    const at = unmatched.findIndex((o) => sameLender(l.name, o.loan.lender));
+    const manual = at >= 0 ? unmatched.splice(at, 1)[0] : undefined;
+    if (!manual && c.loans.finished.some((name) => sameLender(l.name, name))) continue;
     const last = Math.max(...[...l.repayments, ...l.proceeds].map((x) => x.date.getTime()));
-    if (!(last >= cutoff)) continue;
+    if (!manual && !(last >= cutoff)) continue;
     const byMonth = new Map<string, bigint>();
     for (const r of l.repayments) byMonth.set(monthOf(r.date), (byMonth.get(monthOf(r.date)) ?? 0n) + r.amountMinor);
     const paidMonths = labels.map((k) => byMonth.get(k) ?? 0n).filter((v) => v > 0n);
     const first = l.proceeds.length ? new Date(Math.min(...l.proceeds.map((p) => p.date.getTime()))) : null;
     const borrowed = sum(l.proceeds.map((p) => p.amountMinor));
     const repaid = first ? sum(l.repayments.filter((r) => r.date >= first).map((r) => r.amountMinor)) : 0n;
+    const monthly = paidMonths.length ? typical(paidMonths, "high") : null;
     out.push({
-      name: l.name, monthlyMinor: paidMonths.length ? typical(paidMonths, "high") : null,
-      borrowedMinor: borrowed, repaidMinor: repaid, openMinor: borrowed > repaid ? borrowed - repaid : null,
-      firstBorrowed: first, borrowings: l.proceeds.length,
+      name: manual?.loan.lender ?? l.name, monthlyMinor: manual?.loan.instalmentMinor ?? monthly,
+      borrowedMinor: borrowed, repaidMinor: repaid, openMinor: manual ? manual.loan.outstandingMinor : borrowed > repaid ? borrowed - repaid : null,
+      firstBorrowed: first, borrowings: l.proceeds.length, manual,
+    });
+  }
+  for (const o of unmatched) {
+    out.push({
+      name: o.loan.lender, monthlyMinor: o.loan.instalmentMinor, borrowedMinor: 0n, repaidMinor: 0n,
+      openMinor: o.loan.outstandingMinor, firstBorrowed: null, borrowings: 0, manual: o,
     });
   }
   const rank = (l: Lender) => l.monthlyMinor ?? -1n;
   return out.sort((a, b) => (rank(b) > rank(a) ? 1 : rank(b) < rank(a) ? -1 : 0));
 }
 
+function adviceLoan(o: OpenLoan): AdviceLoan {
+  return {
+    id: o.loan.id, outstandingMinor: o.loan.outstandingMinor, balanceAsOf: o.loan.balanceAsOf, endsOn: o.payoff,
+    instalmentsLeft: instalmentsLeft(o.loan), repaymentsSince: o.since.length, repaidSinceMinor: o.sinceMinor,
+  };
+}
+
+/** A real balance from the user's loan app: "Clear Renmoney: ₦1.28m left, last payment 30 Oct." */
+function manualDebtAdvice(l: Lender, o: OpenLoan): AdviceLine {
+  const { loan, payoff } = o;
+  const m = l.monthlyMinor;
+  // The user's own instalment is exact; one read off statements is rounded.
+  const monthly = m === null ? "" : loan.instalmentMinor !== null ? whole(m) : `about ${about(m)}`;
+  let text = `Clear ${l.name}: ${short(loan.outstandingMinor)} left${payoff ? `, last payment ${dayLabel(payoff)}` : ""}.`;
+  const left = instalmentsLeft(loan);
+  if (left !== null && loan.instalmentsTotal !== null) text += ` ${left} of ${plural(loan.instalmentsTotal, "instalment")} to go.`;
+  if (m !== null) {
+    text += payoff
+      ? ` After that, ${monthly} a month is free.`
+      : ` At ${monthly} a month that takes about ${plural(Number(ceilDiv(loan.outstandingMinor, m)), "more month")}, then that money is free.`;
+  }
+  text += outOfDate(l.name, o);
+  return { kind: "debt", text, subject: l.name, monthlyMinor: m, openMinor: loan.outstandingMinor, loan: adviceLoan(o) };
+}
+
+/** " Your bank shows ₦120,000 repaid to Renmoney since …", or "" when the balance is up to date. */
+function outOfDate(name: string, o: OpenLoan): string {
+  if (!o.since.length) return "";
+  const { loan } = o;
+  const rest = loan.outstandingMinor > o.sinceMinor ? loan.outstandingMinor - o.sinceMinor : 0n;
+  return ` Your bank shows ${whole(o.sinceMinor)} repaid to ${name} since you entered this on ${dayLabel(loan.balanceAsOf)}, so it may be ${rest > 0n ? `down to ${short(rest)}` : "paid off"}. Update it under Loans.`;
+}
+
 function debtAdvice(l: Lender): AdviceLine {
+  if (l.manual) return manualDebtAdvice(l, l.manual);
   const m = l.monthlyMinor;
   let text: string;
   if (l.openMinor !== null) {
@@ -573,10 +786,20 @@ function buildAdvice(c: AdviceContext): AdviceLine[] {
   const lenders = activeLenders(c);
   if (c.verdict === "yes") {
     const l = lenders.find((x) => x.monthlyMinor !== null);
-    return l ? [{
+    if (!l) return [];
+    if (l.manual) {
+      const { loan, payoff } = l.manual;
+      const left = `${short(loan.outstandingMinor)} left${payoff ? ` and the last payment on ${dayLabel(payoff)}` : ""}`;
+      const each = loan.instalmentMinor !== null ? whole(l.monthlyMinor!) : `about ${about(l.monthlyMinor!)}`;
+      return [{
+        kind: "debt", subject: l.name, monthlyMinor: l.monthlyMinor, openMinor: l.openMinor, loan: adviceLoan(l.manual),
+        text: `You still repay ${l.name} ${each} a month, with ${left}. Clearing it first leaves more room for what comes next.${outOfDate(l.name, l.manual)}`,
+      }];
+    }
+    return [{
       kind: "debt", subject: l.name, monthlyMinor: l.monthlyMinor, openMinor: l.openMinor,
       text: `You still repay ${l.name} about ${about(l.monthlyMinor!)} a month. Clearing it first leaves more room for what comes next.`,
-    }] : [];
+    }];
   }
   const lines: AdviceLine[] = lenders.slice(0, 2).map(debtAdvice);
   for (const cat of spendingToCut(c).slice(0, 2)) {
@@ -593,11 +816,12 @@ function buildAdvice(c: AdviceContext): AdviceLine[] {
 
 /** Reads everything the check needs from the user's ledger. Scoped by the server-derived userId. */
 export async function loadAffordabilityData(userId: string, now = new Date()): Promise<AffordabilityData> {
-  const [accounts, first, obligations, income] = await Promise.all([
+  const [accounts, first, obligations, income, loans] = await Promise.all([
     db.account.findMany({ where: { userId } }),
     db.transaction.findFirst({ where: { userId }, orderBy: { transactionDate: "asc" }, select: { transactionDate: true } }),
     recurring(userId, now, "DEBIT"),
     recurring(userId, now, "CREDIT"),
+    db.loan.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
   ]);
   const reported = accounts.filter((a) => a.balanceMinor !== null);
   const naira = reported.filter((a) => a.currency === BASE_CURRENCY);
@@ -619,6 +843,7 @@ export async function loadAffordabilityData(userId: string, now = new Date()): P
     lenders,
     oneOffs,
     oneOffsSince: since,
+    loans: loans.map(toManualLoan),
   };
 }
 
