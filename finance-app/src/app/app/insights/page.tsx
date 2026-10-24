@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { SUGGESTED_QUESTIONS } from "@/core/ask/answer";
-import { aiAllowed } from "@/core/ai/client";
+import { cloudAiAllowed } from "@/core/ai/client";
 import { PageHeader } from "@/components/ui";
 import { AskBox } from "./ask-box";
 
@@ -15,7 +15,7 @@ const AI_SUGGESTIONS = [
 
 export default async function Insights() {
   const user = await requireUser();
-  const aiOn = await aiAllowed(user.id);
+  const aiOn = await cloudAiAllowed(user.id);
   return (
     <div className="max-w-3xl">
       <PageHeader title="Insights" subtitle="Ask about your money in plain English. Every figure comes from your ledger." />

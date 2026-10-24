@@ -1,14 +1,36 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
-import { buildQuestions } from "@/core/review";
+import { reviewWithSuggestions, type SuggestionGroup } from "@/core/ai/suggestions";
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { formatMoney } from "@/lib/money";
 import { Card, PageHeader } from "@/components/ui";
-import { answerQuestionAction } from "../actions";
+import { answerQuestionAction, confirmSuggestionAction, dismissSuggestionAction } from "../actions";
+
+const labelOf = (g: SuggestionGroup) => (g.subcategory ? `${g.category} / ${g.subcategory}` : g.category);
+
+/** The AI's pick, pre-selected: one tap confirms it and saves it as a rule for this payee. */
+function AiPick({ g }: { g: SuggestionGroup }) {
+  return (
+    <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2.5" data-testid="ai-pick">
+      <p className="text-xs text-accent font-medium">Suggested by AI ({g.model}) · {Math.round(g.confidence * 100)}% sure</p>
+      <p className="text-sm mt-0.5"><span className="font-semibold">{labelOf(g)}</span>{g.reason ? <span className="text-ink-2"> · {g.reason}</span> : null}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <form action={confirmSuggestionAction}>
+          <input type="hidden" name="id" value={g.id} />
+          <button className="btn btn-primary h-9 text-sm">Confirm {labelOf(g)}</button>
+        </form>
+        <form action={dismissSuggestionAction}>
+          <input type="hidden" name="id" value={g.id} />
+          <button className="btn btn-ghost h-9 px-2 text-sm">Not right</button>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 export default async function Review() {
   const user = await requireUser();
-  const questions = await buildQuestions(user.id);
+  const { questions, suggestions } = await reviewWithSuggestions(user.id);
   const total = questions.reduce((s, q) => s + q.totalMinor, 0n);
 
   return (
@@ -21,7 +43,7 @@ export default async function Review() {
             : "Nothing to ask right now. New questions appear when new names show up in your transactions."
         }
       />
-      {!questions.length && (
+      {!questions.length && !suggestions.length && (
         <Card>
           <p className="text-sm text-ink-2">All caught up. You can still change any category on the <Link href="/app/transactions" className="text-accent underline">Transactions</Link> page.</p>
         </Card>
@@ -77,13 +99,14 @@ export default async function Review() {
                   </ul>
                 </div>
               )}
+              {q.aiSuggestion && <AiPick g={q.aiSuggestion} />}
               <div className="mt-4 flex flex-wrap gap-2">
                 {q.options.map((o, k) => (
                   <form key={o.value} action={answerQuestionAction}>
                     <input type="hidden" name="kind" value={q.kind} />
                     <input type="hidden" name="key" value={q.key} />
                     <input type="hidden" name="value" value={o.value} />
-                    <button className={`btn h-9 text-sm ${k === 0 && o.value === "hint" ? "btn-primary" : "btn-secondary"}`}>{o.label}</button>
+                    <button className={`btn h-9 text-sm ${k === 0 && o.value === "hint" && !q.aiSuggestion ? "btn-primary" : "btn-secondary"}`}>{o.label}</button>
                   </form>
                 ))}
               </div>
@@ -129,6 +152,34 @@ export default async function Review() {
           </li>
         ))}
       </ol>
+      {suggestions.length > 0 && (
+        <section className="mt-8">
+          <h2 className="font-semibold">Suggested by AI</h2>
+          <p className="text-sm text-ink-2 mt-1">Payments the rules could not label. Nothing changes until you confirm; confirming also labels future payments to the same payee.</p>
+          <ul className="mt-3 space-y-3">
+            {suggestions.map((g) => (
+              <li key={g.id}>
+                <Card>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="font-medium truncate">{g.display}</h3>
+                      <p className="text-xs text-ink-3">{g.type === "CREDIT" ? "Money in" : "Money out"} · now &ldquo;{g.currentCategory}&rdquo;</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="num font-semibold">{formatMoney(g.totalMinor)}</div>
+                      <div className="text-xs text-ink-3">{g.count} payment{g.count > 1 ? "s" : ""}</div>
+                    </div>
+                  </div>
+                  <ul className="mt-2 space-y-1">
+                    {g.examples.map((e, k) => <li key={k} className="text-xs text-ink-2 font-mono break-words whitespace-pre-wrap rounded bg-surface-2 px-2 py-1">{e}</li>)}
+                  </ul>
+                  <AiPick g={g} />
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

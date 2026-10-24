@@ -4,19 +4,26 @@ import { Card, PageHeader } from "@/components/ui";
 import { logout } from "../../(auth)/actions";
 import { askAgainAction, deleteMyData, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction } from "../actions";
 import { aiConfigured } from "@/core/ai/client";
+import { aiStatus } from "@/core/ai/ollama";
+import { backlogCount } from "@/core/ai/categorizer";
+import { suggestionCounts } from "@/core/ai/suggestions";
 import { scoreHistory } from "@/core/eval";
 import { SKIPPED } from "@/core/review";
 import { SyncButton } from "@/components/sync-button";
 
 export default async function Settings() {
   const user = await requireUser();
-  const [txCount, learned, me, history] = await Promise.all([
+  const [txCount, learned, me, history, status, counts, backlog] = await Promise.all([
     db.transaction.count({ where: { userId: user.id } }),
     db.merchantAlias.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 20 }),
     db.user.findUniqueOrThrow({ where: { id: user.id }, select: { aiConsent: true } }),
     scoreHistory(user.id, 8),
+    aiStatus(),
+    suggestionCounts(user.id),
+    backlogCount(user.id),
   ]);
   const configured = aiConfigured();
+  const ready = status.reachable && status.modelInstalled;
   return (
     <div className="max-w-2xl space-y-4">
       <PageHeader title="Settings" />
@@ -26,19 +33,34 @@ export default async function Settings() {
           <div><dt className="text-xs text-ink-3">Email</dt><dd className="truncate">{user.isDemo ? "Demo account" : user.email}</dd></div>
         </dl>
       </Card>
-      <Card title="AI assistant">
+      <Card title="AI categorization">
         <p className="text-sm text-ink-2">
-          When on, Ledger uses Claude (by Anthropic) to categorize transactions the rules can&rsquo;t place and to answer free-form questions.
-          It sends transaction descriptions (with account numbers and long references removed), payee names and your labels. It never sends
-          logins, and every figure it shows comes from your own ledger.
+          {status.cloud
+            ? "This server is set to a cloud model (Anthropic). When on, uncertain transactions are sent there for a suggestion."
+            : "Runs a model on this machine through Ollama. Nothing leaves your computer."}{" "}
+          The AI only looks at payments the rules could not label, and sees just the narration, payee, amount, direction and date.
+          Its answers wait in Review until you confirm them; your totals and Afford only change for labels you confirm.
         </p>
-        {!configured && <p className="mt-3 text-sm rounded-lg bg-warn-bg text-warn-ink px-3 py-2">Not available yet: this server has no Anthropic API key.</p>}
+        <dl className="mt-3 grid grid-cols-3 gap-3 text-sm">
+          <div><dt className="text-xs text-ink-3">Provider</dt><dd>{status.provider === "ollama" ? "Ollama (local)" : status.provider === "anthropic" ? "Anthropic (cloud)" : "Off"}</dd></div>
+          <div><dt className="text-xs text-ink-3">Model</dt><dd className="truncate font-mono text-xs mt-0.5">{status.model || "None"}</dd></div>
+          <div>
+            <dt className="text-xs text-ink-3">Status</dt>
+            <dd data-testid="ai-status" className={ready ? "text-accent" : "text-warn-ink"}>{ready ? "Reachable" : status.reachable ? "Model missing" : "Not reachable"}</dd>
+          </div>
+        </dl>
+        <p className={`mt-3 text-sm rounded-lg px-3 py-2 ${ready ? "bg-accent-soft text-accent" : "bg-warn-bg text-warn-ink"}`}>{status.message}</p>
+        {me.aiConsent && (
+          <p className="mt-3 text-xs text-ink-3 num">
+            {backlog} uncertain transactions not yet looked at · {counts.pending} suggestions waiting in Review · {counts.confirmed} confirmed
+          </p>
+        )}
         <div className="mt-4 flex flex-wrap items-start gap-3">
           <form action={setAiConsentAction}>
             <input type="hidden" name="on" value={me.aiConsent ? "0" : "1"} />
-            <button className={`btn ${me.aiConsent ? "btn-secondary" : "btn-primary"}`} disabled={user.isDemo}>{me.aiConsent ? "Turn AI off" : "Turn AI on"}</button>
+            <button className={`btn ${me.aiConsent ? "btn-secondary" : "btn-primary"}`} disabled={user.isDemo || (!me.aiConsent && !configured)}>{me.aiConsent ? "Turn AI off" : "Turn AI on"}</button>
           </form>
-          {me.aiConsent && configured && <SyncButton action={runAiCategorizeAction} label="Run AI categorization now" />}
+          {me.aiConsent && ready && <SyncButton action={runAiCategorizeAction} label="Suggest categories now" />}
         </div>
       </Card>
       <Card title="Accuracy">

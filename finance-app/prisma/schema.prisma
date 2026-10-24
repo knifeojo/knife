@@ -30,6 +30,7 @@ model User {
   transactions Transaction[]
   syncRuns     SyncRun[]
   loans        Loan[]
+  suggestions  CategorySuggestion[]
 }
 
 model Session {
@@ -119,7 +120,8 @@ model Transaction {
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
-  sources TransactionSource[]
+  sources    TransactionSource[]
+  suggestion CategorySuggestion?
 
   @@unique([userId, fingerprint])
   @@index([userId, transactionDate])
@@ -209,6 +211,30 @@ model EvalRun {
   createdAt     DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+// What the AI proposed for a transaction the rules could not place. Never applied on its own: the
+// transaction keeps its rule label until the owner confirms in Review (which then becomes a user rule).
+// One row per transaction, so a backlog run can stop and resume without asking twice.
+model CategorySuggestion {
+  id                   String      @id @default(cuid())
+  userId               String
+  user                 User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionId        String      @unique
+  transaction          Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  classificationSource String      @default("ai")
+  provider             String // ollama | anthropic
+  model                String
+  // Null when the model gave no valid answer for this row (status "failed").
+  category             String?
+  subcategory          String?
+  reason               String?
+  confidence           Float?
+  status               String      @default("pending") // pending | confirmed | dismissed | superseded | failed
+  createdAt            DateTime    @default(now())
+  decidedAt            DateTime?
+
+  @@index([userId, status])
 }
 
 // Rows a statement contained but Ledger could not read. Nothing is silently dropped: the user can add
