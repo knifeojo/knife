@@ -77,6 +77,31 @@ class LedgerApi {
     return updated;
   }
 
+  /// Confirms (`action` "confirm") or dismisses ("dismiss") an AI suggestion from Review. Returns rows updated.
+  Future<int> answerSuggestion({required String id, required String action}) async {
+    final json = await _object(_uri('/api/v1/review/suggestions'), (uri) => _post(uri, {'id': id, 'action': action}));
+    final updated = json['updated'];
+    if (updated is! int) throw const ApiException(0, 'The server did not confirm the answer.');
+    return updated;
+  }
+
+  Future<AiStatus> aiStatus() => _ai(_parse(_object(_uri('/api/v1/ai'), _get), AiStatus.fromJson));
+
+  /// The Settings toggle. Returns the new status.
+  Future<AiStatus> setAiEnabled(bool enabled) {
+    return _ai(_parse(_object(_uri('/api/v1/ai'), (uri) => _post(uri, {'enabled': enabled})), AiStatus.fromJson));
+  }
+
+  /// A server from before AI categorization answers 404 with an HTML page.
+  Future<T> _ai<T>(Future<T> call) async {
+    try {
+      return await call;
+    } on ApiException catch (error) {
+      if (error.status == 404) throw const ApiException(404, 'This Ledger server does not have AI categorization yet.');
+      rethrow;
+    }
+  }
+
   /// "Re-run categorization", the same server logic as the web Settings button.
   Future<CategorizeResult> rerunCategorization() {
     return _parse(_object(_uri('/api/v1/categorize'), (uri) => _post(uri, const {})), CategorizeResult.fromJson);

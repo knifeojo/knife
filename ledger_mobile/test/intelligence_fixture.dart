@@ -136,3 +136,70 @@ const reviewResponse = {
   'totalMinor': '4500000',
   'categories': ['Family', 'Food', 'Housing', 'Other', 'Transfers'],
 };
+
+const blackTaxSuggestion = {
+  'id': 'sug1',
+  'display': 'Ngozi Adebayo',
+  'direction': 'out',
+  'category': 'Family',
+  'subcategory': 'Black tax',
+  'reason': 'Regular support to a relative',
+  'confidence': 0.84,
+  'model': 'qwen2.5:3b',
+  'count': 2,
+  'totalMinor': '15000000',
+  'currentCategory': 'Transfers',
+  'examples': ['Instant Payment Outward # TO OPAY - NGOZI ADEBAYO'],
+  'classificationSource': 'ai',
+};
+
+/// Review from a server with AI suggestions: one on a question, one for a payee no question covers.
+final reviewWithAiResponse = {
+  'questions': [
+    {
+      'kind': 'person',
+      'key': 'ngozi adebayo',
+      'title': 'Who is Ngozi Adebayo?',
+      'prompt': 'You sent them 2 payments.',
+      'totalMinor': '15000000',
+      'count': 2,
+      'examples': ['Instant Payment Outward # TO OPAY - NGOZI ADEBAYO'],
+      'options': [
+        {'value': 'family', 'label': 'Family', 'category': 'Family', 'subcategory': 'Family support'},
+        {'value': 'csr', 'label': 'CSR (black tax)', 'category': 'Family', 'subcategory': 'Black tax'},
+      ],
+      'currentCategory': 'Transfers',
+      'hint': null,
+      'narrationHints': [],
+      'allowsOther': true,
+      'aiSuggestion': blackTaxSuggestion,
+    },
+  ],
+  'suggestions': [
+    {
+      ...blackTaxSuggestion,
+      'id': 'sug2',
+      'display': 'Monthly',
+      'category': 'Giving',
+      'subcategory': 'Church',
+      'reason': 'Monthly memo',
+      'count': 1,
+      'totalMinor': '3000000',
+    },
+  ],
+  'totalMinor': '15000000',
+  'categories': ['Family', 'Giving', 'Transfers'],
+};
+
+const aiStatusResponse = {
+  'provider': 'ollama',
+  'model': 'qwen2.5:3b',
+  'cloud': false,
+  'reachable': true,
+  'modelInstalled': true,
+  'message': 'Running locally with qwen2.5:3b. Nothing leaves this machine.',
+  'enabled': false,
+  'available': true,
+  'pendingSuggestions': 0,
+  'backlog': 12,
+};

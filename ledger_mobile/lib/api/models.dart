@@ -556,6 +556,113 @@ class NarrationHint {
   }
 }
 
+/// What the AI proposed for a payee. Nothing changes until the owner confirms it in Review.
+class AiSuggestion {
+  const AiSuggestion({
+    required this.id,
+    required this.display,
+    required this.direction,
+    required this.category,
+    this.subcategory,
+    required this.reason,
+    required this.confidence,
+    required this.model,
+    required this.count,
+    required this.totalMinor,
+    required this.currentCategory,
+    required this.examples,
+  });
+
+  final String id;
+  final String display;
+
+  /// "in" or "out".
+  final String direction;
+  final String category;
+  final String? subcategory;
+  final String reason;
+  final double confidence;
+  final String model;
+  final int count;
+  final String totalMinor;
+  final String currentCategory;
+  final List<String> examples;
+
+  String get label => subcategory == null ? category : '$category / $subcategory';
+
+  factory AiSuggestion.fromJson(Map<String, dynamic> json) {
+    final confidence = json['confidence'];
+    if (confidence is! num) throw const FormatException('Expected confidence to be a number');
+    return AiSuggestion(
+      id: _string(json, 'id'),
+      display: _string(json, 'display'),
+      direction: _string(json, 'direction'),
+      category: _string(json, 'category'),
+      subcategory: _optionalString(json, 'subcategory'),
+      reason: _optionalString(json, 'reason') ?? '',
+      confidence: confidence.toDouble(),
+      model: _optionalString(json, 'model') ?? 'AI',
+      count: _int(json, 'count'),
+      totalMinor: _minor(json, 'totalMinor'),
+      currentCategory: _optionalString(json, 'currentCategory') ?? '',
+      examples: _optionalStringList(json, 'examples'),
+    );
+  }
+}
+
+/// AI categorization on the server: which model, whether it answers, and whether it is on for this account.
+class AiStatus {
+  const AiStatus({
+    required this.provider,
+    required this.model,
+    required this.cloud,
+    required this.reachable,
+    required this.modelInstalled,
+    required this.message,
+    required this.enabled,
+    required this.available,
+    required this.pendingSuggestions,
+    required this.backlog,
+  });
+
+  /// "ollama", "anthropic" or "off".
+  final String provider;
+  final String model;
+  final bool cloud;
+  final bool reachable;
+  final bool modelInstalled;
+  final String message;
+  final bool enabled;
+
+  /// False when the server has AI off; the toggle cannot be switched on.
+  final bool available;
+  final int pendingSuggestions;
+  final int backlog;
+
+  bool get ready => reachable && modelInstalled;
+
+  String get providerLabel => switch (provider) {
+    'ollama' => 'Ollama (on the server’s machine)',
+    'anthropic' => 'Anthropic (cloud)',
+    _ => 'Off',
+  };
+
+  factory AiStatus.fromJson(Map<String, dynamic> json) {
+    return AiStatus(
+      provider: _string(json, 'provider'),
+      model: _optionalString(json, 'model') ?? '',
+      cloud: json['cloud'] == true,
+      reachable: json['reachable'] == true,
+      modelInstalled: json['modelInstalled'] == true,
+      message: _optionalString(json, 'message') ?? '',
+      enabled: json['enabled'] == true,
+      available: json['available'] != false,
+      pendingSuggestions: _optionalInt(json, 'pendingSuggestions') ?? 0,
+      backlog: _optionalInt(json, 'backlog') ?? 0,
+    );
+  }
+}
+
 /// One "Help Ledger get this right" question, the same as the web Review page.
 class ReviewQuestion {
   const ReviewQuestion({
@@ -571,6 +678,7 @@ class ReviewQuestion {
     this.hint,
     required this.narrationHints,
     required this.allowsOther,
+    this.aiSuggestion,
   });
 
   final String kind;
@@ -588,6 +696,9 @@ class ReviewQuestion {
   final List<NarrationHint> narrationHints;
   final bool allowsOther;
 
+  /// The AI's pick for this payee, shown pre-selected. Null on servers without AI.
+  final AiSuggestion? aiSuggestion;
+
   factory ReviewQuestion.fromJson(Map<String, dynamic> json) {
     return ReviewQuestion(
       kind: _string(json, 'kind'),
@@ -602,22 +713,27 @@ class ReviewQuestion {
       hint: _optionalString(json, 'hint'),
       narrationHints: _optionalList(json, 'narrationHints').map(NarrationHint.fromJson).toList(),
       allowsOther: json['allowsOther'] != false,
+      aiSuggestion: json['aiSuggestion'] == null ? null : AiSuggestion.fromJson(_map(json, 'aiSuggestion')),
     );
   }
 }
 
 class ReviewQueue {
-  const ReviewQueue({required this.questions, required this.totalMinor, required this.categories});
+  const ReviewQueue({required this.questions, required this.totalMinor, required this.categories, this.suggestions = const []});
 
   final List<ReviewQuestion> questions;
   final String totalMinor;
   final List<String> categories;
+
+  /// AI suggestions for payees no question covers.
+  final List<AiSuggestion> suggestions;
 
   factory ReviewQueue.fromJson(Map<String, dynamic> json) {
     return ReviewQueue(
       questions: _list(json, 'questions').map(ReviewQuestion.fromJson).toList(),
       totalMinor: _minor(json, 'totalMinor'),
       categories: _stringList(json, 'categories'),
+      suggestions: _optionalList(json, 'suggestions').map(AiSuggestion.fromJson).toList(),
     );
   }
 }

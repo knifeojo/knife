@@ -193,4 +193,27 @@ void main() {
     expect(seen.last.headers['authorization'], 'Bearer session-token-value');
     expect(rerun.message, contains('manual corrections'));
   });
+
+  test('confirms an AI suggestion and reads and toggles AI status', () async {
+    final seen = <http.Request>[];
+    final api = LedgerApi(
+      baseUrl: 'http://100.64.0.8:3000',
+      token: 'session-token-value',
+      httpClient: MockClient((request) async {
+        seen.add(request);
+        if (request.url.path == '/api/v1/review/suggestions') return http.Response(jsonEncode({'updated': 2}), 200);
+        if (request.method == 'POST') return http.Response(jsonEncode({...aiStatusResponse, 'enabled': true}), 200);
+        return http.Response(jsonEncode(aiStatusResponse), 200);
+      }),
+    );
+    expect(await api.answerSuggestion(id: 'sug1', action: 'confirm'), 2);
+    expect(jsonDecode(seen[0].body), {'id': 'sug1', 'action': 'confirm'});
+    expect((await api.aiStatus()).model, 'qwen2.5:3b');
+    expect(seen[1].url.path, '/api/v1/ai');
+    expect((await api.setAiEnabled(true)).enabled, isTrue);
+    expect(jsonDecode(seen[2].body), {'enabled': true});
+
+    final old = LedgerApi(baseUrl: 'http://100.64.0.8:3000', httpClient: MockClient((_) async => http.Response('<html>', 404)));
+    await expectLater(old.aiStatus(), throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('AI categorization yet'))));
+  });
 }

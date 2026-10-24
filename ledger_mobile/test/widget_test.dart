@@ -360,8 +360,76 @@ void main() {
     ));
     await tester.tap(find.byKey(const Key('rerun-categorization')));
     await tester.pumpAndSettle();
-    expect(seen, ['POST /api/v1/categorize']);
+    expect(seen.where((s) => s.startsWith('POST')), ['POST /api/v1/categorize']);
     expect(find.textContaining('3 changed'), findsOneWidget);
+    controller.dispose();
+  });
+  testWidgets('Review pre-selects the AI pick and confirms it with one tap', (tester) async {
+    final posts = <String>[];
+    final controller = await _signedIn((request) async {
+      if (request.method == 'POST') {
+        posts.add('${request.url.path} ${request.body}');
+        return _json({'updated': 2});
+      }
+      return _json(reviewWithAiResponse);
+    });
+    await tester.pumpWidget(_app(controller, const ReviewScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('Confirm Family / Black tax'), findsOneWidget);
+    expect(find.textContaining('qwen2.5:3b'), findsWidgets);
+
+    await tester.tap(find.byKey(const Key('confirm-sug1')));
+    await tester.pumpAndSettle();
+    expect(posts, ['/api/v1/review/suggestions {"id":"sug1","action":"confirm"}']);
+    expect(find.text('Saved as Family / Black tax. 2 payments relabelled.'), findsOneWidget);
+
+    final list = find.descendant(of: find.byKey(const Key('review-list')), matching: find.byType(Scrollable)).first;
+    await tester.scrollUntilVisible(find.byKey(const Key('dismiss-sug2')), 200, scrollable: list);
+    await tester.ensureVisible(find.byKey(const Key('dismiss-sug2')));
+    await tester.pumpAndSettle();
+    expect(find.text('Suggested by AI'), findsOneWidget);
+    expect(find.text('Confirm Giving / Church'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('dismiss-sug2')));
+    await tester.pumpAndSettle();
+    expect(posts.last, '/api/v1/review/suggestions {"id":"sug2","action":"dismiss"}');
+    controller.dispose();
+  });
+
+  testWidgets('settings shows AI provider, model and reachability, and toggles it', (tester) async {
+    final posts = <Object?>[];
+    final controller = await _signedIn((request) async {
+      if (request.url.path == '/api/v1/ai' && request.method == 'POST') {
+        posts.add(jsonDecode(request.body));
+        return _json({...aiStatusResponse, 'enabled': true, 'pendingSuggestions': 3});
+      }
+      return _json(aiStatusResponse);
+    });
+    await tester.pumpWidget(ChangeNotifierProvider<LedgerController>.value(
+      value: controller,
+      child: MaterialApp(theme: ledgerTheme(Brightness.light), home: const SettingsScreen()),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('qwen2.5:3b'), findsWidgets);
+    expect(find.text('Reachable'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('ai-toggle')));
+    await tester.tap(find.byKey(const Key('ai-toggle')));
+    await tester.pumpAndSettle();
+    expect(posts, [
+      {'enabled': true},
+    ]);
+    expect(find.textContaining('3 suggestions waiting in Review'), findsOneWidget);
+    controller.dispose();
+  });
+
+  testWidgets('settings says when the AI is not reachable', (tester) async {
+    final controller = await _signedIn((request) async => _json({...aiStatusResponse, 'reachable': false, 'modelInstalled': false, 'message': 'Ollama is not reachable. Start it with "ollama serve".'}));
+    await tester.pumpWidget(ChangeNotifierProvider<LedgerController>.value(
+      value: controller,
+      child: MaterialApp(theme: ledgerTheme(Brightness.light), home: const SettingsScreen()),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Not reachable'), findsOneWidget);
+    expect(find.textContaining('ollama serve'), findsOneWidget);
     controller.dispose();
   });
 }
