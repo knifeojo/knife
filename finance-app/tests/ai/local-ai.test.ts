@@ -100,6 +100,10 @@ describe("taxonomy", () => {
     expect(ok("Family", "Cousins")).toMatchObject({ ok: false, reason: "not in the taxonomy" });
     expect(ok("Income", "Salary")).toMatchObject({ ok: false });
     expect(ok("Transfers", "")).toMatchObject({ ok: false, reason: "too generic" });
+    expect(ok("Transfers", "Withdrawal")).toMatchObject({ ok: false, reason: "only the rules give this label" });
+    expect(ok("Fees", "")).toMatchObject({ ok: false, reason: "only the rules give this label" });
+    expect(ok("Own transfer", "Currency conversion")).toMatchObject({ ok: false });
+    expect(ok("Own transfer", "Savings")).toMatchObject({ ok: true });
     expect(ok("Family", "Partner", 0.3)).toMatchObject({ ok: false, reason: "low confidence" });
     expect(ok("Family", "Partner", 7)).toMatchObject({ ok: false, reason: "bad confidence" });
     expect(validateSuggestion({ id: "1", category: "Food", subcategory: "", confidence: 0.9 }, { type: "CREDIT", category: "Income", subcategory: "Transfer" })).toMatchObject({ ok: false });
@@ -115,7 +119,7 @@ describe("Ollama provider (mocked)", () => {
     expect(calls[0].url).toBe("http://localhost:11434/api/chat");
     expect(calls[0].body).toMatchObject({ model: "qwen2.5:3b", stream: false });
     const format = calls[0].body!.format as { properties: { suggestions: { items: { properties: { category: { enum: string[] } } } } } };
-    expect(format.properties.suggestions.items.properties.category.enum).toEqual(ALL_CATEGORIES);
+    expect(format.properties.suggestions.items.properties.category.enum).toEqual(ALL_CATEGORIES.filter((c) => c !== "Fees"));
     expect(String((calls[0].body!.messages as { content: string }[])[1].content)).toContain("Family: Family support, Partner, Parents, Black tax");
   });
 

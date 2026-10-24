@@ -6,6 +6,7 @@ import { loadDotEnv } from "./dotenv";
 
 async function main() {
   loadDotEnv();
+  process.env.LOG_LEVEL ??= "warn"; // progress lines are the output; skip the server's JSON info logs
   const { parseSuggestArgs, runSuggestCli } = await import("../core/ai/batch");
   const { db } = await import("../lib/db");
   try {

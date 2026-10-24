@@ -36,7 +36,28 @@ export function canonicalLabel(category: unknown, subcategory: unknown): { categ
   return sub ? { category: cat, subcategory: sub } : undefined;
 }
 
-/** "Family: Family support, Partner, …" one line per category, for model prompts. */
+/**
+ * Labels only a deterministic rule may give: bank fees, wallet withdrawals, and own transfers the
+ * pairing logic proves. A model that cannot see both accounts must not propose them.
+ */
+const RULE_ONLY: Readonly<Record<string, readonly string[] | "all">> = {
+  Fees: "all",
+  Transfers: ["Withdrawal"],
+  [OWN_TRANSFER]: ["Between your wallets", "Currency conversion"],
+};
+
+export function ruleOnly(category: string, subcategory: string | null): boolean {
+  const r = RULE_ONLY[category];
+  return r === "all" || (!!r && !!subcategory && r.includes(subcategory));
+}
+
+/** Categories a model may propose. */
+export const AI_CATEGORIES: readonly string[] = ALL_CATEGORIES.filter((c) => RULE_ONLY[c] !== "all");
+
+/** "Family: Family support, Partner, …" one line per category a model may use, for prompts. */
 export function taxonomyText(): string {
-  return ALL_CATEGORIES.map((c) => `${c}: ${TAXONOMY[c]?.length ? TAXONOMY[c].join(", ") : "(no subcategory)"}`).join("\n");
+  return AI_CATEGORIES.map((c) => {
+    const subs = (TAXONOMY[c] ?? []).filter((s) => !ruleOnly(c, s));
+    return `${c}: ${subs.length ? subs.join(", ") : "(no subcategory)"}`;
+  }).join("\n");
 }

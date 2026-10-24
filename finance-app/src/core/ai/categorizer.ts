@@ -4,9 +4,9 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
-import { ALL_CATEGORIES, INCOME_CATEGORY, OWN_TRANSFER } from "../categorize";
+import { INCOME_CATEGORY, OWN_TRANSFER } from "../categorize";
 import type { Classifier } from "../eval";
-import { canonicalLabel, taxonomyText } from "../taxonomy";
+import { AI_CATEGORIES, canonicalLabel, ruleOnly, taxonomyText } from "../taxonomy";
 import type { Classification, TransactionType } from "../types";
 import { FALLBACK, MODEL, aiAllowed, aiConfig, anthropic, redactNarration, type AiConfig } from "./client";
 import { AiUnavailableError, ollamaChat, type Fetch } from "./ollama";
@@ -69,7 +69,7 @@ const RESPONSE_SCHEMA = {
         type: "object",
         properties: {
           id: { type: "string" },
-          category: { type: "string", enum: ALL_CATEGORIES },
+          category: { type: "string", enum: AI_CATEGORIES },
           subcategory: { type: "string" },
           confidence: { type: "number" },
           reason: { type: "string" },
@@ -98,7 +98,7 @@ const AnthropicSchema = z.object({
   suggestions: z.array(
     z.object({
       id: z.string(),
-      category: z.enum(ALL_CATEGORIES as [string, ...string[]]),
+      category: z.enum(AI_CATEGORIES as [string, ...string[]]),
       subcategory: z.string(),
       confidence: z.number(),
       reason: z.string(),
@@ -170,6 +170,7 @@ export function validateSuggestion(raw: unknown, row: { type: string; category: 
   const r = raw as Record<string, unknown>;
   const label = canonicalLabel(r.category, r.subcategory);
   if (!label) return { ok: false, reason: "not in the taxonomy" };
+  if (ruleOnly(label.category, label.subcategory)) return { ok: false, reason: "only the rules give this label" };
   const confidence = typeof r.confidence === "number" ? r.confidence : Number.NaN;
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return { ok: false, reason: "bad confidence" };
   if (confidence < MIN_CONFIDENCE) return { ok: false, reason: "low confidence" };
