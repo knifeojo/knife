@@ -114,6 +114,8 @@ class LedgerController extends ChangeNotifier {
 
   Future<AiStatus> setAiEnabled(bool enabled) => _guard((api) => api.setAiEnabled(enabled));
 
+  Future<AiStatus> setAiRoutes(Map<String, String> routes) => _guard((api) => api.setAiRoutes(routes));
+
   Future<CategorizeResult> rerunCategorization() => _guard((api) => api.rerunCategorization());
 
   Future<AffordabilityCheck> affordability({required String amountMinor, String? description, String horizon = 'month_end', String? bufferMinor}) {

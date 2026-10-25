@@ -421,6 +421,48 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('settings shows both providers, the key state and per-feature routes, and changes one', (tester) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final posts = <Object?>[];
+    final controller = await _signedIn((request) async {
+      if (request.url.path == '/api/v1/ai' && request.method == 'POST') {
+        posts.add(jsonDecode(request.body));
+        final routes = Map<String, dynamic>.from(hybridAiStatusResponse['routes'] as Map);
+        routes['categorize'] = {...routes['categorize'] as Map, 'route': 'off', 'requested': 'off', 'source': 'user'};
+        return _json({...hybridAiStatusResponse, 'routes': routes});
+      }
+      return _json(hybridAiStatusResponse);
+    });
+    await tester.pumpWidget(ChangeNotifierProvider<LedgerController>.value(
+      value: controller,
+      child: MaterialApp(theme: ledgerTheme(Brightness.light), home: const SettingsScreen()),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Local · Ollama · qwen2.5:3b'), findsOneWidget);
+    expect(find.textContaining('Cloud · Anthropic'), findsOneWidget);
+    expect(find.text('ANTHROPIC_API_KEY: not set'), findsOneWidget);
+    expect(find.text('Not configured'), findsOneWidget);
+    expect(find.textContaining('local-only'), findsOneWidget);
+    expect(find.textContaining('Runs: Local'), findsOneWidget);
+    for (final f in ['categorize', 'escalation', 'insights', 'chat']) {
+      expect(find.byKey(Key('ai-route-$f')), findsOneWidget);
+    }
+
+    await tester.ensureVisible(find.byKey(const Key('ai-route-categorize')));
+    await tester.tap(find.byKey(const Key('ai-route-categorize')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Off').last);
+    await tester.pumpAndSettle();
+    expect(posts, [
+      {
+        'routes': {'categorize': 'off'},
+      },
+    ]);
+    controller.dispose();
+  });
+
   testWidgets('settings says when the AI is not reachable', (tester) async {
     final controller = await _signedIn((request) async => _json({...aiStatusResponse, 'reachable': false, 'modelInstalled': false, 'message': 'Ollama is not reachable. Start it with "ollama serve".'}));
     await tester.pumpWidget(ChangeNotifierProvider<LedgerController>.value(

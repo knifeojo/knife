@@ -92,6 +92,11 @@ class LedgerApi {
     return _ai(_parse(_object(_uri('/api/v1/ai'), (uri) => _post(uri, {'enabled': enabled})), AiStatus.fromJson));
   }
 
+  /// Per-feature overrides from Settings: feature to "local", "cloud", "off" or "default" (back to the server's choice).
+  Future<AiStatus> setAiRoutes(Map<String, String> routes) {
+    return _ai(_parse(_object(_uri('/api/v1/ai'), (uri) => _post(uri, {'routes': routes})), AiStatus.fromJson));
+  }
+
   /// A server from before AI categorization answers 404 with an HTML page.
   Future<T> _ai<T>(Future<T> call) async {
     try {

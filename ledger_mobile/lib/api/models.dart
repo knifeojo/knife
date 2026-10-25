@@ -623,6 +623,11 @@ class AiStatus {
     required this.available,
     required this.pendingSuggestions,
     required this.backlog,
+    this.mode,
+    this.routes = const {},
+    this.local,
+    this.cloudProvider,
+    this.notes = const [],
   });
 
   /// "ollama", "anthropic" or "off".
@@ -639,7 +644,20 @@ class AiStatus {
   final int pendingSuggestions;
   final int backlog;
 
+  /// "hybrid", "ollama", "anthropic" or "off". Null on servers from before hybrid routing.
+  final String? mode;
+
+  /// Where each feature (categorize, escalation, insights, chat) runs. Empty on older servers.
+  final Map<String, AiRouteStatus> routes;
+  final AiProviderStatus? local;
+  final AiProviderStatus? cloudProvider;
+
+  /// Server-wide caveats, such as no ANTHROPIC_API_KEY.
+  final List<String> notes;
+
   bool get ready => reachable && modelInstalled;
+
+  bool get hasRoutes => routes.isNotEmpty;
 
   String get providerLabel => switch (provider) {
     'ollama' => 'Ollama (on the server’s machine)',
@@ -659,6 +677,77 @@ class AiStatus {
       available: json['available'] != false,
       pendingSuggestions: _optionalInt(json, 'pendingSuggestions') ?? 0,
       backlog: _optionalInt(json, 'backlog') ?? 0,
+      mode: _optionalString(json, 'mode'),
+      routes: {
+        if (json['routes'] case final Map<String, dynamic> routes)
+          for (final feature in AiRouteStatus.features)
+            if (routes[feature] case final Map<String, dynamic> route) feature: AiRouteStatus.fromJson(feature, route),
+      },
+      local: json['local'] is Map<String, dynamic> ? AiProviderStatus.fromJson(json['local'] as Map<String, dynamic>) : null,
+      cloudProvider: json['cloudProvider'] is Map<String, dynamic> ? AiProviderStatus.fromJson(json['cloudProvider'] as Map<String, dynamic>) : null,
+      notes: _optionalStringList(json, 'notes'),
+    );
+  }
+}
+
+/// One AI provider in Settings: local Ollama or the cloud model. Never carries the API key.
+class AiProviderStatus {
+  const AiProviderStatus({required this.provider, required this.model, required this.reachable, required this.message, this.modelInstalled, this.keySet});
+
+  final String provider;
+  final String model;
+  final bool reachable;
+  final String message;
+
+  /// Local only.
+  final bool? modelInstalled;
+
+  /// Cloud only: whether ANTHROPIC_API_KEY is set on the server.
+  final bool? keySet;
+
+  factory AiProviderStatus.fromJson(Map<String, dynamic> json) {
+    return AiProviderStatus(
+      provider: _optionalString(json, 'provider') ?? '',
+      model: _optionalString(json, 'model') ?? '',
+      reachable: json['reachable'] == true,
+      message: _optionalString(json, 'message') ?? '',
+      modelInstalled: json['modelInstalled'] is bool ? json['modelInstalled'] as bool : null,
+      keySet: json['keySet'] is bool ? json['keySet'] as bool : null,
+    );
+  }
+}
+
+/// Where one AI feature runs: "local", "cloud" or "off", and whether the user or the server chose it.
+class AiRouteStatus {
+  const AiRouteStatus({required this.feature, required this.label, required this.route, required this.requested, required this.source, required this.serverDefault, this.note});
+
+  static const features = ['categorize', 'escalation', 'insights', 'chat'];
+  static const routeLabels = {'local': 'Local', 'cloud': 'Cloud', 'off': 'Off'};
+
+  final String feature;
+  final String label;
+
+  /// What actually runs, after the server's limits (no key, AI_PROVIDER=ollama…).
+  final String route;
+  final String requested;
+
+  /// "mode", "env" or "user".
+  final String source;
+  final String serverDefault;
+  final String? note;
+
+  bool get userSet => source == 'user';
+
+  factory AiRouteStatus.fromJson(String feature, Map<String, dynamic> json) {
+    final route = _optionalString(json, 'route') ?? 'off';
+    return AiRouteStatus(
+      feature: feature,
+      label: _optionalString(json, 'label') ?? feature,
+      route: route,
+      requested: _optionalString(json, 'requested') ?? route,
+      source: _optionalString(json, 'source') ?? 'mode',
+      serverDefault: _optionalString(json, 'serverDefault') ?? route,
+      note: _optionalString(json, 'note'),
     );
   }
 }
