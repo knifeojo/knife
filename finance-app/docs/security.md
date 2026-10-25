@@ -15,11 +15,38 @@
 
 ## AI data flow
 
-- Off by default per user (Settings). The server default is a local model (Ollama on `localhost`); `OLLAMA_BASE_URL` pointing anywhere but loopback is refused before any request is made.
-- The categorizer sends, per uncertain row only: the narration with every run of 6+ digits removed, payee, merchant name, amount, direction and date (`AiRow` in `src/core/ai/categorizer.ts`, enforced by a test). Never balances, account names or numbers, the profile or other labels, logins or files.
-- The cloud (Anthropic) runs only with `AI_PROVIDER=anthropic` set explicitly plus a key; a key alone does nothing. The Insights assistant and answer phrasing are cloud-only, so they are off unless that is set. The assistant sends the user's question, a profile summary and tool results.
-- The categorizer only suggests. Its output is validated against the category taxonomy and stored as a suggestion; a transaction changes only when the owner confirms it in Review. The model never writes amounts, dates or balances, and the assistant's figures must come from tool results computed in the database, enforced by a number guard.
+- **Off by default per user.** Nothing goes to any model until the user turns AI on in Settings.
+- **Local calls.** Local calls go to Ollama on `localhost` only. If `OLLAMA_BASE_URL` points anywhere but loopback, it is refused before any request is made, and local features switch off.
+- **Routing.** With `AI_PROVIDER=hybrid` (the default), categorization runs locally. Second opinions on uncertain rows, Insights phrasing and chat go to Anthropic, but only when `ANTHROPIC_API_KEY` is set. Without a key everything stays local and Settings says so. `AI_PROVIDER=ollama` refuses the cloud for every feature, whatever env or users ask for. Users can move any feature to Local, Cloud or Off in Settings, within those limits.
+- **One redaction module.** Every cloud request passes through `src/core/ai/redact.ts`. Tests snapshot the outgoing payloads and assert that no account number, name, email or phone number is present.
+
+**What goes to the cloud**
+
+| Feature | Sent |
+|---|---|
+| Escalation (or cloud categorization) | Only rows the rules could not label and the local model was unsure about, got wrong or could not answer. For each row: the redacted narration, payee and merchant (businesses by name, people as placeholders), direction, an amount range (₦50,000 to ₦100,000) and the month |
+| Insights phrasing | The redacted question and the computed facts, with amounts rounded to three significant figures. No exact kobo and no pre-written answer |
+| Chat | The redacted question and conversation, a redacted profile summary, and redacted, rounded tool results. Tools run locally against the signed-in user's data; placeholders in the model's tool inputs are mapped back to names locally |
+
+**What never goes to the cloud**
+
+- Your name (sent as `OWNER`) and people's names (sent as `PERSON_n`). Names are restored locally in the answer.
+- Your account labels (sent as `ACCOUNT_n`).
+- Account numbers, card numbers, BVN/NIN-like digit runs, phone numbers and emails. These are masked as `[ACCOUNT]`, `[CARD]`, `[ID]`, `[PHONE]`, `[EMAIL]` and `[NUMBER]`.
+- Exact amounts and balances, and exact dates for categorization.
+- Passwords, session tokens, OAuth tokens, `ENCRYPTION_KEY`, statement files and raw emails.
+- Rows already labelled by rules or by the user.
+
+**Model output**
+
+- The categorizer only suggests. Its output, local or cloud, is validated against the category taxonomy and stored as a CategorySuggestion. A transaction changes only when the owner confirms it in Review, and Afford maths is always rule-based.
+- The models never write amounts, dates or balances.
+- Figures in chat and Insights must appear in the data that was sent. A number guard rejects anything else and falls back to the rule-based answer.
 - Every tool is scoped to the signed-in user server-side; the model cannot choose whose data it reads.
+
+**Logging.** Each AI request logs `ai.served` with feature, provider, model, outcome, duration and row count. Prompts, answers and names are never logged.
+
+**Setting the key.** Create a key at console.anthropic.com → API keys, then put `ANTHROPIC_API_KEY=sk-ant-...` in the server's `.env` (or the host's secret store) and restart. Settings shows only whether it is set, never its value. To keep everything local, leave it unset or set `AI_PROVIDER=ollama`.
 
 ## Authentication and authorization
 

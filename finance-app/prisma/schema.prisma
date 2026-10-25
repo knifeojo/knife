@@ -22,6 +22,11 @@ model User {
   updatedAt    DateTime @updatedAt
 
   aiConsent    Boolean  @default(false)
+  // Per-feature AI route chosen in Settings: local | cloud | off. Null follows the server (AI_PROVIDER, AI_*).
+  aiCategorize String?
+  aiEscalation String?
+  aiInsights   String?
+  aiChat       String?
 
   sessions     Session[]
   evalRuns     EvalRun[]
@@ -223,7 +228,7 @@ model CategorySuggestion {
   transactionId        String      @unique
   transaction          Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   classificationSource String      @default("ai")
-  provider             String // ollama | anthropic
+  provider             String // ollama | anthropic: whoever produced the stored answer (after escalation)
   model                String
   // Null when the model gave no valid answer for this row (status "failed").
   category             String?

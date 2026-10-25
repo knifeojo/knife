@@ -144,6 +144,19 @@ class _AiSettingsCardState extends State<AiSettingsCard> {
     }
   }
 
+  Future<void> _setRoute(String feature, String route) async {
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final status = await context.read<LedgerController>().setAiRoutes({feature: route});
+      if (mounted) setState(() => _status = status);
+    } on ApiException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -152,14 +165,49 @@ class _AiSettingsCardState extends State<AiSettingsCard> {
       return Text(_error == null ? 'Checking AI…' : 'AI status unavailable: $_error', key: const Key('ai-status'));
     }
     final state = status.ready ? 'Reachable' : status.reachable ? 'Model not installed' : 'Not reachable';
+    final good = theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.primary);
+    final bad = theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('${status.providerLabel} · ${status.model.isEmpty ? 'no model' : status.model}', key: const Key('ai-provider')),
-        const SizedBox(height: 2),
-        Text(state, key: const Key('ai-status'), style: theme.textTheme.bodyMedium?.copyWith(color: status.ready ? theme.colorScheme.primary : theme.colorScheme.error)),
-        const SizedBox(height: 4),
-        Text(status.message, style: theme.textTheme.bodySmall),
+        if (!status.hasRoutes) ...[
+          Text('${status.providerLabel} · ${status.model.isEmpty ? 'no model' : status.model}', key: const Key('ai-provider')),
+          const SizedBox(height: 2),
+          Text(state, key: const Key('ai-status'), style: status.ready ? good : bad),
+          const SizedBox(height: 4),
+          Text(status.message, style: theme.textTheme.bodySmall),
+        ] else ...[
+          Text('Mode: ${status.mode ?? 'hybrid'}', key: const Key('ai-mode'), style: theme.textTheme.titleSmall),
+          if (status.local case final local?) ...[
+            const SizedBox(height: 8),
+            Text('Local · Ollama · ${local.model.isEmpty ? 'no model' : local.model}', key: const Key('ai-local')),
+            Text(
+              local.reachable && local.modelInstalled != false ? 'Reachable' : local.reachable ? 'Model not installed' : 'Not reachable',
+              key: const Key('ai-local-status'),
+              style: local.reachable && local.modelInstalled != false ? good : bad,
+            ),
+            Text(local.message, style: theme.textTheme.bodySmall),
+          ],
+          if (status.cloudProvider case final cloud?) ...[
+            const SizedBox(height: 8),
+            Text('Cloud · Anthropic · ${cloud.model}', key: const Key('ai-cloud')),
+            Text(
+              cloud.keySet == true ? (cloud.reachable ? 'Reachable' : 'Not reachable') : 'Not configured',
+              key: const Key('ai-cloud-status'),
+              style: cloud.keySet == true && cloud.reachable ? good : bad,
+            ),
+            Text('ANTHROPIC_API_KEY: ${cloud.keySet == true ? 'set' : 'not set'}', key: const Key('ai-cloud-key'), style: theme.textTheme.bodySmall),
+            if (cloud.message.isNotEmpty) Text(cloud.message, style: theme.textTheme.bodySmall),
+          ],
+          for (final note in status.notes)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(note, key: const Key('ai-note'), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+            ),
+          const SizedBox(height: 8),
+          for (final route in status.routes.values) _routeRow(theme, route),
+          Text('Cloud calls get names, account and phone numbers removed and amounts rounded first.', style: theme.textTheme.bodySmall),
+        ],
         SwitchListTile(
           key: const Key('ai-toggle'),
           contentPadding: EdgeInsets.zero,
@@ -173,6 +221,37 @@ class _AiSettingsCardState extends State<AiSettingsCard> {
           onChanged: _saving || (!status.enabled && !status.available) ? null : _toggle,
         ),
       ],
+    );
+  }
+
+  Widget _routeRow(ThemeData theme, AiRouteStatus route) {
+    final labels = AiRouteStatus.routeLabels;
+    final runs = route.route == route.requested ? null : 'Runs: ${labels[route.route] ?? route.route}';
+    final detail = [?runs, ?route.note].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(route.label),
+                if (detail.isNotEmpty) Text(detail, key: Key('ai-route-note-${route.feature}'), style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ),
+          DropdownButton<String>(
+            key: Key('ai-route-${route.feature}'),
+            value: route.userSet ? route.requested : 'default',
+            onChanged: _saving ? null : (value) => value == null ? null : _setRoute(route.feature, value),
+            items: [
+              DropdownMenuItem(value: 'default', child: Text('Default (${labels[route.serverDefault] ?? route.serverDefault})')),
+              for (final entry in labels.entries) DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

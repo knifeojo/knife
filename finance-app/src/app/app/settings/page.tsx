@@ -2,28 +2,26 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { logout } from "../../(auth)/actions";
-import { askAgainAction, deleteMyData, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction } from "../actions";
-import { aiConfigured } from "@/core/ai/client";
-import { aiStatus } from "@/core/ai/ollama";
-import { backlogCount } from "@/core/ai/categorizer";
-import { suggestionCounts } from "@/core/ai/suggestions";
+import { askAgainAction, deleteMyData, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction, setAiRoutesAction } from "../actions";
+import { AI_FEATURES, type AiRoute } from "@/core/ai/client";
+import { aiSettingsStatus } from "@/core/ai/status";
 import { scoreHistory } from "@/core/eval";
 import { SKIPPED } from "@/core/review";
 import { SyncButton } from "@/components/sync-button";
 
+const ROUTE_LABEL: Record<AiRoute, string> = { local: "Local", cloud: "Cloud (redacted)", off: "Off" };
+
 export default async function Settings() {
   const user = await requireUser();
-  const [txCount, learned, me, history, status, counts, backlog] = await Promise.all([
+  const [txCount, learned, history, status] = await Promise.all([
     db.transaction.count({ where: { userId: user.id } }),
     db.merchantAlias.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 20 }),
-    db.user.findUniqueOrThrow({ where: { id: user.id }, select: { aiConsent: true } }),
     scoreHistory(user.id, 8),
-    aiStatus(),
-    suggestionCounts(user.id),
-    backlogCount(user.id),
+    aiSettingsStatus(user.id),
   ]);
-  const configured = aiConfigured();
   const ready = status.reachable && status.modelInstalled;
+  const localReady = status.local.reachable && status.local.modelInstalled;
+  const cloud = status.cloudProvider;
   return (
     <div className="max-w-2xl space-y-4">
       <PageHeader title="Settings" />
@@ -33,34 +31,77 @@ export default async function Settings() {
           <div><dt className="text-xs text-ink-3">Email</dt><dd className="truncate">{user.isDemo ? "Demo account" : user.email}</dd></div>
         </dl>
       </Card>
-      <Card title="AI categorization">
+      <Card title="AI">
         <p className="text-sm text-ink-2">
-          {status.cloud
-            ? "This server is set to a cloud model (Anthropic). When on, uncertain transactions are sent there for a suggestion."
-            : "Runs a model on this machine through Ollama. Nothing leaves your computer."}{" "}
-          The AI only looks at payments the rules could not label, and sees just the narration, payee, amount, direction and date.
-          Its answers wait in Review until you confirm them; your totals and Afford only change for labels you confirm.
+          {status.mode === "hybrid"
+            ? "Hybrid: categorization runs on a model on this machine (Ollama). Insights, chat and second opinions on unsure categories use a cloud model (Anthropic), and everything sent there is redacted first: no account, card or phone numbers, emails or real names, and amounts are rounded or shown as ranges."
+            : status.mode === "ollama"
+              ? "Local only: every AI feature runs on this machine through Ollama. Nothing leaves your computer."
+              : status.mode === "anthropic"
+                ? "Cloud: AI features use Anthropic. Everything sent is redacted first: no account, card or phone numbers, emails or real names, and amounts are rounded or shown as ranges."
+                : "AI is off on this server."}{" "}
+          Categories are only suggestions: they wait in Review until you confirm them, and Afford stays rule-based.
         </p>
-        <dl className="mt-3 grid grid-cols-3 gap-3 text-sm">
-          <div><dt className="text-xs text-ink-3">Provider</dt><dd>{status.provider === "ollama" ? "Ollama (local)" : status.provider === "anthropic" ? "Anthropic (cloud)" : "Off"}</dd></div>
-          <div><dt className="text-xs text-ink-3">Model</dt><dd className="truncate font-mono text-xs mt-0.5">{status.model || "None"}</dd></div>
-          <div>
-            <dt className="text-xs text-ink-3">Status</dt>
-            <dd data-testid="ai-status" className={ready ? "text-accent" : "text-warn-ink"}>{ready ? "Reachable" : status.reachable ? "Model missing" : "Not reachable"}</dd>
+        <div className="mt-3 grid sm:grid-cols-2 gap-3 text-sm">
+          <div className="rounded-lg border border-border p-3" data-testid="ai-local">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-medium">Local · Ollama</span>
+              <span className={localReady ? "text-accent" : "text-warn-ink"}>{localReady ? "Reachable" : status.local.reachable ? "Model missing" : "Not reachable"}</span>
+            </div>
+            <p className="font-mono text-xs mt-1 truncate">{status.local.model}</p>
+            <p className="text-xs text-ink-3 mt-1">{status.local.message}</p>
           </div>
-        </dl>
-        <p className={`mt-3 text-sm rounded-lg px-3 py-2 ${ready ? "bg-accent-soft text-accent" : "bg-warn-bg text-warn-ink"}`}>{status.message}</p>
-        {me.aiConsent && (
+          <div className="rounded-lg border border-border p-3" data-testid="ai-cloud">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-medium">Cloud · Anthropic</span>
+              <span className={cloud.reachable ? "text-accent" : "text-warn-ink"}>{cloud.reachable ? "Reachable" : cloud.keySet ? "Not reachable" : "No key"}</span>
+            </div>
+            <p className="font-mono text-xs mt-1 truncate">{cloud.model}</p>
+            <p className="text-xs text-ink-3 mt-1">ANTHROPIC_API_KEY: {cloud.keySet ? "set" : "not set"}. {cloud.message}</p>
+          </div>
+        </div>
+        {status.notes.map((n) => (
+          <p key={n} className="mt-3 text-sm rounded-lg px-3 py-2 bg-warn-bg text-warn-ink">{n}</p>
+        ))}
+        <form action={setAiRoutesAction} className="mt-4">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-ink-3"><th className="font-normal">Feature</th><th className="font-normal">Your choice</th><th className="font-normal">Runs on</th></tr></thead>
+            <tbody>
+              {AI_FEATURES.map((f) => {
+                const r = status.routes[f];
+                return (
+                  <tr key={f} className="border-t border-border align-top">
+                    <td className="py-2 pr-2">{r.label}</td>
+                    <td className="py-2 pr-2">
+                      <select name={f} aria-label={`${r.label} runs on`} defaultValue={r.source === "user" ? r.requested : "default"} className="input h-8 py-0 text-xs" disabled={user.isDemo}>
+                        <option value="default">Server default ({ROUTE_LABEL[r.serverDefault]})</option>
+                        <option value="local">Local</option>
+                        <option value="cloud">Cloud</option>
+                        <option value="off">Off</option>
+                      </select>
+                    </td>
+                    <td className="py-2" data-testid={`ai-route-${f}`}>
+                      <span className={r.route === "cloud" ? "text-ink" : r.route === "local" ? "text-accent" : "text-ink-3"}>{ROUTE_LABEL[r.route]}</span>
+                      {r.note && <span className="block text-xs text-ink-3">{r.note}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <button className="btn btn-secondary mt-2" disabled={user.isDemo}>Save AI choices</button>
+        </form>
+        {status.enabled && (
           <p className="mt-3 text-xs text-ink-3 num">
-            {backlog} uncertain transactions not yet looked at · {counts.pending} suggestions waiting in Review · {counts.confirmed} confirmed
+            {status.backlog} uncertain transactions not yet looked at · {status.pendingSuggestions} suggestions waiting in Review
           </p>
         )}
         <div className="mt-4 flex flex-wrap items-start gap-3">
           <form action={setAiConsentAction}>
-            <input type="hidden" name="on" value={me.aiConsent ? "0" : "1"} />
-            <button className={`btn ${me.aiConsent ? "btn-secondary" : "btn-primary"}`} disabled={user.isDemo || (!me.aiConsent && !configured)}>{me.aiConsent ? "Turn AI off" : "Turn AI on"}</button>
+            <input type="hidden" name="on" value={status.enabled ? "0" : "1"} />
+            <button className={`btn ${status.enabled ? "btn-secondary" : "btn-primary"}`} disabled={user.isDemo || (!status.enabled && !status.available)}>{status.enabled ? "Turn AI off" : "Turn AI on"}</button>
           </form>
-          {me.aiConsent && ready && <SyncButton action={runAiCategorizeAction} label="Suggest categories now" />}
+          {status.enabled && (ready || status.routes.escalation.route === "cloud") && status.routes.categorize.route !== "off" && <SyncButton action={runAiCategorizeAction} label="Suggest categories now" />}
         </div>
       </Card>
       <Card title="Accuracy">

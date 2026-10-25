@@ -211,6 +211,10 @@ void main() {
     expect((await api.aiStatus()).model, 'qwen2.5:3b');
     expect(seen[1].url.path, '/api/v1/ai');
     expect((await api.setAiEnabled(true)).enabled, isTrue);
+    expect((await api.setAiRoutes({'chat': 'cloud'})).enabled, isTrue);
+    expect(jsonDecode(seen.last.body), {
+      'routes': {'chat': 'cloud'},
+    });
     expect(jsonDecode(seen[2].body), {'enabled': true});
 
     final old = LedgerApi(baseUrl: 'http://100.64.0.8:3000', httpClient: MockClient((_) async => http.Response('<html>', 404)));

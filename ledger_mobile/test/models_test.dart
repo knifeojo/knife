@@ -229,6 +229,17 @@ void main() {
     expect(status.providerLabel, contains('Ollama'));
     expect(status.enabled, isFalse);
     expect(AiStatus.fromJson({...aiStatusResponse, 'reachable': false}).ready, isFalse);
+    expect(status.hasRoutes, isFalse);
+
+    final hybrid = AiStatus.fromJson(hybridAiStatusResponse);
+    expect(hybrid.mode, 'hybrid');
+    expect(hybrid.routes.keys, ['categorize', 'escalation', 'insights', 'chat']);
+    expect(hybrid.routes['insights']!.route, 'local');
+    expect(hybrid.routes['insights']!.requested, 'cloud');
+    expect(hybrid.routes['chat']!.userSet, isTrue);
+    expect(hybrid.cloudProvider!.keySet, isFalse);
+    expect(hybrid.local!.modelInstalled, isTrue);
+    expect(hybrid.notes.single, contains('local-only'));
   });
 }
 

@@ -203,3 +203,18 @@ const aiStatusResponse = {
   'pendingSuggestions': 0,
   'backlog': 12,
 };
+
+/// GET /api/v1/ai on a hybrid server with no ANTHROPIC_API_KEY.
+const hybridAiStatusResponse = {
+  ...aiStatusResponse,
+  'mode': 'hybrid',
+  'routes': {
+    'categorize': {'label': 'Categorize', 'route': 'local', 'requested': 'local', 'source': 'mode', 'serverDefault': 'local'},
+    'escalation': {'label': 'Escalation (second opinion)', 'route': 'off', 'requested': 'cloud', 'source': 'mode', 'serverDefault': 'cloud', 'note': 'No ANTHROPIC_API_KEY, so there is no cloud second opinion.'},
+    'insights': {'label': 'Insights phrasing', 'route': 'local', 'requested': 'cloud', 'source': 'mode', 'serverDefault': 'cloud', 'note': 'No ANTHROPIC_API_KEY, so this runs locally.'},
+    'chat': {'label': 'Chat', 'route': 'local', 'requested': 'local', 'source': 'user', 'serverDefault': 'cloud'},
+  },
+  'local': {'provider': 'ollama', 'model': 'qwen2.5:3b', 'baseUrl': 'http://localhost:11434', 'reachable': true, 'modelInstalled': true, 'message': 'Running locally with qwen2.5:3b.'},
+  'cloudProvider': {'provider': 'anthropic', 'model': 'claude-opus-5-5', 'keySet': false, 'reachable': false, 'message': 'ANTHROPIC_API_KEY is not set.'},
+  'notes': ['ANTHROPIC_API_KEY is not set, so AI runs local-only.'],
+};

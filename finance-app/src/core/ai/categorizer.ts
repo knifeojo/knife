@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -8,15 +7,23 @@ import { INCOME_CATEGORY, OWN_TRANSFER } from "../categorize";
 import type { Classifier } from "../eval";
 import { AI_CATEGORIES, canonicalLabel, ruleOnly, taxonomyText } from "../taxonomy";
 import type { Classification, TransactionType } from "../types";
-import { FALLBACK, MODEL, aiAllowed, aiConfig, anthropic, redactNarration, type AiConfig } from "./client";
+import {
+  FALLBACK, MODEL, aiAllowed, aiConfig, configFor, localEscalationConfig, logServed, redactNarration, routingFor,
+  type AiConfig, type AiRouting,
+} from "./client";
+import { cloudCreate, type CreateMessage } from "./cloud";
 import { AiUnavailableError, ollamaChat, type Fetch } from "./ollama";
+import { Redactor, bucketMoneyInText, redactorFor } from "./redact";
 
 // AI suggestions for transactions the rules could not place confidently.
 //
 // Rules and the user's own answers (MerchantAlias) always win: rows they labelled are never sent.
 // The model sees ONLY the fields in AiRow. It never sees account numbers (long digit runs are
-// redacted), balances, account names, the user's profile or other labels.
-// Its answers are stored as CategorySuggestion rows; the transaction keeps its rule label until the
+// redacted), balances, account names, the user's profile or other labels. The cloud model sees even
+// less: names become placeholders, amounts become ranges and dates become months (toCloudRow).
+// Hybrid: the local model goes first; rows it is unsure about, answers badly or cannot answer
+// (Ollama down) get a second opinion from the escalation model (the cloud by default).
+// Answers are stored as CategorySuggestion rows; the transaction keeps its rule label until the
 // owner confirms in Review, so nothing the model says changes totals or affordability on its own.
 
 /** Exactly what a model may see about one transaction. */
@@ -106,31 +113,81 @@ const AnthropicSchema = z.object({
   ),
 });
 
-/** Cloud path. Only reachable when AI_PROVIDER=anthropic is set explicitly. */
-export const anthropicCategorizeLLM: CategorizeLLM = async (rows) => {
-  try {
-    const res = await anthropic().beta.messages.parse({
+const CLOUD_NOTE = `
+Privacy: people's names are replaced by placeholders (PERSON_1, PERSON_2…) and the account holder by OWNER; [ACCOUNT], [PHONE], [CARD], [EMAIL], [ID] and [NUMBER] mark removed identifiers. Money to or from OWNER is usually "Own transfer". Amounts are ranges and dates are months.`;
+
+/** What the cloud model sees for one row: the local AiRow with names, amount and day redacted. */
+export function toCloudRow(row: AiRow, r: Redactor): AiRow {
+  r.add(row.counterparty);
+  r.add(row.merchantName);
+  const out: AiRow = { id: row.id, date: row.date.slice(0, 7), direction: row.direction, amount: bucketMoneyInText(row.amount), narration: r.text(row.narration) };
+  if (row.counterparty) out.counterparty = r.text(row.counterparty);
+  if (row.merchantName) out.merchantName = r.text(row.merchantName);
+  return out;
+}
+
+/** Cloud categorizer. Every row goes through toCloudRow; the reasons that come back are restored locally. */
+export function cloudCategorizeLLM(opts: { redactor?: Redactor; create?: CreateMessage } = {}): CategorizeLLM {
+  return async (rows) => {
+    const r = opts.redactor ?? new Redactor();
+    const res = await (opts.create ?? cloudCreate)({
       model: MODEL,
       max_tokens: 16000,
       ...FALLBACK,
       output_config: { effort: "low", format: betaZodOutputFormat(AnthropicSchema) },
-      system: SYSTEM,
-      messages: [{ role: "user", content: promptFor(rows) }],
+      system: SYSTEM + CLOUD_NOTE,
+      messages: [{ role: "user", content: promptFor(rows.map((row) => toCloudRow(row, r))) }],
     });
-    if (res.stop_reason === "refusal" || !res.parsed_output) return [];
-    return res.parsed_output.suggestions;
-  } catch (e) {
-    if (e instanceof Anthropic.APIConnectionError) throw new AiUnavailableError("Could not reach Anthropic.");
-    if (e instanceof Anthropic.APIError && (e.status === 401 || e.status === 403 || e.status === 429 || (e.status ?? 0) >= 500)) {
-      throw new AiUnavailableError(`Anthropic returned ${e.status}.`);
+    if (res.stop_reason === "refusal") return [];
+    const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+    let parsed: z.infer<typeof AnthropicSchema> | undefined;
+    try {
+      const v = AnthropicSchema.safeParse(JSON.parse(text));
+      parsed = v.success ? v.data : undefined;
+    } catch {
+      parsed = undefined;
     }
-    throw e;
-  }
-};
+    return (parsed?.suggestions ?? []).map((s) => ({ ...s, reason: r.restore(s.reason) }));
+  };
+}
 
-export function llmFor(config: AiConfig = aiConfig()): CategorizeLLM {
+export function llmFor(config: AiConfig = aiConfig(), opts: { redactor?: Redactor } = {}): CategorizeLLM {
   if (config.problem || config.provider === "off") throw new AiUnavailableError(config.problem ?? "AI is off.");
-  return config.provider === "anthropic" ? anthropicCategorizeLLM : ollamaCategorizeLLM({ config });
+  return config.provider === "anthropic" ? cloudCategorizeLLM(opts) : ollamaCategorizeLLM({ config });
+}
+
+/** A model that categorizes, and who it is, for the record on each suggestion. */
+export interface Categorizer {
+  llm: CategorizeLLM;
+  provider: "ollama" | "anthropic";
+  model: string;
+  batchSize?: number;
+}
+
+/**
+ * The first-pass categorizer and the second-opinion one for this routing. Undefined when that
+ * feature is off. The redactor is created only when something goes to the cloud.
+ */
+export async function categorizersFor(
+  userId: string,
+  routing: AiRouting,
+  opts: { fetch?: Fetch; escalate?: boolean } = {},
+): Promise<{ first?: Categorizer; second?: Categorizer }> {
+  const cat = routing.features.categorize.route;
+  const esc = opts.escalate === false ? "off" : routing.features.escalation.route;
+  let redactor: Redactor | undefined;
+  const cloud = async (): Promise<Categorizer> => ({ llm: cloudCategorizeLLM({ redactor: (redactor ??= await redactorFor(userId)) }), provider: "anthropic", model: MODEL, batchSize: CLOUD_BATCH });
+  const first: Categorizer | undefined =
+    cat === "local" ? { llm: ollamaCategorizeLLM({ config: routing.local, fetch: opts.fetch }), provider: "ollama", model: routing.local.model }
+    : cat === "cloud" ? await cloud()
+    : undefined;
+  let second: Categorizer | undefined;
+  if (first && esc === "cloud") second = await cloud();
+  if (first && esc === "local") {
+    const config = { ...routing.local, model: localEscalationConfig().model };
+    second = { llm: ollamaCategorizeLLM({ config, fetch: opts.fetch }), provider: "ollama", model: config.model, batchSize: 1 };
+  }
+  return { first, second };
 }
 
 const lagosDay = (d: Date) => new Date(d.getTime() + 3600_000).toISOString().slice(0, 10);
@@ -219,8 +276,18 @@ export interface PreviewRow {
   narration: string;
   amount: string;
   current: string;
+  /** Who gave the answer shown. */
+  provider?: "ollama" | "anthropic";
+  escalated?: boolean;
   suggestion?: AiSuggestion;
   rejected?: string;
+}
+
+export interface ProviderCount {
+  /** Rows sent to this provider. */
+  rows: number;
+  /** Suggestions kept from this provider. */
+  suggested: number;
 }
 
 export interface SuggestResult {
@@ -229,14 +296,28 @@ export interface SuggestResult {
   suggested: number;
   rejected: number;
   remaining: number;
-  /** Set when the run stopped early because the model could not be reached. */
+  /** Rows sent to each side. An escalated row counts for both. */
+  local: ProviderCount;
+  cloud: ProviderCount;
+  /** Rows that got a second opinion. */
+  escalated: number;
+  /** Set when the run stopped early because no model could be reached. */
   stopped?: string;
+  /** Set when second opinions stopped (e.g. the cloud was unreachable); the run went on with local answers. */
+  escalationStopped?: string;
   preview: PreviewRow[];
 }
 
 export interface SuggestOptions {
   llm?: CategorizeLLM;
   config?: AiConfig;
+  /** First-pass model with its provider and model name (the CLI). Like llm, skips the consent check. */
+  categorizer?: Categorizer;
+  /** The second-opinion model. Resolved from routing when no llm is injected; false turns it off. */
+  escalate?: Categorizer | false;
+  /** Routing to use instead of this user's (the CLI passes the server's). */
+  routing?: AiRouting;
+  fetch?: Fetch;
   limit?: number;
   batchSize?: number;
   /** Ask the model and report, but store nothing. */
@@ -246,18 +327,70 @@ export interface SuggestOptions {
   onBatch?: (p: BatchProgress) => void;
 }
 
+/** A local answer below this confidence (though above MIN_CONFIDENCE) still gets a second opinion. */
+export const ESCALATE_BELOW = 0.75;
+
+/** Unsure, unusable or missing answers get a second opinion. Agreeing with the rules does not. */
+export function needsSecondOpinion(v: Verdict): boolean {
+  return v.ok ? v.suggestion.confidence < ESCALATE_BELOW : v.reason !== "same as the rules";
+}
+
+function verdictsFor(answers: unknown[], rows: { type: string; category: string; subcategory: string | null }[]): Verdict[] {
+  const byPosition = new Map<string, unknown>();
+  for (const a of answers) {
+    const id = a && typeof a === "object" ? String((a as { id?: unknown }).id ?? "") : "";
+    if (id && !byPosition.has(id)) byPosition.set(id, a);
+  }
+  return rows.map((t, k) => {
+    const raw = byPosition.get(String(k + 1));
+    return raw === undefined ? { ok: false, reason: "no answer" } : validateSuggestion(raw, t);
+  });
+}
+
+/** One model request, logged by provider (never content). Unreachable models throw; other errors are no answer. */
+async function ask(c: Categorizer, feature: "categorize" | "escalation", rows: AiRow[]): Promise<unknown[]> {
+  const started = Date.now();
+  try {
+    const out = await c.llm(rows);
+    logServed(feature, c.provider, c.model, "ok", { ms: Date.now() - started, rows: rows.length });
+    return out;
+  } catch (e) {
+    logServed(feature, c.provider, c.model, "failed", { ms: Date.now() - started, rows: rows.length });
+    if (e instanceof AiUnavailableError) throw e;
+    log.warn("ai.suggest_error", { feature, provider: c.provider, error: e instanceof Error ? e.name : "unknown" });
+    return [];
+  }
+}
+
 /**
  * Asks the model about up to `limit` backlog rows, in small batches, and stores each answer as a
- * suggestion. Safe to stop and re-run: answered rows leave the backlog. Never throws for an
- * unreachable model; it stops and says why. Requires the user's AI toggle unless an llm is injected.
+ * suggestion. With a second-opinion model (hybrid), rows the first model was unsure about, answered
+ * badly, or could not answer at all (Ollama down) are asked again there; the better valid answer is
+ * kept. Safe to stop and re-run: answered rows leave the backlog. Never throws for an unreachable
+ * model; it stops and says why. Requires the user's AI toggle unless an llm is injected.
  */
 export async function suggestCategories(userId: string, opts: SuggestOptions = {}): Promise<SuggestResult> {
-  const config = opts.config ?? aiConfig();
-  const empty = (stopped?: string, backlog = 0): SuggestResult => ({ backlog, asked: 0, suggested: 0, rejected: 0, remaining: backlog, stopped, preview: [] });
-  if (!opts.llm) {
-    if (config.provider === "off" || config.problem) return empty(config.problem ?? "AI is off on this server.");
+  const empty = (stopped?: string, backlog = 0): SuggestResult => ({
+    backlog, asked: 0, suggested: 0, rejected: 0, remaining: backlog, local: { rows: 0, suggested: 0 }, cloud: { rows: 0, suggested: 0 }, escalated: 0, stopped, preview: [],
+  });
+  let first: Categorizer | undefined;
+  let second: Categorizer | undefined = opts.escalate || undefined;
+  if (opts.categorizer) {
+    first = opts.categorizer;
+  } else if (opts.llm) {
+    const config = opts.config ?? aiConfig();
+    first = { llm: opts.llm, provider: config.provider === "anthropic" ? "anthropic" : "ollama", model: config.model };
+  } else {
+    const routing = opts.routing ?? (await routingFor(userId));
+    const cat = routing.features.categorize;
+    if (routing.problem || cat.route === "off") return empty(routing.problem ?? cat.note ?? "AI categorization is off.");
     if (!(await aiAllowed(userId))) return empty("AI is switched off for this account. Turn it on in Settings.");
+    const resolved = await categorizersFor(userId, routing, { fetch: opts.fetch, escalate: opts.escalate !== false });
+    first = resolved.first;
+    second = opts.escalate === false ? undefined : (opts.escalate || resolved.second);
+    if (!first) return empty(configFor(routing, cat.route).problem ?? "AI categorization is off.");
   }
+  const primary: Categorizer = first;
   const retryFailed = !!opts.retryFailed;
   const backlog = await backlogCount(userId, retryFailed);
   const rows = await db.transaction.findMany({
@@ -268,45 +401,71 @@ export async function suggestCategories(userId: string, opts: SuggestOptions = {
   });
   if (!rows.length) return empty(undefined, backlog);
 
-  let llm: CategorizeLLM;
-  try {
-    llm = opts.llm ?? llmFor(config);
-  } catch (e) {
-    return empty(e instanceof Error ? e.message : "AI unavailable", backlog);
-  }
-  const size = Math.max(1, opts.batchSize ?? (config.provider === "anthropic" ? CLOUD_BATCH : LOCAL_BATCH));
-  const result: SuggestResult = { backlog, asked: 0, suggested: 0, rejected: 0, remaining: backlog, preview: [] };
+  const size = Math.max(1, opts.batchSize ?? primary.batchSize ?? LOCAL_BATCH);
+  const result = empty(undefined, backlog);
+  const tally = (c: Categorizer) => (c.provider === "anthropic" ? result.cloud : result.local);
+  let firstDown: string | undefined;
 
   for (let i = 0; i < rows.length; i += size) {
     const batch = rows.slice(i, i + size);
     const aiRows = batch.map((t, k) => toAiRow(String(k + 1), t));
-    let answers: unknown[];
-    try {
-      answers = await llm(aiRows);
-    } catch (e) {
-      if (e instanceof AiUnavailableError) {
-        result.stopped = e.message;
+    let answers: unknown[] | undefined;
+    if (!firstDown) {
+      try {
+        answers = await ask(primary, "categorize", aiRows);
+        tally(primary).rows += batch.length;
+      } catch (e) {
+        firstDown = e instanceof Error ? e.message : "AI unavailable";
+      }
+    }
+    if (firstDown && (!second || result.escalationStopped)) {
+      result.stopped = [firstDown, result.escalationStopped].filter(Boolean).join(" ");
+      break;
+    }
+
+    const verdicts = answers ? verdictsFor(answers, batch) : batch.map((): Verdict => ({ ok: false, reason: "no answer" }));
+    const decided = verdicts.map((verdict) => ({ verdict, by: primary, escalated: false }));
+    const answered = batch.map(() => !!answers);
+    const pick = second && !result.escalationStopped ? batch.map((_, k) => k).filter((k) => !answers || needsSecondOpinion(verdicts[k])) : [];
+    const step = Math.max(1, second?.batchSize ?? CLOUD_BATCH);
+    for (let j = 0; second && j < pick.length; j += step) {
+      const ks = pick.slice(j, j + step);
+      let again: unknown[];
+      try {
+        again = await ask(second, "escalation", ks.map((k, n) => toAiRow(String(n + 1), batch[k])));
+      } catch (e) {
+        result.escalationStopped = e instanceof Error ? e.message : "Second opinion unavailable.";
         break;
       }
-      log.warn("ai.suggest_error", { error: e instanceof Error ? e.message : "unknown" });
-      answers = [];
+      tally(second).rows += ks.length;
+      result.escalated += ks.length;
+      const v2 = verdictsFor(again, ks.map((k) => batch[k]));
+      ks.forEach((k, n) => {
+        answered[k] = true;
+        if (v2[n].ok || !decided[k].verdict.ok) decided[k] = { verdict: v2[n], by: second!, escalated: true };
+      });
     }
-    const byPosition = new Map<string, unknown>();
-    for (const a of answers) {
-      const id = a && typeof a === "object" ? String((a as { id?: unknown }).id ?? "") : "";
-      if (id && !byPosition.has(id)) byPosition.set(id, a);
+    if (!answered.some(Boolean)) {
+      result.stopped = [firstDown, result.escalationStopped].filter(Boolean).join(" ") || "AI unavailable.";
+      break;
     }
+
     for (const [k, t] of batch.entries()) {
-      const raw = byPosition.get(String(k + 1));
-      const verdict: Verdict = raw === undefined ? { ok: false, reason: "no answer" } : validateSuggestion(raw, t);
-      if (verdict.ok) result.suggested++;
-      else result.rejected++;
+      if (!answered[k]) continue;
+      const { verdict, by, escalated } = decided[k];
+      result.asked++;
+      if (verdict.ok) {
+        result.suggested++;
+        tally(by).suggested++;
+      } else result.rejected++;
       if (opts.dryRun) {
         result.preview.push({
           transactionId: t.id,
           narration: aiRows[k].narration,
           amount: aiRows[k].amount,
           current: [t.category, t.subcategory].filter(Boolean).join(" / "),
+          provider: by.provider,
+          escalated,
           ...(verdict.ok ? { suggestion: verdict.suggestion } : { rejected: verdict.reason }),
         });
         continue;
@@ -316,15 +475,14 @@ export async function suggestCategories(userId: string, opts: SuggestOptions = {
         : { category: null, subcategory: null, reason: verdict.reason, confidence: null, status: "failed" };
       await db.categorySuggestion.upsert({
         where: { transactionId: t.id },
-        create: { userId, transactionId: t.id, classificationSource: "ai", provider: config.provider, model: config.model, ...data },
-        update: { provider: config.provider, model: config.model, decidedAt: null, ...data },
+        create: { userId, transactionId: t.id, classificationSource: "ai", provider: by.provider, model: by.model, ...data },
+        update: { provider: by.provider, model: by.model, decidedAt: null, ...data },
       });
     }
-    result.asked += batch.length;
     if (!opts.dryRun) result.remaining = Math.max(0, backlog - result.asked);
     opts.onBatch?.({ done: result.asked, total: rows.length, suggested: result.suggested, rejected: result.rejected });
   }
-  log.info("ai.suggested", { userId, provider: config.provider, asked: result.asked, suggested: result.suggested, stopped: !!result.stopped });
+  log.info("ai.suggested", { userId, asked: result.asked, suggested: result.suggested, local: result.local.rows, cloud: result.cloud.rows, escalated: result.escalated, stopped: !!result.stopped });
   return result;
 }
 

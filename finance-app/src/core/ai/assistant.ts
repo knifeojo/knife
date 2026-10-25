@@ -8,11 +8,17 @@ import {
 import { ALL_CATEGORIES, sameName } from "../categorize";
 import { parsePeriod } from "../ask/intent";
 import { buildProfile, profileText } from "../profile";
-import { FALLBACK, MODEL, anthropic, redactNarration } from "./client";
+import { FALLBACK, MODEL, localConfig, logServed, redactNarration, type AiConfig } from "./client";
+import { cloudCreate, type CreateMessage } from "./cloud";
+import { AiUnavailableError, ollamaPost, type Fetch, type OllamaMessage } from "./ollama";
+import { redactorFor, type Redactor } from "./redact";
 
-// The personal finance assistant. Claude decides WHAT to look up; these tools compute every number
-// from the user's ledger (scoped to the signed-in user). Claude is told to quote tool numbers only,
+// The personal finance assistant. The model decides WHAT to look up; these tools compute every number
+// from the user's ledger (scoped to the signed-in user). The model is told to quote tool numbers only,
 // and a guard rejects any answer containing a figure that no tool returned.
+// Cloud (askAssistant): the profile, history, question and every tool result pass through a Redactor
+// first (names to placeholders, identifiers masked, amounts rounded); the answer is restored locally.
+// Local (askAssistantLocal): the same tools and guard on Ollama, nothing redacted, nothing leaves.
 
 type Tool = Anthropic.Beta.BetaTool;
 type MessageParam = Anthropic.Beta.BetaMessageParam;
@@ -188,12 +194,14 @@ export function numbersNotFromTools(answer: string, toolText: string, question: 
 
 export interface AssistantTurn { role: "user" | "assistant"; text: string }
 export interface ToolCallLog { tool: string; input: unknown; output: unknown }
-export interface AssistantReply { text: string; toolCalls: ToolCallLog[]; grounded: boolean }
+export interface AssistantReply { text: string; toolCalls: ToolCallLog[]; grounded: boolean; provider?: "ollama" | "anthropic" }
 
-/** The model call, injectable so tests run without a network. */
-export type CreateMessage = (params: Anthropic.Beta.MessageCreateParamsNonStreaming) => Promise<Anthropic.Beta.BetaMessage>;
+export type { CreateMessage };
 
-const defaultCreate: CreateMessage = (params) => anthropic().beta.messages.create(params);
+const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
+
+const CLOUD_PRIVACY = `
+Privacy: names of people are placeholders (PERSON_1, PERSON_2…), the user is OWNER and the user's accounts are ACCOUNT_1, ACCOUNT_2…. Use the placeholders exactly as written, including in tool inputs; Ledger turns them back into names for the user. [ACCOUNT], [PHONE], [CARD], [EMAIL], [ID] and [NUMBER] mark removed details. Amounts are rounded to three significant figures: quote them as given.`;
 
 function systemPrompt(profile: string, now: Date) {
   return `You are Ledger, a personal finance assistant for one person in Nigeria. Today is ${now.toISOString().slice(0, 10)}.
@@ -208,39 +216,56 @@ export async function askAssistant(
   userId: string,
   question: string,
   history: AssistantTurn[] = [],
-  opts: { create?: CreateMessage; now?: Date; maxSteps?: number } = {},
+  opts: { create?: CreateMessage; now?: Date; maxSteps?: number; redactor?: Redactor } = {},
 ): Promise<AssistantReply> {
   const now = opts.now ?? new Date();
-  const create = opts.create ?? defaultCreate;
-  const system = systemPrompt(profileText(await buildProfile(userId, now)), now);
+  const create = opts.create ?? cloudCreate;
+  const r = opts.redactor ?? (await redactorFor(userId));
+  const system = systemPrompt(r.textRounded(profileText(await buildProfile(userId, now))), now) + CLOUD_PRIVACY;
+  const q = r.text(question);
   const messages: MessageParam[] = [
-    ...history.slice(-6).map((t) => ({ role: t.role, content: t.text }) as MessageParam),
-    { role: "user", content: question },
+    ...history.slice(-6).map((t) => ({ role: t.role, content: t.role === "user" ? r.text(t.text) : r.textRounded(t.text) }) as MessageParam),
+    { role: "user", content: q },
   ];
   const toolCalls: ToolCallLog[] = [];
+  const sent: unknown[] = [];
   let retriedForGrounding = false;
+  const started = Date.now();
+  const done = (reply: Omit<AssistantReply, "provider">): AssistantReply => {
+    logServed("chat", "anthropic", MODEL, reply.grounded ? "ok" : "rejected", { ms: Date.now() - started });
+    return { ...reply, text: r.restore(reply.text), provider: "anthropic" };
+  };
 
   for (let step = 0; step < (opts.maxSteps ?? 8); step++) {
-    const res = await create({
-      model: MODEL,
-      max_tokens: 16000,
-      ...FALLBACK,
-      output_config: { effort: "low" },
-      system,
-      tools: TOOLS,
-      messages,
-    });
-    if (res.stop_reason === "refusal") return { text: "I can't help with that one.", toolCalls, grounded: true };
+    let res: Anthropic.Beta.BetaMessage;
+    try {
+      res = await create({
+        model: MODEL,
+        max_tokens: 16000,
+        ...FALLBACK,
+        output_config: { effort: "low" },
+        system,
+        tools: TOOLS,
+        messages,
+      });
+    } catch (e) {
+      logServed("chat", "anthropic", MODEL, "failed", { ms: Date.now() - started });
+      throw e;
+    }
+    if (res.stop_reason === "refusal") return done({ text: "I can't help with that one.", toolCalls, grounded: true });
 
     const uses = res.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
     if (res.stop_reason === "tool_use" && uses.length) {
       messages.push({ role: "assistant", content: res.content });
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
       for (const u of uses) {
+        const input = r.restoreValue((u.input ?? {}) as Record<string, unknown>);
         try {
-          const output = await runTool(userId, u.name, (u.input ?? {}) as Record<string, unknown>, now);
-          toolCalls.push({ tool: u.name, input: u.input, output });
-          results.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(output, (_, v) => (typeof v === "bigint" ? v.toString() : v)) });
+          const output = await runTool(userId, u.name, input, now);
+          toolCalls.push({ tool: u.name, input, output });
+          const redacted = r.value(output);
+          sent.push(redacted);
+          results.push({ type: "tool_result", tool_use_id: u.id, content: json(redacted) });
         } catch (e) {
           log.warn("assistant.tool_error", { tool: u.name, error: e instanceof Error ? e.message : "unknown" });
           results.push({ type: "tool_result", tool_use_id: u.id, content: "Tool failed.", is_error: true });
@@ -251,9 +276,8 @@ export async function askAssistant(
     }
 
     const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim();
-    const toolText = JSON.stringify(toolCalls.map((t) => t.output), (_, v) => (typeof v === "bigint" ? v.toString() : v));
-    const stray = numbersNotFromTools(text, toolText, question);
-    if (!stray.length) return { text, toolCalls, grounded: true };
+    const stray = numbersNotFromTools(text, json(sent), q);
+    if (!stray.length) return done({ text, toolCalls, grounded: true });
     if (!retriedForGrounding) {
       retriedForGrounding = true;
       messages.push({ role: "assistant", content: res.content });
@@ -261,7 +285,77 @@ export async function askAssistant(
       continue;
     }
     log.warn("assistant.ungrounded", { userId, stray: stray.length });
-    return { text, toolCalls, grounded: false };
+    return done({ text, toolCalls, grounded: false });
   }
-  return { text: "That took too many steps. Try asking a more specific question.", toolCalls, grounded: true };
+  return done({ text: "That took too many steps. Try asking a more specific question.", toolCalls, grounded: true });
+}
+
+const OLLAMA_TOOLS = TOOLS.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+
+/** The same assistant on the local model through Ollama tool calls. Throws AiUnavailableError when Ollama cannot answer. */
+export async function askAssistantLocal(
+  userId: string,
+  question: string,
+  history: AssistantTurn[] = [],
+  opts: { config?: AiConfig; fetch?: Fetch; now?: Date; maxSteps?: number } = {},
+): Promise<AssistantReply> {
+  const now = opts.now ?? new Date();
+  const config = opts.config ?? localConfig();
+  const messages: OllamaMessage[] = [
+    { role: "system", content: systemPrompt(profileText(await buildProfile(userId, now)), now) },
+    ...history.slice(-6).map((t): OllamaMessage => ({ role: t.role, content: t.text })),
+    { role: "user", content: question },
+  ];
+  const toolCalls: ToolCallLog[] = [];
+  let retriedForGrounding = false;
+  const started = Date.now();
+  const done = (reply: Omit<AssistantReply, "provider">): AssistantReply => {
+    logServed("chat", "ollama", config.model, reply.grounded ? "ok" : "rejected", { ms: Date.now() - started });
+    return { ...reply, provider: "ollama" };
+  };
+
+  for (let step = 0; step < (opts.maxSteps ?? 6); step++) {
+    let msg: OllamaMessage | undefined;
+    try {
+      msg = await ollamaPost({ messages, tools: OLLAMA_TOOLS }, { config, fetch: opts.fetch });
+    } catch (e) {
+      logServed("chat", "ollama", config.model, "failed", { ms: Date.now() - started });
+      throw e;
+    }
+    if (!msg) throw new AiUnavailableError("The local model gave no answer.");
+    const calls = msg.tool_calls ?? [];
+    if (calls.length) {
+      messages.push({ role: "assistant", content: msg.content ?? "", tool_calls: calls });
+      for (const c of calls) {
+        const name = c.function?.name ?? "";
+        let input: Record<string, unknown> = {};
+        try {
+          input = typeof c.function?.arguments === "string" ? JSON.parse(c.function.arguments) : (c.function?.arguments ?? {});
+        } catch {
+          input = {};
+        }
+        try {
+          const output = await runTool(userId, name, input, now);
+          toolCalls.push({ tool: name, input, output });
+          messages.push({ role: "tool", tool_name: name, content: json(output) });
+        } catch (e) {
+          log.warn("assistant.tool_error", { tool: name, error: e instanceof Error ? e.message : "unknown" });
+          messages.push({ role: "tool", tool_name: name, content: "Tool failed." });
+        }
+      }
+      continue;
+    }
+    const text = (msg.content ?? "").trim();
+    const stray = numbersNotFromTools(text, json(toolCalls.map((t) => t.output)), question);
+    if (!stray.length) return done({ text, toolCalls, grounded: true });
+    if (!retriedForGrounding) {
+      retriedForGrounding = true;
+      messages.push({ role: "assistant", content: msg.content ?? "" });
+      messages.push({ role: "user", content: `These figures in your answer did not come from a tool result: ${stray.join(", ")}. Answer again using only figures returned by tools.` });
+      continue;
+    }
+    log.warn("assistant.ungrounded", { userId, stray: stray.length });
+    return done({ text, toolCalls, grounded: false });
+  }
+  return done({ text: "That took too many steps. Try asking a more specific question.", toolCalls, grounded: true });
 }

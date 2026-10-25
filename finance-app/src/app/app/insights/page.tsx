@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { SUGGESTED_QUESTIONS } from "@/core/ask/answer";
-import { cloudAiAllowed } from "@/core/ai/client";
+import { featureRoute } from "@/core/ai/client";
 import { PageHeader } from "@/components/ui";
 import { AskBox } from "./ask-box";
 
@@ -15,11 +15,12 @@ const AI_SUGGESTIONS = [
 
 export default async function Insights() {
   const user = await requireUser();
-  const aiOn = await cloudAiAllowed(user.id);
+  const [chat, insights] = await Promise.all([featureRoute(user.id, "chat"), featureRoute(user.id, "insights")]);
+  const aiOn = chat !== "off";
   return (
     <div className="max-w-3xl">
       <PageHeader title="Insights" subtitle="Ask about your money in plain English. Every figure comes from your ledger." />
-      <AskBox suggestions={aiOn ? AI_SUGGESTIONS : SUGGESTED_QUESTIONS} aiOn={aiOn} />
+      <AskBox suggestions={aiOn ? AI_SUGGESTIONS : SUGGESTED_QUESTIONS} aiOn={aiOn} chat={chat} insights={insights} />
     </div>
   );
 }

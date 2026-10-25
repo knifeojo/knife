@@ -10,15 +10,16 @@ import { ALL_CATEGORIES } from "@/core/categorize";
 import { NotFoundError, monthPeriod, recategorize } from "@/core/analytics";
 import { reapplyCategories, reapplyMessage, syncEmailSource } from "@/core/ledger";
 import { QUESTION_KINDS, answerQuestion, askAgain, type QuestionKind } from "@/core/review";
-import { aiAllowed, aiConfig, cloudAiAllowed } from "@/core/ai/client";
-import { aiClassifier, suggestCategories, suggestInBackground } from "@/core/ai/categorizer";
+import { AI_FEATURES, aiAllowed, configFor, parseRoute, routingFor, setUserPrefs, type AiPrefs } from "@/core/ai/client";
+import { aiClassifier, llmFor, suggestCategories, suggestInBackground } from "@/core/ai/categorizer";
 import { SuggestionNotFoundError, confirmSuggestion, dismissSuggestion } from "@/core/ai/suggestions";
-import { askAssistant, type AssistantTurn, type ToolCallLog } from "@/core/ai/assistant";
+import type { AssistantTurn, ToolCallLog } from "@/core/ai/assistant";
+import { chatForUser, phraseForUser } from "@/core/ai/router";
+import { redactorFor } from "@/core/ai/redact";
 import { rulesClassifier, scoreUser } from "@/core/eval";
 import { FixtureEmailSource } from "@/core/providers/fixture";
 import { GmailEmailSource, revokeToken } from "@/core/providers/gmail";
 import { ask } from "@/core/ask/answer";
-import { phraseAnswer } from "@/core/ask/llm";
 import type { Facts } from "@/core/ask/answer";
 import { applyNoteLabel, matchNotes, monthFromHeading, parseNotes, type NoteMatch } from "@/core/notes";
 import { specificMonth } from "@/core/analytics";
@@ -99,7 +100,7 @@ export async function askAction(_: AskState, form: FormData): Promise<AskState> 
   const question = String(form.get("q") ?? "").trim().slice(0, 300);
   if (!question) return { error: "Type a question first." };
   const { facts } = await ask(user.id, question);
-  const phrased = (await cloudAiAllowed(user.id)) ? await phraseAnswer(question, facts) : { text: facts.headline, source: "template" as const };
+  const phrased = await phraseForUser(user.id, question, facts);
   return { question, answer: phrased.text, answerSource: phrased.source, facts };
 }
 
@@ -182,17 +183,34 @@ export async function setAiConsentAction(form: FormData) {
   revalidatePath("/app", "layout");
 }
 
+/** Settings: Local / Cloud / Off (or "default") for each AI feature. */
+export async function setAiRoutesAction(form: FormData) {
+  const user = await requireUser();
+  if (user.isDemo) return;
+  const prefs: AiPrefs = {};
+  for (const f of AI_FEATURES) {
+    const v = form.get(f);
+    if (v === null) continue;
+    prefs[f] = v === "default" ? null : (parseRoute(v) ?? null);
+  }
+  await setUserPrefs(user.id, prefs);
+  revalidatePath("/app", "layout");
+}
+
 export async function runAiCategorizeAction(): Promise<SyncState> {
   const user = await requireUser();
-  const config = aiConfig();
-  if (config.provider === "off" || config.problem) return { error: config.problem ?? "AI is off on this server." };
+  const routing = await routingFor(user.id);
+  const cat = routing.features.categorize;
+  if (routing.problem || cat.route === "off") return { error: routing.problem ?? cat.note ?? "AI categorization is off." };
   if (!(await aiAllowed(user.id))) return { error: "Turn on AI in Settings first." };
-  const r = await suggestCategories(user.id, { limit: 40 });
+  const r = await suggestCategories(user.id, { limit: 40, routing });
   revalidatePath("/app", "layout");
   if (r.stopped && !r.asked) return { error: r.stopped };
   const more = r.remaining ? ` ${r.remaining} still to look at: run again, or use npm run ai:suggest for the whole backlog.` : "";
   const stop = r.stopped ? ` Stopped early: ${r.stopped}` : "";
-  return { ok: r.asked ? `AI looked at ${r.asked} uncertain transactions and has ${r.suggested} suggestions waiting in Review. Nothing changes until you confirm.${more}${stop}` : "Nothing uncertain left for the AI to look at." };
+  const split = r.cloud.rows ? ` Local model: ${r.local.rows} rows; cloud model: ${r.cloud.rows} rows${r.escalated ? ` (${r.escalated} second opinions)` : ""}.` : "";
+  const escStop = r.escalationStopped ? ` Second opinions stopped: ${r.escalationStopped}` : "";
+  return { ok: r.asked ? `AI looked at ${r.asked} uncertain transactions and has ${r.suggested} suggestions waiting in Review. Nothing changes until you confirm.${split}${more}${stop}${escStop}` : "Nothing uncertain left for the AI to look at." };
 }
 
 export async function confirmSuggestionAction(form: FormData) {
@@ -219,8 +237,11 @@ export async function measureAccuracyAction(): Promise<SyncState> {
   const user = await requireUser();
   const rules = await scoreUser(user.id, rulesClassifier, "rules");
   let msg = `Rules alone: ${(rules.accuracy * 100).toFixed(0)}% of your ${rules.labelled} answered transactions (${(rules.valueAccuracy * 100).toFixed(0)}% by value).`;
-  if (await aiAllowed(user.id)) {
-    const ai = await scoreUser(user.id, aiClassifier(user.id, rulesClassifier), "rules+ai");
+  const routing = await routingFor(user.id);
+  const config = configFor(routing, routing.features.categorize.route);
+  if (config.provider !== "off" && (await aiAllowed(user.id))) {
+    const llm = llmFor(config, config.provider === "anthropic" ? { redactor: await redactorFor(user.id) } : {});
+    const ai = await scoreUser(user.id, aiClassifier(user.id, rulesClassifier, llm), "rules+ai");
     msg += ` Rules + AI: ${(ai.accuracy * 100).toFixed(0)}% (${(ai.valueAccuracy * 100).toFixed(0)}% by value).`;
   }
   revalidatePath("/app/settings");
@@ -228,8 +249,8 @@ export async function measureAccuracyAction(): Promise<SyncState> {
 }
 
 export type ChatResult =
-  | { mode: "ai"; text: string; grounded: boolean; toolCalls: ToolCallLog[] }
-  | { mode: "rules"; text: string; facts: Facts }
+  | { mode: "ai"; text: string; grounded: boolean; toolCalls: ToolCallLog[]; provider?: "ollama" | "anthropic" }
+  | { mode: "rules"; text: string; facts: Facts; phrasedBy?: "ollama" | "anthropic" }
   | { error: string };
 
 /** One chat turn. Uses the AI assistant when allowed, else the deterministic question answering. */
@@ -237,14 +258,8 @@ export async function chatAction(question: string, history: AssistantTurn[]): Pr
   const user = await requireUser();
   const q = question.trim().slice(0, 400);
   if (!q) return { error: "Type a question first." };
-  if (await cloudAiAllowed(user.id)) {
-    try {
-      const r = await askAssistant(user.id, q, history.slice(-6).map((t) => ({ role: t.role, text: String(t.text).slice(0, 2000) })));
-      return plain({ mode: "ai" as const, ...r });
-    } catch (e) {
-      log.warn("chat.ai_failed", { error: e instanceof Error ? e.message : "unknown" });
-    }
-  }
+  const reply = await chatForUser(user.id, q, history.slice(-6).map((t) => ({ role: t.role, text: String(t.text).slice(0, 2000) })));
+  if (reply) return plain({ mode: "ai" as const, ...reply });
   // If the current month has no data yet (e.g. statement imported on the 1st), answer for the latest month that does.
   const now = new Date();
   const latest = await db.transaction.findFirst({ where: { userId: user.id }, orderBy: { transactionDate: "desc" }, select: { transactionDate: true } });
@@ -253,7 +268,8 @@ export async function chatAction(question: string, history: AssistantTurn[]): Pr
   const asOf = stale ? latest!.transactionDate : now;
   const { facts } = await ask(user.id, q, asOf);
   const note = stale ? `No transactions imported for ${current.label} yet, so here is ${monthPeriod(asOf, 0).label}. ` : "";
-  return plain({ mode: "rules" as const, text: note + facts.headline, facts });
+  const phrased = await phraseForUser(user.id, q, facts);
+  return plain({ mode: "rules" as const, text: note + phrased.text, facts, phrasedBy: phrased.provider });
 }
 
 export async function dismissImportResultsAction() {

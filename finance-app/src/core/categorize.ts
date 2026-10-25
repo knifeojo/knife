@@ -415,7 +415,7 @@ export function isSelf(counterparty: string | undefined, owners: string[]): bool
   });
 }
 
-const COMPANY = /\b(ltd|limited|inc|plc|llc|corp|corporation|company|enterprises?|ventures|technologies|tech|services|global|group|holdings|nig(eria)?|payments?|solutions)\b/i;
+export const COMPANY = /\b(ltd|limited|inc|plc|llc|corp|corporation|company|enterprises?|ventures|technologies|tech|services|global|group|holdings|nig(eria)?|payments?|solutions)\b/i;
 
 export interface UserRule {
   pattern: string;
