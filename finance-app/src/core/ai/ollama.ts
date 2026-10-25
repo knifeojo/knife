@@ -1,11 +1,11 @@
 import { aiConfig, isLocalUrl, type AiConfig } from "./client";
 
-// Minimal Ollama HTTP client: POST /api/chat with a JSON schema for structured output, and
+// Minimal Ollama HTTP client: POST /api/chat (JSON-schema structured output, or tool calls), and
 // GET /api/tags for status. fetch is injectable so tests never touch the network.
 
 export type Fetch = typeof fetch;
 
-/** Ollama is not running, the model is not pulled, or it timed out. Callers stop and carry on without AI. */
+/** A model is not running, not pulled, timed out, or the cloud refused. Callers stop or fall back. */
 export class AiUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -28,15 +28,21 @@ function guard(config: AiConfig): string {
   return config.baseUrl;
 }
 
-export interface OllamaChatRequest {
-  system: string;
-  user: string;
-  /** JSON schema the reply must follow (Ollama structured outputs). */
-  schema: object;
+export interface OllamaOptions {
+  config?: AiConfig;
+  fetch?: Fetch;
+  timeoutMs?: number;
 }
 
-/** One non-streaming chat turn. Returns the parsed JSON reply, or undefined when the model did not return JSON. */
-export async function ollamaChat(req: OllamaChatRequest, opts: { config?: AiConfig; fetch?: Fetch; timeoutMs?: number } = {}): Promise<unknown> {
+export interface OllamaMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_calls?: { function: { name: string; arguments: Record<string, unknown> | string } }[];
+  tool_name?: string;
+}
+
+/** One non-streaming /api/chat request. Returns the reply message. */
+export async function ollamaPost(body: Record<string, unknown>, opts: OllamaOptions = {}): Promise<OllamaMessage | undefined> {
   const config = opts.config ?? aiConfig();
   const baseUrl = guard(config);
   const f = opts.fetch ?? fetch;
@@ -45,17 +51,7 @@ export async function ollamaChat(req: OllamaChatRequest, opts: { config?: AiConf
     res = await f(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: config.model,
-        stream: false,
-        format: req.schema,
-        keep_alive: "10m",
-        options: { temperature: 0 },
-        messages: [
-          { role: "system", content: req.system },
-          { role: "user", content: req.user },
-        ],
-      }),
+      body: JSON.stringify({ model: config.model, stream: false, keep_alive: "10m", options: { temperature: 0 }, ...body }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? CHAT_TIMEOUT_MS),
     });
   } catch (e) {
@@ -68,8 +64,30 @@ export async function ollamaChat(req: OllamaChatRequest, opts: { config?: AiConf
     throw new AiUnavailableError(`The model "${config.model}" is not installed. Run: ollama pull ${config.model}`);
   }
   if (!res.ok) throw new AiUnavailableError(`Ollama returned an error (${res.status}).`);
-  const body = (await res.json().catch(() => undefined)) as { message?: { content?: unknown } } | undefined;
-  const content = body?.message?.content;
+  const json = (await res.json().catch(() => undefined)) as { message?: OllamaMessage } | undefined;
+  return json?.message;
+}
+
+export interface OllamaChatRequest {
+  system: string;
+  user: string;
+  /** JSON schema the reply must follow (Ollama structured outputs). */
+  schema: object;
+}
+
+/** One structured chat turn. Returns the parsed JSON reply, or undefined when the model did not return JSON. */
+export async function ollamaChat(req: OllamaChatRequest, opts: OllamaOptions = {}): Promise<unknown> {
+  const message = await ollamaPost(
+    {
+      format: req.schema,
+      messages: [
+        { role: "system", content: req.system },
+        { role: "user", content: req.user },
+      ],
+    },
+    opts,
+  );
+  const content = message?.content;
   if (typeof content !== "string") return undefined;
   try {
     return JSON.parse(content);
@@ -88,13 +106,13 @@ export interface AiStatus {
   message: string;
 }
 
-/** Whether the configured provider can answer right now. Never throws. */
+/** Whether Ollama can answer right now. Never throws. Cloud status lives in ./cloud.ts. */
 export async function aiStatus(opts: { config?: AiConfig; fetch?: Fetch } = {}): Promise<AiStatus> {
   const config = opts.config ?? aiConfig();
   const base = { provider: config.provider, model: config.model, baseUrl: config.baseUrl, cloud: config.cloud };
   if (config.problem) return { ...base, reachable: false, modelInstalled: false, message: config.problem };
   if (config.provider === "anthropic") {
-    return { ...base, reachable: true, modelInstalled: true, message: "Cloud provider (Anthropic) set explicitly with AI_PROVIDER. Transaction details leave this machine." };
+    return { ...base, reachable: true, modelInstalled: true, message: "Cloud provider (Anthropic). Requests are redacted before they leave this machine." };
   }
   const f = opts.fetch ?? fetch;
   try {
