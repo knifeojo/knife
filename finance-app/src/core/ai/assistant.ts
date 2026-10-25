@@ -201,7 +201,7 @@ export type { CreateMessage };
 const json = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
 
 const CLOUD_PRIVACY = `
-Privacy: names of people are placeholders (PERSON_1, PERSON_2…) and the user is OWNER. Use the placeholders exactly as written, including in tool inputs; Ledger turns them back into names for the user. [ACCOUNT], [PHONE], [CARD], [EMAIL], [ID] and [NUMBER] mark removed details. Amounts are rounded to three significant figures: quote them as given.`;
+Privacy: names of people are placeholders (PERSON_1, PERSON_2…), the user is OWNER and the user's accounts are ACCOUNT_1, ACCOUNT_2…. Use the placeholders exactly as written, including in tool inputs; Ledger turns them back into names for the user. [ACCOUNT], [PHONE], [CARD], [EMAIL], [ID] and [NUMBER] mark removed details. Amounts are rounded to three significant figures: quote them as given.`;
 
 function systemPrompt(profile: string, now: Date) {
   return `You are Ledger, a personal finance assistant for one person in Nigeria. Today is ${now.toISOString().slice(0, 10)}.

@@ -185,7 +185,9 @@ export function aiRouting(env: Env = process.env, prefs: AiPrefs = {}): AiRoutin
   }
   // A second opinion only makes sense for a local first pass.
   const esc = features.escalation;
-  if (esc.route !== "off" && features.categorize.route !== "local") {
+  if (features.categorize.route === "cloud" && !esc.note) {
+    features.escalation = { ...esc, route: "off", note: "Categorize already runs on the cloud model." };
+  } else if (esc.route !== "off" && features.categorize.route !== "local") {
     features.escalation = { ...esc, route: "off", note: features.categorize.route === "cloud" ? "Categorize already runs on the cloud model." : "Categorize is off." };
   }
   if (mode !== "off" && !keySet && mode !== "ollama" && AI_FEATURES.some((f) => features[f].requested === "cloud")) {
@@ -257,11 +259,6 @@ export async function setUserPrefs(userId: string, prefs: AiPrefs): Promise<void
     data[PREF_FIELDS[f]] = prefs[f] ?? null;
   }
   if (Object.keys(data).length) await db.user.update({ where: { id: userId }, data });
-}
-
-/** True when the Insights chat runs on the cloud model for this user. */
-export async function cloudAiAllowed(userId: string): Promise<boolean> {
-  return (await featureRoute(userId, "chat")) === "cloud";
 }
 
 let client: Anthropic | undefined;

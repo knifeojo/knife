@@ -57,13 +57,11 @@ export function maskIdentifiers(s: string): string {
 /** Three significant figures in whole units: 198361100n (₦1,983,611.00) -> 198000000n (₦1,980,000). */
 export function roundMinor(minor: bigint): bigint {
   const neg = minor < 0n;
-  let units = ((neg ? -minor : minor) + 50n) / 100n;
-  const digits = units.toString().length;
-  if (digits > 3) {
-    const f = 10n ** BigInt(digits - 3);
-    units = ((units + f / 2n) / f) * f;
-  }
-  return (neg ? -units : units) * 100n;
+  const abs = neg ? -minor : minor;
+  const digits = (abs / 100n).toString().length;
+  const f = digits > 3 ? 10n ** BigInt(digits - 3) * 100n : 100n;
+  const rounded = ((abs + f / 2n) / f) * f;
+  return neg ? -rounded : rounded;
 }
 
 export function roundedMoney(minor: bigint, currency = "NGN"): string {
@@ -132,17 +130,24 @@ export interface RedactorSeed {
   owners?: string[];
   /** Names that may be people (payees, senders, labelled names). Businesses are ignored. */
   people?: string[];
+  /** The owner's own account labels ("Ada Main Salary Account"). Sent as ACCOUNT_1, ACCOUNT_2… */
+  accounts?: string[];
 }
 
 export class Redactor {
   private people: Person[] = [];
   private byPlaceholder = new Map<string, Person>();
   private next = 1;
+  private accounts = new Map<string, { label: string; placeholder: string }>();
+  private nextAccount = 1;
+  private accountsByPlaceholder = new Map<string, string>();
   private matcher?: { full: RegExp; fullMap: Map<string, Person>; token?: RegExp; tokenMap: Map<string, Person> };
 
   constructor(seed: RedactorSeed = {}) {
     for (const o of seed.owners ?? []) this.add(o, true);
     for (const p of seed.people ?? []) this.add(p);
+    const labels = [...new Set((seed.accounts ?? []).map((a) => a.trim()).filter((a) => a.length >= 3))].sort((a, b) => b.length - a.length);
+    labels.forEach((label) => this.accounts.set(label.toUpperCase(), { label, placeholder: "" }));
   }
 
   /** Registers a name. Owners always; others only when they look like a person. */
@@ -220,7 +225,19 @@ export class Redactor {
   /** Identifiers masked and names replaced by placeholders. Amounts are left as they are. */
   text(s: string): string {
     const m = this.matcher ?? this.build();
-    let out = maskIdentifiers(s);
+    let out = s;
+    if (this.accounts.size) {
+      const alts = [...this.accounts.values()].map((a) => a.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      out = out.replace(new RegExp(`(?<![A-Za-z0-9])(?:${alts.join("|")})(?![A-Za-z0-9])`, "gi"), (hit) => {
+        const a = this.accounts.get(hit.toUpperCase())!;
+        if (!a.placeholder) {
+          a.placeholder = `ACCOUNT_${this.nextAccount++}`;
+          this.accountsByPlaceholder.set(a.placeholder, a.label);
+        }
+        return a.placeholder;
+      });
+    }
+    out = maskIdentifiers(out);
     out = out.replace(m.full, (hit) => {
       const p = m.fullMap.get(hit.toUpperCase().replace(/[^A-Z]/g, ""));
       return p ? this.placeholderFor(p) : hit;
@@ -253,7 +270,9 @@ export class Redactor {
 
   /** Placeholders back to the names they stand for. Runs locally on the model's answer. */
   restore(s: string): string {
-    return s.replace(/\b(OWNER|PERSON_\d+)\b/g, (ph) => this.byPlaceholder.get(ph)?.display ?? ph);
+    return s
+      .replace(/\bACCOUNT_\d+\b/g, (ph) => this.accountsByPlaceholder.get(ph) ?? ph)
+      .replace(/\b(OWNER|PERSON_\d+)\b/g, (ph) => this.byPlaceholder.get(ph)?.display ?? ph);
   }
 
   /** restore() on every string in a value (tool inputs the model sends back). */
@@ -269,7 +288,7 @@ export class Redactor {
 
   /** The placeholder map, for tests and audit. Never sent anywhere. */
   placeholders(): Record<string, string> {
-    return Object.fromEntries([...this.byPlaceholder.entries()].map(([k, p]) => [k, p.display]));
+    return { ...Object.fromEntries([...this.byPlaceholder.entries()].map(([k, p]) => [k, p.display])), ...Object.fromEntries(this.accountsByPlaceholder) };
   }
 }
 
@@ -277,11 +296,12 @@ export class Redactor {
 export async function redactorFor(userId: string): Promise<Redactor> {
   const [user, accounts, txs, aliases] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { name: true } }),
-    db.account.findMany({ where: { userId }, select: { holderName: true } }),
+    db.account.findMany({ where: { userId }, select: { holderName: true, accountName: true } }),
     db.transaction.findMany({ where: { userId }, select: { counterparty: true, merchantName: true }, distinct: ["counterparty", "merchantName"] }),
     db.merchantAlias.findMany({ where: { userId }, select: { canonicalName: true } }),
   ]);
   const owners = [user?.name, ...accounts.map((a) => a.holderName)].filter((x): x is string => !!x);
   const people = [...txs.flatMap((t) => [t.counterparty, t.merchantName]), ...aliases.map((a) => a.canonicalName)].filter((x): x is string => !!x);
-  return new Redactor({ owners, people: [...new Set(people)] });
+  const labels = accounts.map((a) => a.accountName).filter((x): x is string => !!x);
+  return new Redactor({ owners, people: [...new Set(people)], accounts: labels });
 }

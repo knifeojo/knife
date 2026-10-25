@@ -17,7 +17,9 @@ const TOOL_LABELS: Record<string, string> = {
   profile: "What Ledger knows about you",
 };
 
-export function AskBox({ suggestions, aiOn }: { suggestions: string[]; aiOn: boolean }) {
+type Route = "local" | "cloud" | "off";
+
+export function AskBox({ suggestions, aiOn, chat = aiOn ? "cloud" : "off", insights = "off" }: { suggestions: string[]; aiOn: boolean; chat?: Route; insights?: Route }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [pending, start] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +59,9 @@ export function AskBox({ suggestions, aiOn }: { suggestions: string[]; aiOn: boo
                 <p className="text-[15px] leading-relaxed whitespace-pre-line">{t.text}</p>
                 {t.result && "mode" in t.result && t.result.mode === "ai" && (
                   <>
+                    {t.result.provider === "anthropic" && (
+                      <p className="text-xs text-ink-3">Answered by the cloud model from redacted data, so figures are rounded. Exact figures are in the lookups below.</p>
+                    )}
                     {!t.result.grounded && (
                       <p className="text-xs rounded-lg bg-warn-bg text-warn-ink px-2 py-1">Some figures here could not be traced to your ledger. Double-check them on the Transactions page.</p>
                     )}
@@ -110,8 +115,8 @@ export function AskBox({ suggestions, aiOn }: { suggestions: string[]; aiOn: boo
       </form>
       <p className="text-xs text-ink-3">
         {aiOn
-          ? "AI assistant on. It looks things up in your ledger; every figure comes from your data, never from the AI's memory."
-          : "Answering with built-in rules. Turn on AI in Settings for free-form questions and follow-ups."}
+          ? `AI assistant on (${chat === "cloud" ? "cloud model; names, account numbers and contact details are removed and amounts rounded before anything is sent" : "local model on this machine; nothing leaves it"}). It looks things up in your ledger; every figure comes from your data, never from the AI's memory.`
+          : `Answering with built-in rules${insights !== "off" ? `, phrased by the ${insights === "cloud" ? "cloud" : "local"} model` : ""}. Turn on AI in Settings for free-form questions and follow-ups.`}
       </p>
     </div>
   );
