@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { db } from "@/lib/db";
 import { issueSession } from "@/lib/auth";
 import { importStatement } from "@/core/statement-import";
@@ -11,6 +11,16 @@ import { POST as afford } from "@/app/api/v1/affordability/route";
 // Synthetic figures only. ₦ amounts are converted to kobo with BigInt.
 const N = (naira: number) => BigInt(naira) * 100n;
 const NOW = new Date("2026-10-15T09:00:00Z"); // 10:00 in Lagos; the month ends 31 Oct 23:00 UTC
+
+/** The API routes read the clock and these fixtures have fixed dates, so tests that call them pin it. Only Date is faked. */
+function pinClock(now: Date) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
+}
+
 const MONTH_END = { kind: "month_end" } as const;
 
 const month = (label: string, income: number, spending: number, loans = 0, categories: CategorySpend[] = []): MonthFigures => ({
@@ -460,6 +470,7 @@ describe("POST /api/v1/affordability", () => {
   });
 
   it("returns a verdict with every amount as a minor-unit string", async () => {
+    pinClock(NOW);
     const user = await db.user.create({ data: { email: "afford-api-data@test.dev" } });
     await importStatement(user.id, { name: "synthetic.csv", bytes: Buffer.from(STATEMENT) });
     const { token } = await issueSession(user.id);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { db } from "@/lib/db";
 import { issueSession } from "@/lib/auth";
 import { importStatement } from "@/core/statement-import";
@@ -13,6 +13,16 @@ import { POST as afford } from "@/app/api/v1/affordability/route";
 // Synthetic figures only.
 const N = (naira: number) => BigInt(naira) * 100n;
 const NOW = new Date("2026-10-15T09:00:00Z");
+
+/** The API routes read the clock and these fixtures have fixed dates, so tests that call them pin it. Only Date is faked. */
+function pinClock(now: Date) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
+}
+
 const D = (day: string) => new Date(`${day}T00:00:00Z`);
 const MONTH_END = { kind: "month_end" } as const;
 const NEXT_90 = { kind: "days", days: 90 } as const;
@@ -300,21 +310,22 @@ describe("/api/v1/loans", () => {
   });
 
   it("affordability keeps every field older clients read, and adds the loan beside them", async () => {
+    // On 15 Oct the salary expected on 25 Oct has not come in yet, so paying ₦3m now leaves the account short.
+    // Against the real clock the answer turned to yes once today passed that payday.
+    pinClock(NOW);
     const user = await db.user.create({ data: { email: "loans-afford@test.dev" } });
     await importStatement(user.id, { name: "synthetic.csv", bytes: Buffer.from(statement()) });
-    // The route checks against today, so the loan's dates follow today too.
-    const next = D(new Date(Date.now() + 5 * 86400_000).toISOString().slice(0, 10));
-    const end = addMonths(next, 1);
-    await createLoan(user.id, { lender: "Renmoney", outstandingMinor: N(250_000), instalmentMinor: N(100_000), instalmentsPaid: 4, instalmentsTotal: 6, nextDueDate: next, endDate: end, notes: null }, new Date());
+    const end = addMonths(D("2026-10-20"), 1);
+    await createLoan(user.id, { lender: "Renmoney", outstandingMinor: N(250_000), instalmentMinor: N(100_000), instalmentsPaid: 4, instalmentsTotal: 6, nextDueDate: D("2026-10-20"), endDate: end, notes: null }, NOW);
     const { token } = await issueSession(user.id);
     const body = await (await afford(req("POST", "/api/v1/affordability", token, { amountMinor: "300000000", horizon: "month_end" }))).json();
-    expect(body.verdict).not.toBe("yes");
+    expect(body.verdict).toBe("no");
     const debt = body.advice.find((a: { kind: string }) => a.kind === "debt");
     // The shape an older client parses: kind, text, subject, and minor-unit strings. `loan` is the only addition.
     expect(Object.keys(debt).sort()).toEqual(["kind", "loan", "monthlyMinor", "openMinor", "subject", "text"]);
     expect(debt).toMatchObject({ kind: "debt", subject: "Renmoney", monthlyMinor: "10000000", openMinor: "25000000" });
-    expect(debt.text).toMatch(/^Clear Renmoney: ₦250k left, last payment \d{1,2} [A-Z][a-z]{2}\. 2 of 6 instalments to go\./);
-    expect(debt.loan).toMatchObject({ outstandingMinor: "25000000", endsOn: end.toISOString(), instalmentsLeft: 2, repaymentsSince: 0, repaidSinceMinor: "0" });
+    expect(debt.text).toMatch(/^Clear Renmoney: ₦250k left, last payment 20 Nov\. 2 of 6 instalments to go\./);
+    expect(debt.loan).toMatchObject({ outstandingMinor: "25000000", endsOn: "2026-11-20T00:00:00.000Z", instalmentsLeft: 2, repaymentsSince: 0, repaidSinceMinor: "0" });
     for (const o of body.inputs.obligations) {
       expect(o).toMatchObject({ name: expect.any(String), category: expect.any(String), monthlyMinor: expect.stringMatching(/^\d+$/), dueInWindowMinor: expect.stringMatching(/^\d+$/), kind: "recurring" });
     }
