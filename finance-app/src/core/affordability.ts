@@ -127,6 +127,21 @@ export interface ObligationLine {
   endsOn?: Date | null;
 }
 
+/**
+ * Money for family (spouse, children, parents, black tax) by Family subcategory. Shown so the owner
+ * sees it as an obligation; it never feeds a cut. Informational: the projection uses `obligations`.
+ */
+export interface FamilyObligationLine {
+  /** The Family subcategory ("Spouse", "Black tax"), or "Family" when it has none. */
+  label: string;
+  /** Average per month over the months behind the typical month. */
+  monthlyMinor: bigint;
+  /** Months (of those) with at least one payment. */
+  months: number;
+  /** True when it is also a regular payment counted in the projection. */
+  recurring: boolean;
+}
+
 export interface OneOffLine {
   name: string;
   category: string;
@@ -179,6 +194,8 @@ export interface AffordabilityResult {
     incomeMonths: string[];
     monthlyObligationsMinor: bigint;
     obligations: ObligationLine[];
+    /** Family support by kind. Treated as an obligation, never as spending to cut. */
+    familyObligations: FamilyObligationLine[];
     /** Loan repayments seen recently that do not follow a monthly pattern (weekly app repayments, say). */
     otherLoanRepaymentsMinor: bigint;
     monthlyEverydayMinor: bigint;
@@ -541,6 +558,7 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
   const oneOffMin = oneOffMinimum(monthlyIncome);
   const oneOffs = data.oneOffs.filter((o) => o.amountMinor >= oneOffMin).sort((a, b) => (b.amountMinor > a.amountMinor ? 1 : b.amountMinor < a.amountMinor ? -1 : 0));
   const lookback = full.length ? full.slice(0, LOOKBACK_MONTHS) : partial ? [partial] : [];
+  const familyObligations = familyLines(lookback, obligations);
   const advice = buildAdvice({
     verdict, data, start, now, lastDay, buffer, gap: buffer - lowest, surplus: monthlySurplus, monthsToSave,
     lookback, partialOnly: !full.length, scale, oneOffs, maxCut: monthlyEveryday, loans: plan,
@@ -553,7 +571,7 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
     inputs: {
       cashMinor: cash, cashKnown, cashAsOf: asOf,
       monthlyIncomeMinor: monthlyIncome, incomeMonths: full.length ? full.slice(0, LOOKBACK_MONTHS).map((m) => m.label) : partial ? [`${partial.label} so far`] : [],
-      monthlyObligationsMinor: monthlyObligations, obligations, otherLoanRepaymentsMinor: otherLoans,
+      monthlyObligationsMinor: monthlyObligations, obligations, familyObligations, otherLoanRepaymentsMinor: otherLoans,
       monthlyEverydayMinor: monthlyEveryday, monthlySurplusMinor: monthlySurplus,
       bufferMinor: buffer, bufferRule,
       oneOffs: oneOffs.slice(0, ONE_OFFS_SHOWN).map((o) => ({ name: o.name, category: o.category, label: o.label, amountMinor: o.amountMinor, date: o.date, kind: "one_off" as const })),
@@ -567,6 +585,27 @@ export function assessAffordability(data: AffordabilityData, req: AffordabilityR
     monthsToSave,
     advice,
   };
+}
+
+function familyLines(lookback: MonthFigures[], obligations: ObligationLine[]): FamilyObligationLine[] {
+  if (!lookback.length) return [];
+  const by = new Map<string, { total: bigint; months: Set<string> }>();
+  for (const m of lookback) {
+    for (const c of m.categories) {
+      if (c.category !== "Family" || c.totalMinor <= 0n) continue;
+      const label = c.subcategory ?? "Family";
+      const g = by.get(label) ?? { total: 0n, months: new Set<string>() };
+      g.total += c.totalMinor;
+      g.months.add(m.label);
+      by.set(label, g);
+    }
+  }
+  return [...by.entries()]
+    .map(([label, g]) => ({
+      label, monthlyMinor: g.total / BigInt(lookback.length), months: g.months.size,
+      recurring: obligations.some((o) => o.category === "Family" && (o.label ?? "Family") === label),
+    }))
+    .sort((a, b) => (b.monthlyMinor > a.monthlyMinor ? 1 : b.monthlyMinor < a.monthlyMinor ? -1 : a.label.localeCompare(b.label)));
 }
 
 interface AdviceContext {

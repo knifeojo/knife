@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { OWN_TRANSFER, categorize, nameTokens, sameName, type UserRule } from "../categorize";
 import { loadOwners } from "../ledger";
+import { relationshipForLabel, sameIndividual, type Relationship } from "../people-match";
 import { buildQuestions, memoOf, type Question } from "../review";
 import { pairOwnTransfers, unpairContradicted } from "../transfers";
 
@@ -27,7 +28,11 @@ export interface SuggestionGroup {
   examples: string[];
 }
 
-export type QuestionWithSuggestion = Question & { aiSuggestion?: SuggestionGroup };
+export type QuestionWithSuggestion = Question & {
+  aiSuggestion?: SuggestionGroup;
+  /** For "Who is <NAME> to you?": the relationship the AI's label implies. A proposal; the owner taps to confirm. */
+  aiRelationship?: Relationship;
+};
 
 interface TxLite {
   id: string;
@@ -94,9 +99,11 @@ export async function suggestionGroups(userId: string): Promise<SuggestionGroup[
 }
 
 function matchesQuestion(q: Question, g: SuggestionGroup): boolean {
-  if (q.kind === "holder" || q.kind === "conversion") return false;
-  if ((q.kind === "income") !== (g.type === "CREDIT")) return false;
+  if (q.kind === "holder" || q.kind === "conversion" || q.kind === "match") return false;
+  // People questions cover money both ways.
+  if (!q.person && (q.kind === "income") !== (g.type === "CREDIT")) return false;
   if (!g.key) return false;
+  if (q.person) return q.person.variants.some((v) => v.toLowerCase() === g.key || sameName(v, g.display) || sameIndividual(v, g.display));
   return g.key === q.key || (nameTokens(q.key).length >= 2 && sameName(g.display, q.key));
 }
 
@@ -108,7 +115,8 @@ export async function reviewWithSuggestions(userId: string): Promise<{ questions
     const g = groups.find((x) => !used.has(x.id) && matchesQuestion(q, x));
     if (!g) return q;
     used.add(g.id);
-    return { ...q, aiSuggestion: g };
+    const aiRelationship = q.person ? relationshipForLabel(g.category, g.subcategory) : undefined;
+    return { ...q, aiSuggestion: g, ...(aiRelationship && { aiRelationship }) };
   });
   return { questions: withAi, suggestions: groups.filter((g) => !used.has(g.id)) };
 }

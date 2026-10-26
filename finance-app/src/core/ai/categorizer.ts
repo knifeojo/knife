@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
 import { INCOME_CATEGORY, OWN_TRANSFER } from "../categorize";
+import { loadKnownPeople } from "../ledger";
+import { matchPeople, relationshipInfo, type KnownPerson } from "../people-match";
 import type { Classifier } from "../eval";
 import { AI_CATEGORIES, canonicalLabel, ruleOnly, taxonomyText } from "../taxonomy";
 import type { Classification, TransactionType } from "../types";
@@ -51,8 +53,20 @@ export interface AiSuggestion {
   reason: string;
 }
 
+/** Someone the owner identified, as context for the model. Every spelling, and who they are. */
+export interface KnownPersonContext {
+  names: string[];
+  /** Short relationship label: "spouse", "sibling", "extended family"… */
+  relationship: string;
+}
+
+export interface CategorizeContext {
+  /** Known people named in this batch. Locally sent by name; to the cloud as "PERSON_1 (spouse)". */
+  people?: KnownPersonContext[];
+}
+
 /** The model call, injectable so tests and evals run without a network. Returns raw, unvalidated items. */
-export type CategorizeLLM = (rows: AiRow[]) => Promise<unknown[]>;
+export type CategorizeLLM = (rows: AiRow[], ctx?: CategorizeContext) => Promise<unknown[]>;
 
 export const MIN_CONFIDENCE = 0.6;
 /** Rows below this rule confidence are worth a second opinion. */
@@ -63,6 +77,7 @@ const CLOUD_BATCH = 40;
 const SYSTEM = `You label Nigerian bank transactions for one person's budgeting app.
 For each transaction choose ONE category and ONE subcategory from the allowed list. Use the list exactly as written. Use an empty subcategory only when none fits.
 Signals: memo words typed before "TO" ("MONTHLY", "BAL", "LUNCH", "DADDYS AC"), and trade words in payee names ("COUTURE", "PHARMACY", "INTERIOR"). Bank or wallet names after "TO" (OPAY, ZBN, MONIEMFB, PALMPAY, KUDA) are the recipient's bank, not the recipient.
+Known people are people the owner identified; their relationship is certain. Payments to a spouse are "Family / Spouse", to siblings "Family / Siblings", to parents "Family / Parents", to children "Family / Children", to extended family "Family / Black tax". Someone not listed may still be family: say so in the reason.
 Meanings: "Own transfer" is money between the person's own accounts, wallets or savings. "Transfers" is money sent to other people when nothing more specific fits. "Family / Black tax" is support for extended family or community. "Debt / Loan repayment" is paying back a lender. "Income" is only for money in; money out is never Income.
 confidence is the probability (0 to 1) that a careful person who knows this household would pick the same label; use below 0.6 when guessing. reason is under 12 words.
 Answer with JSON only, one item per transaction, using the same id.`;
@@ -88,14 +103,25 @@ const RESPONSE_SCHEMA = {
   required: ["suggestions"],
 } as const;
 
-/** The full user message: the taxonomy and the rows, nothing else. */
-export function promptFor(rows: AiRow[]): string {
-  return `Allowed categories and subcategories:\n${taxonomyText()}\n\nTransactions:\n${JSON.stringify(rows)}`;
+/** "- Gift Adebayo Ojo (also OJO GIFT A): spouse", or "- PERSON_1 (spouse)" once redacted. */
+export function knownPeopleText(people: { names: string[]; relationship: string }[]): string {
+  return people
+    .map((p) => {
+      const [first, ...rest] = [...new Set(p.names)];
+      return first.endsWith(`(${p.relationship})`) ? `- ${first}` : `- ${first}${rest.length ? ` (also ${rest.join(", ")})` : ""}: ${p.relationship}`;
+    })
+    .join("\n");
+}
+
+/** The full user message: the taxonomy, the known people in these rows, and the rows; nothing else. */
+export function promptFor(rows: AiRow[], ctx: CategorizeContext = {}): string {
+  const people = ctx.people?.length ? `\n\nKnown people:\n${knownPeopleText(ctx.people)}` : "";
+  return `Allowed categories and subcategories:\n${taxonomyText()}${people}\n\nTransactions:\n${JSON.stringify(rows)}`;
 }
 
 export function ollamaCategorizeLLM(opts: { config?: AiConfig; fetch?: Fetch } = {}): CategorizeLLM {
-  return async (rows) => {
-    const out = await ollamaChat({ system: SYSTEM, user: promptFor(rows), schema: RESPONSE_SCHEMA }, opts);
+  return async (rows, ctx) => {
+    const out = await ollamaChat({ system: SYSTEM, user: promptFor(rows, ctx), schema: RESPONSE_SCHEMA }, opts);
     const list = (out as { suggestions?: unknown } | undefined)?.suggestions;
     return Array.isArray(list) ? list : [];
   };
@@ -114,7 +140,7 @@ const AnthropicSchema = z.object({
 });
 
 const CLOUD_NOTE = `
-Privacy: people's names are replaced by placeholders (PERSON_1, PERSON_2…) and the account holder by OWNER; [ACCOUNT], [PHONE], [CARD], [EMAIL], [ID] and [NUMBER] mark removed identifiers. Money to or from OWNER is usually "Own transfer". Amounts are ranges and dates are months.`;
+Privacy: people's names are replaced by placeholders (PERSON_1, PERSON_2…), with the relationship when the owner gave one ("PERSON_1 (spouse)"), and the account holder by OWNER; [ACCOUNT], [PHONE], [CARD], [EMAIL], [ID] and [NUMBER] mark removed identifiers. Money to or from OWNER is usually "Own transfer". Amounts are ranges and dates are months.`;
 
 /** What the cloud model sees for one row: the local AiRow with names, amount and day redacted. */
 export function toCloudRow(row: AiRow, r: Redactor): AiRow {
@@ -128,15 +154,21 @@ export function toCloudRow(row: AiRow, r: Redactor): AiRow {
 
 /** Cloud categorizer. Every row goes through toCloudRow; the reasons that come back are restored locally. */
 export function cloudCategorizeLLM(opts: { redactor?: Redactor; create?: CreateMessage } = {}): CategorizeLLM {
-  return async (rows) => {
+  return async (rows, ctx) => {
     const r = opts.redactor ?? new Redactor();
+    for (const p of ctx?.people ?? []) r.addKnown(p);
+    // Names only through the redactor: each known person becomes one labelled placeholder.
+    const people = (ctx?.people ?? []).flatMap((p) => {
+      const ph = r.placeholderOfName(p.names[0]);
+      return ph ? [{ names: [ph], relationship: p.relationship }] : [];
+    });
     const res = await (opts.create ?? cloudCreate)({
       model: MODEL,
       max_tokens: 16000,
       ...FALLBACK,
       output_config: { effort: "low", format: betaZodOutputFormat(AnthropicSchema) },
       system: SYSTEM + CLOUD_NOTE,
-      messages: [{ role: "user", content: promptFor(rows.map((row) => toCloudRow(row, r))) }],
+      messages: [{ role: "user", content: promptFor(rows.map((row) => toCloudRow(row, r)), { people }) }],
     });
     if (res.stop_reason === "refusal") return [];
     const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
@@ -347,11 +379,27 @@ function verdictsFor(answers: unknown[], rows: { type: string; category: string;
   });
 }
 
+/** The known people these rows may name (matched or close), for the prompt. Nobody else is listed. */
+export function peopleContext(people: KnownPerson[], rows: { counterparty: string | null; merchantName: string | null }[]): CategorizeContext {
+  const ids = new Set<string>();
+  for (const r of rows) {
+    for (const name of [r.counterparty, r.merchantName]) {
+      const m = matchPeople(name, people);
+      if (m.personId) ids.add(m.personId);
+      else m.candidates.forEach((c) => ids.add(c.personId));
+    }
+  }
+  const list = people
+    .filter((p) => ids.has(p.id) && p.relationship !== "me")
+    .map((p) => ({ names: [p.displayName, ...p.aliases.filter((a) => !a.rejected).map((a) => a.name)], relationship: relationshipInfo(p.relationship).short }));
+  return list.length ? { people: list } : {};
+}
+
 /** One model request, logged by provider (never content). Unreachable models throw; other errors are no answer. */
-async function ask(c: Categorizer, feature: "categorize" | "escalation", rows: AiRow[]): Promise<unknown[]> {
+async function ask(c: Categorizer, feature: "categorize" | "escalation", rows: AiRow[], ctx?: CategorizeContext): Promise<unknown[]> {
   const started = Date.now();
   try {
-    const out = await c.llm(rows);
+    const out = await c.llm(rows, ctx);
     logServed(feature, c.provider, c.model, "ok", { ms: Date.now() - started, rows: rows.length });
     return out;
   } catch (e) {
@@ -402,6 +450,7 @@ export async function suggestCategories(userId: string, opts: SuggestOptions = {
   if (!rows.length) return empty(undefined, backlog);
 
   const size = Math.max(1, opts.batchSize ?? primary.batchSize ?? LOCAL_BATCH);
+  const known = await loadKnownPeople(userId);
   const result = empty(undefined, backlog);
   const tally = (c: Categorizer) => (c.provider === "anthropic" ? result.cloud : result.local);
   let firstDown: string | undefined;
@@ -409,10 +458,11 @@ export async function suggestCategories(userId: string, opts: SuggestOptions = {
   for (let i = 0; i < rows.length; i += size) {
     const batch = rows.slice(i, i + size);
     const aiRows = batch.map((t, k) => toAiRow(String(k + 1), t));
+    const ctx = peopleContext(known, batch);
     let answers: unknown[] | undefined;
     if (!firstDown) {
       try {
-        answers = await ask(primary, "categorize", aiRows);
+        answers = await ask(primary, "categorize", aiRows, ctx);
         tally(primary).rows += batch.length;
       } catch (e) {
         firstDown = e instanceof Error ? e.message : "AI unavailable";
@@ -432,7 +482,7 @@ export async function suggestCategories(userId: string, opts: SuggestOptions = {
       const ks = pick.slice(j, j + step);
       let again: unknown[];
       try {
-        again = await ask(second, "escalation", ks.map((k, n) => toAiRow(String(n + 1), batch[k])));
+        again = await ask(second, "escalation", ks.map((k, n) => toAiRow(String(n + 1), batch[k])), peopleContext(known, ks.map((k) => batch[k])));
       } catch (e) {
         result.escalationStopped = e instanceof Error ? e.message : "Second opinion unavailable.";
         break;

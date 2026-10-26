@@ -5,7 +5,6 @@ import {
   aliasKey,
   isRelationship,
   labelFor,
-  mappingFor,
   matchPeople,
   nameWords,
   parsePeopleText,

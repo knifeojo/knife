@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { importStatement } from "@/core/statement-import";
 import { ingestTransaction } from "@/core/ledger";
 import { answerQuestion, buildQuestions } from "@/core/review";
+import { assessAffordability, loadAffordabilityData } from "@/core/affordability";
 import { addPeopleFromText, createPerson, deletePerson, listPeople, mergePeople, undoPeopleBatch, updatePerson } from "@/core/people";
 
 type Row = [date: string, ref: string, debit: number | null, credit: number | null, remarks: string];
@@ -203,6 +204,22 @@ describe("Your people", () => {
     expect((await byRef(userId, ["P4"]))[0]).toMatchObject({ category: "Transfers", personId: null });
     await undoPeopleBatch(userId);
     expect((await byRef(userId, ["P4"]))[0]).toMatchObject({ subcategory: "Siblings", personId });
+  });
+});
+
+describe("Afford", () => {
+  it("shows family support as an obligation, never as a cut", async () => {
+    const userId = await setup();
+    await addPeopleFromText(userId, "My wife is Gift Adebayo Ojo\nMy brother is Tunde Ojo");
+    const now = new Date("2026-09-10T10:00:00Z");
+    const r = assessAffordability(await loadAffordabilityData(userId, now), { amountMinor: 300_000_000n, horizon: { kind: "month_end" } }, now);
+    expect(r.inputs.familyObligations).toEqual([
+      { label: "Spouse", monthlyMinor: 19_000_000n, months: 2, recurring: true },
+      { label: "Siblings", monthlyMinor: 12_500_000n, months: 2, recurring: false },
+      { label: "Gifts", monthlyMinor: 2_000_000n, months: 1, recurring: false },
+    ]);
+    expect(r.advice.filter((a) => a.kind === "cut").map((a) => a.subject)).not.toContain("Family");
+    expect(r.advice.map((a) => a.text).join(" ")).not.toMatch(/spouse|sibling|black tax|family/i);
   });
 });
 

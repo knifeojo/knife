@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
 import { COMPANY, canonicalLender, nameHint, nameTokens, normalizeMerchant, sameName } from "../categorize";
+import { relationshipInfo } from "../people-match";
 
 // The privacy layer for every request that leaves this machine. Cloud call sites build their payload,
 // pass every string through a Redactor, and map the answer back with restore(). Local (Ollama) calls
@@ -120,6 +121,8 @@ interface Person {
   /** Each spelling as name words, e.g. ["NGOZI", "ADEBAYO"]. */
   spellings: string[][];
   placeholder?: string;
+  /** Who they are to the owner ("spouse"), when the owner said so. Sent beside the placeholder. */
+  label?: string;
 }
 
 const titleCase = (s: string) => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
@@ -132,6 +135,14 @@ export interface RedactorSeed {
   people?: string[];
   /** The owner's own account labels ("Ada Main Salary Account"). Sent as ACCOUNT_1, ACCOUNT_2… */
   accounts?: string[];
+  /** People the owner identified, every spelling with their relationship: sent as "PERSON_1 (spouse)". */
+  known?: KnownName[];
+}
+
+export interface KnownName {
+  names: string[];
+  /** Short relationship label, e.g. "spouse", "extended family". */
+  relationship: string;
 }
 
 export class Redactor {
@@ -145,6 +156,7 @@ export class Redactor {
 
   constructor(seed: RedactorSeed = {}) {
     for (const o of seed.owners ?? []) this.add(o, true);
+    for (const k of seed.known ?? []) this.addKnown(k);
     for (const p of seed.people ?? []) this.add(p);
     const labels = [...new Set((seed.accounts ?? []).map((a) => a.trim()).filter((a) => a.length >= 3))].sort((a, b) => b.length - a.length);
     labels.forEach((label) => this.accounts.set(label.toUpperCase(), { label, placeholder: "" }));
@@ -165,6 +177,30 @@ export class Redactor {
       this.people.push({ display: titleCase(tokens.join(" ")), owner, spellings: [tokens] });
     }
     this.matcher = undefined;
+  }
+
+  /** Registers someone the owner identified. Every spelling is one placeholder, labelled with the relationship. */
+  addKnown(k: KnownName): void {
+    const spellings = k.names.map(nameTokens).filter((t) => t.length);
+    if (!spellings.length) return;
+    let p = this.people.find((x) => !x.owner && x.spellings.some((s) => spellings.some((t) => keyOf(s) === keyOf(t) || sameName(keyOf(s), keyOf(t)))));
+    if (!p) this.people.push((p = { display: titleCase(spellings[0].join(" ")), owner: false, spellings: [] }));
+    for (const t of spellings) if (!p.spellings.some((s) => keyOf(s) === keyOf(t))) p.spellings.push(t);
+    p.label = k.relationship.replace(/[^a-z &-]/gi, "").trim() || undefined;
+    this.matcher = undefined;
+  }
+
+  /** "PERSON_1 (spouse)" for a registered name, straight from the registry (no text matching). */
+  placeholderOfName(name: string): string | undefined {
+    const key = keyOf(nameTokens(name));
+    const p = this.people.find((x) => x.spellings.some((s) => keyOf(s) === key));
+    return p ? this.tagged(p) : undefined;
+  }
+
+  /** The placeholder as sent: "PERSON_1 (spouse)" for someone the owner identified. */
+  private tagged(p: Person): string {
+    const ph = this.placeholderFor(p);
+    return p.label && !p.owner ? `${ph} (${p.label})` : ph;
   }
 
   private placeholderFor(p: Person): string {
@@ -240,13 +276,15 @@ export class Redactor {
     out = maskIdentifiers(out);
     out = out.replace(m.full, (hit) => {
       const p = m.fullMap.get(hit.toUpperCase().replace(/[^A-Z]/g, ""));
-      return p ? this.placeholderFor(p) : hit;
+      return p ? this.tagged(p) : hit;
     });
     if (m.token) {
       out = out.replace(m.token, (hit) => {
         const p = m.tokenMap.get(hit.toUpperCase());
-        return p ? this.placeholderFor(p) : hit;
+        return p ? this.tagged(p) : hit;
       });
+      // A reordered name replaced word by word ("OJO GIFT ADEBAYO") is one person, not three.
+      out = out.replace(/\b(OWNER|PERSON_\d+(?: \([a-z &-]+\))?)(?:[\s.'-]+\1(?![\w(]))+/g, "$1");
     }
     return out;
   }
@@ -272,7 +310,11 @@ export class Redactor {
   restore(s: string): string {
     return s
       .replace(/\bACCOUNT_\d+\b/g, (ph) => this.accountsByPlaceholder.get(ph) ?? ph)
-      .replace(/\b(OWNER|PERSON_\d+)\b/g, (ph) => this.byPlaceholder.get(ph)?.display ?? ph);
+      .replace(/\b(OWNER|PERSON_\d+)\b(?: \(([a-z &-]+)\))?/g, (hit, ph: string, label?: string) => {
+        const p = this.byPlaceholder.get(ph);
+        if (!p) return hit;
+        return label && label !== p.label ? `${p.display} (${label})` : p.display;
+      });
   }
 
   /** restore() on every string in a value (tool inputs the model sends back). */
@@ -294,14 +336,18 @@ export class Redactor {
 
 /** A Redactor that knows the owner's names and every payee and sender in their ledger. */
 export async function redactorFor(userId: string): Promise<Redactor> {
-  const [user, accounts, txs, aliases] = await Promise.all([
+  const [user, accounts, txs, aliases, people] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { name: true } }),
     db.account.findMany({ where: { userId }, select: { holderName: true, accountName: true } }),
     db.transaction.findMany({ where: { userId }, select: { counterparty: true, merchantName: true }, distinct: ["counterparty", "merchantName"] }),
     db.merchantAlias.findMany({ where: { userId }, select: { canonicalName: true } }),
+    db.person.findMany({ where: { userId }, select: { displayName: true, relationship: true, aliases: { where: { rejected: false }, select: { name: true } } } }),
   ]);
   const owners = [user?.name, ...accounts.map((a) => a.holderName)].filter((x): x is string => !!x);
-  const people = [...txs.flatMap((t) => [t.counterparty, t.merchantName]), ...aliases.map((a) => a.canonicalName)].filter((x): x is string => !!x);
+  const names = [...txs.flatMap((t) => [t.counterparty, t.merchantName]), ...aliases.map((a) => a.canonicalName)].filter((x): x is string => !!x);
   const labels = accounts.map((a) => a.accountName).filter((x): x is string => !!x);
-  return new Redactor({ owners, people: [...new Set(people)], accounts: labels });
+  // "Me" is the owner under another name: redacted as OWNER, never labelled.
+  const known = people.filter((p) => p.relationship !== "me").map((p) => ({ names: [p.displayName, ...p.aliases.map((a) => a.name)], relationship: relationshipInfo(p.relationship).short }));
+  const mine = people.filter((p) => p.relationship === "me").flatMap((p) => [p.displayName, ...p.aliases.map((a) => a.name)]);
+  return new Redactor({ owners: [...owners, ...mine], known, people: [...new Set(names)], accounts: labels });
 }
