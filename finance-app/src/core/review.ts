@@ -1,20 +1,43 @@
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
-import { ALL_CATEGORIES, INCOME_CATEGORY, OWN_TRANSFER, categorize, nameHint, nameTokens, sameName } from "./categorize";
+import { ALL_CATEGORIES, INCOME_CATEGORY, OWN_TRANSFER, categorize, isSelf, nameHint, nameTokens, sameName } from "./categorize";
+import { looksLikePerson } from "./ai/redact";
+import { loadKnownPeople } from "./ledger";
+import { createPerson, updatePerson } from "./people";
+import { RELATIONSHIPS, labelFor, mappingFor, matchPeople, relationshipInfo, sameIndividual, type KnownPerson } from "./people-match";
 import { pairOwnTransfers, suspectedConversions, unpairContradicted } from "./transfers";
 void suspectedConversions; // kept for answering legacy conversion questions
 
 // "Teach Ledger": a short list of questions whose answers fix the most money at once.
 // Every answer becomes a user rule, so it applies to past AND future transactions with that name.
+// People come first: "Who is GIFT ADEBAYO OJO to you?" is answered once and labels every payment
+// to and from them through the relationship (core/people).
 
-export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion";
-export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion"];
+export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match";
+export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion", "match"];
 
 export interface Option {
   value: string;
   label: string;
   category: string;
   subcategory?: string;
+  /**
+   * How the answer is shown: "relationship" answers are the main one-tap buttons for a person,
+   * "more" sit behind "Someone else", "control" are Skip / Not a person. Unset for other questions.
+   */
+  group?: "relationship" | "more" | "control";
+}
+
+/** Money in and out with one individual, for "Who is <NAME> to you?". */
+export interface PersonStats {
+  inCount: number;
+  inMinor: bigint;
+  outCount: number;
+  outMinor: bigint;
+  /** YYYY-MM-DD, Lagos time. */
+  lastDate: string;
+  /** Every spelling the bank used, saved as the person's aliases when the owner answers. */
+  variants: string[];
 }
 
 export interface Question {
@@ -33,6 +56,10 @@ export interface Question {
   narrationHints?: NarrationHint[];
   /** For conversion questions: the matching sends and receipts. */
   evidence?: { date: string; sent: string; received: string }[];
+  /** For questions about an individual: money both ways and the spellings seen. */
+  person?: PersonStats;
+  /** Money still labelled as a plain transfer (or unlabelled) that the answer would fix. Sorts people questions. */
+  impactMinor?: bigint;
 }
 
 export interface NarrationHint {
@@ -110,8 +137,24 @@ export function optionsFor(kind: QuestionKind): Option[] {
   return kind === "income" ? INCOME_OPTIONS : kind === "holder" ? HOLDER_OPTIONS : kind === "conversion" ? CONVERSION_OPTIONS : PERSON_OPTIONS;
 }
 
+/** The one-tap answers to "Who is <NAME> to you?". Each one creates a person (core/people). */
+export const RELATIONSHIP_OPTIONS: Option[] = RELATIONSHIPS.map((r) => {
+  const label = mappingFor(r.value, "DEBIT");
+  return { value: `rel:${r.value}`, label: r.label, category: label?.category ?? "", ...(label?.subcategory && { subcategory: label.subcategory }), group: "relationship" as const };
+});
+
+const CONTROL_OPTIONS: Option[] = [
+  { value: "unknown", label: "Skip", category: "", group: "control" },
+  { value: "not_person", label: "Not a person", category: "", group: "control" },
+];
+
+/** Options for a question about an individual: relationships first, then the older detailed answers. */
+const INDIVIDUAL_OPTIONS: Option[] = [...RELATIONSHIP_OPTIONS, ...PERSON_OPTIONS.map((o) => ({ ...o, group: "more" as const })), ...CONTROL_OPTIONS];
+
 /** Marker on rules created by "Can't remember". */
 export const SKIPPED = "__skipped__";
+/** Marker on rules created by "Not a person": the name is never asked about as a person again. */
+export const NOT_PERSON = "__not_person__";
 
 /** Forget a skipped question so it can be asked again. Only removes rules that carry no category. */
 export async function askAgain(userId: string, pattern: string): Promise<void> {
@@ -170,17 +213,129 @@ function groupByName(rows: { counterparty: string | null; amountMinor: bigint; d
 
 const topCategory = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
+/** Rows a person question would relabel: plain transfers, unlabelled or guessed. */
+function unlabelled(t: { category: string; subcategory: string | null; classificationSource: string }): boolean {
+  return t.category === "Transfers" || t.category === "Other" || t.classificationSource === "default" || (t.category === INCOME_CATEGORY && (!t.subcategory || t.subcategory === "Transfer"));
+}
+
+const lagosDay = (d: Date) => new Date(d.getTime() + 3600_000).toISOString().slice(0, 10);
+
+interface TxRow {
+  type: string;
+  counterparty: string | null;
+  amountMinor: bigint;
+  description: string;
+  category: string;
+  subcategory: string | null;
+  classificationSource: string;
+  classificationConfidence: number;
+  transactionDate: Date;
+  personId: string | null;
+}
+
+interface PersonGroup extends Group {
+  stats: PersonStats;
+  impact: bigint;
+  last: Date;
+}
+
+/** Individuals (not businesses, not the owner) the owner has not told Ledger about, money both ways. */
+function individuals(tx: TxRow[], owners: string[], people: KnownPerson[]): { unknown: PersonGroup[]; ambiguous: PersonGroup[] } {
+  const unknown: PersonGroup[] = [], ambiguous: PersonGroup[] = [];
+  for (const t of tx) {
+    const name = t.counterparty;
+    if (!name || t.personId || t.category === OWN_TRANSFER || !looksLikePerson(name) || isSelf(name, owners)) continue;
+    const match = matchPeople(name, people);
+    if (match.status === "match") continue;
+    const list = match.status === "ambiguous" ? ambiguous : unknown;
+    let g = list.find((x) => x.stats.variants.some((v) => v === name || sameName(v, name) || sameIndividual(v, name)));
+    if (!g) {
+      g = { key: name, display: name, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map(), impact: 0n, last: t.transactionDate,
+        stats: { inCount: 0, inMinor: 0n, outCount: 0, outMinor: 0n, lastDate: "", variants: [] } };
+      list.push(g);
+    }
+    if (!g.stats.variants.includes(name)) g.stats.variants.push(name);
+    if (name.length > g.display.length) g.display = name;
+    g.total += t.amountMinor;
+    g.count++;
+    if (t.type === "CREDIT") {
+      g.stats.inCount++;
+      g.stats.inMinor += t.amountMinor;
+    } else {
+      g.stats.outCount++;
+      g.stats.outMinor += t.amountMinor;
+      (g.hits ??= []).push({ minor: t.amountMinor, date: t.transactionDate });
+    }
+    if (unlabelled(t)) g.impact += t.amountMinor;
+    if (t.transactionDate > g.last) g.last = t.transactionDate;
+    addExample(g.examples, t.description);
+    g.descriptions.push(t.description);
+    g.categories.set(t.category, (g.categories.get(t.category) ?? 0) + 1);
+  }
+  for (const g of [...unknown, ...ambiguous]) {
+    g.key = g.display.toLowerCase();
+    g.stats.lastDate = lagosDay(g.last);
+  }
+  return { unknown, ambiguous };
+}
+
+function moneyBoth(s: PersonStats): string {
+  const parts = [
+    s.outCount && `you sent ${s.outCount} payment${s.outCount > 1 ? "s" : ""} (${formatMoney(s.outMinor)})`,
+    s.inCount && `they sent you ${s.inCount} (${formatMoney(s.inMinor)})`,
+  ].filter(Boolean);
+  return parts.join(" and ").replace(/^./, (c) => c.toUpperCase());
+}
+
 export async function buildQuestions(userId: string, limit = 12): Promise<Question[]> {
-  const [aliases, accounts, tx] = await Promise.all([
+  const [aliases, accounts, tx, people] = await Promise.all([
     db.merchantAlias.findMany({ where: { userId }, select: { pattern: true } }),
     db.account.findMany({ where: { userId }, select: { holderName: true } }),
     db.transaction.findMany({
       where: { userId, classificationSource: { not: "user" } },
-      select: { type: true, counterparty: true, amountMinor: true, description: true, category: true, classificationConfidence: true, transactionDate: true },
+      select: {
+        type: true, counterparty: true, amountMinor: true, description: true, category: true, subcategory: true, classificationSource: true,
+        classificationConfidence: true, transactionDate: true, personId: true,
+      },
     }),
+    loadKnownPeople(userId),
   ]);
   const answered = (key: string) => aliases.some((a) => a.pattern === key || sameName(a.pattern, key));
   const questions: Question[] = [];
+  const owners = accounts.map((a) => a.holderName).filter((h): h is string => !!h);
+
+  // People first: one answer labels every payment to and from them.
+  const found = individuals(tx, owners, people);
+  const asked = new Set<string>();
+  for (const g of found.unknown.filter((g) => (g.total >= QUESTION_MIN_MINOR || g.count >= 3) && !answered(g.key))) {
+    const regular = regularPattern(g.hits ?? []);
+    g.stats.variants.forEach((v) => asked.add(v));
+    questions.push({
+      kind: "person", key: g.key, title: `Who is ${g.display} to you?`,
+      prompt: regular
+        ? `You pay them about ${formatMoney(regular.typicalMinor)} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually family support, rent, an allowance, or someone you employ.`
+        : `${moneyBoth(g.stats)}. Your answer applies to every payment with them, past and future, and you can undo it.`,
+      totalMinor: g.total, count: g.count, examples: g.examples.slice(0, 3), options: INDIVIDUAL_OPTIONS, currentCategory: topCategory(g.categories),
+      hint: "The name looks like a person", narrationHints: narrationHints(g.descriptions), person: g.stats, impactMinor: g.impact,
+    });
+  }
+  for (const g of found.ambiguous.filter((g) => !answered(g.key))) {
+    const candidates = matchPeople(g.display, people).candidates.map((c) => people.find((p) => p.id === c.personId)!).slice(0, 3);
+    g.stats.variants.forEach((v) => asked.add(v));
+    questions.push({
+      kind: "match", key: g.key,
+      title: candidates.length === 1 ? `Is ${g.display} ${candidates[0].displayName}?` : `Which of your people is ${g.display}?`,
+      prompt: `The name is close to ${candidates.map((p) => `${p.displayName} (${relationshipInfo(p.relationship).short})`).join(" and ")}, but not close enough to be sure. ${moneyBoth(g.stats)}.`,
+      totalMinor: g.total, count: g.count, examples: g.examples.slice(0, 3),
+      options: [
+        ...candidates.map((p) => ({ value: `person:${p.id}`, label: `Yes, ${p.displayName}`, category: labelFor(p, "DEBIT")?.category ?? "", group: "relationship" as const })),
+        { value: "no", label: candidates.length === 1 ? "No, someone else" : "None of them", category: "", group: "relationship" },
+        { value: "unknown", label: "Skip", category: "", group: "control" },
+      ],
+      currentCategory: topCategory(g.categories), person: g.stats, impactMinor: g.impact,
+    });
+  }
+  const individual = (name: string | null) => !!name && asked.has(name);
 
   // 1. Confirm who the account holder is (drives own-transfer detection).
   const holder = accounts.find((a) => a.holderName)?.holderName;
@@ -193,7 +348,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   }
 
   // 2. Where income comes from (biggest first).
-  const credits = groupByName(tx.filter((t) => t.type === "CREDIT" && t.category !== OWN_TRANSFER && t.category !== "Debt"));
+  const credits = groupByName(tx.filter((t) => t.type === "CREDIT" && t.category !== OWN_TRANSFER && t.category !== "Debt" && !individual(t.counterparty) && !t.personId));
   for (const g of credits.filter((g) => g.total >= QUESTION_MIN_MINOR && !answered(g.key)).slice(0, 4)) {
     questions.push({
       kind: "income", key: g.key, title: `What is the money from ${g.display}?`,
@@ -204,7 +359,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
 
   // 3. People and businesses you pay (biggest first), skipping ones already confidently categorized by a merchant rule.
   // Skip payments a specific rule already labelled with high confidence (e.g. "RENT", Squad, Netflix).
-  const debits = groupByName(tx.filter((t) => t.type === "DEBIT" && t.category !== OWN_TRANSFER && t.category !== "Fees" && t.classificationConfidence < 0.9));
+  const debits = groupByName(tx.filter((t) => t.type === "DEBIT" && t.category !== OWN_TRANSFER && t.category !== "Fees" && t.classificationConfidence < 0.9 && !individual(t.counterparty) && !t.personId));
   for (const g of debits.filter((g) => g.total >= QUESTION_MIN_MINOR && !answered(g.key)).slice(0, 8)) {
     const hint = nameHint(g.display);
     const options = hint ? [{ value: "hint", label: `${hint.label} (suggested)`, category: hint.category, subcategory: hint.subcategory }, ...PERSON_OPTIONS] : PERSON_OPTIONS;
@@ -246,10 +401,47 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
 
   // Regular payments first among equals: one answer covers every future month.
   const weight = (q: Question) => (/around the \d+(st|nd|rd|th)/.test(q.prompt) ? q.totalMinor * 2n : q.totalMinor);
-  const rank = (q: Question) => (q.kind === "holder" ? 0 : q.kind === "conversion" ? 1 : 2);
-  questions.sort((a, b) => rank(a) - rank(b) || (weight(b) > weight(a) ? 1 : -1));
-  // Holder first, then by money affected.
+  // People questions are ranked by the unlabelled money they fix, then by everything with them.
+  const impact = (q: Question) => (q.impactMinor ?? 0n) * 4n + q.totalMinor;
+  const rank = (q: Question) => (q.kind === "holder" ? 0 : q.person ? 1 : q.kind === "conversion" ? 2 : 3);
+  questions.sort((a, b) => {
+    const r = rank(a) - rank(b);
+    if (r) return r;
+    const [x, y] = a.person && b.person ? [impact(a), impact(b)] : [weight(a), weight(b)];
+    return y > x ? 1 : y < x ? -1 : 0;
+  });
+  // Holder first, then people by money impact, then the rest by money affected.
   return questions.slice(0, limit);
+}
+
+/** Spellings of a name across the owner's transactions, for saving as aliases. */
+async function variantsOf(userId: string, key: string): Promise<string[]> {
+  const rows = await db.transaction.findMany({ where: { userId, counterparty: { not: null } }, select: { counterparty: true }, distinct: ["counterparty"] });
+  const out = rows.map((r) => r.counterparty!).filter((c) => c.toLowerCase() === key || sameName(c, key) || sameIndividual(c, key));
+  return out.length ? out : [key.replace(/\b[a-z]/g, (c) => c.toUpperCase())];
+}
+
+/**
+ * "Who is <NAME> to you?" answered with a relationship: saves the person with every spelling seen
+ * and relabels their payments (undoable from Your people). Returns rows changed.
+ */
+async function answerWho(userId: string, key: string, relationship: string, vendor?: { category?: string; subcategory?: string }): Promise<number> {
+  const variants = await variantsOf(userId, key);
+  const display = [...variants].sort((a, b) => b.length - a.length)[0];
+  const res = await createPerson(userId, {
+    displayName: display, relationship, aliases: variants, vendorCategory: vendor?.category, vendorSubcategory: vendor?.subcategory,
+  });
+  return res.changed;
+}
+
+/** "Is OJO G A Gift Adebayo Ojo?": yes saves the spelling to them, no tells Ledger it is someone else. */
+async function answerMatch(userId: string, key: string, value: string): Promise<number> {
+  const variants = await variantsOf(userId, key);
+  if (value.startsWith("person:")) return (await updatePerson(userId, value.slice(7), { addAliases: variants })).changed;
+  const people = await loadKnownPeople(userId);
+  const ids = new Set(variants.flatMap((v) => matchPeople(v, people).candidates.map((c) => c.personId)));
+  for (const id of ids) await updatePerson(userId, id, { rejectAliases: variants });
+  return 0;
 }
 
 /** Stores the answer as a rule and relabels every matching transaction now. Returns rows updated. */
@@ -295,8 +487,22 @@ export async function answerQuestion(
   kind: QuestionKind,
   key: string,
   value: string,
-  other?: { text: string; category?: string },
+  other?: { text: string; category?: string; subcategory?: string },
 ): Promise<number> {
+  if (value.startsWith("rel:")) {
+    const vendor = other?.category && ALL_CATEGORIES.includes(other.category) ? { category: other.category, subcategory: other.subcategory?.trim() || other.text?.trim() || undefined } : undefined;
+    return answerWho(userId, key, value.slice(4), vendor);
+  }
+  if (value === "not_person") {
+    await db.merchantAlias.upsert({
+      where: { userId_pattern: { userId, pattern: key } },
+      update: { category: null, subcategory: NOT_PERSON },
+      create: { userId, pattern: key, canonicalName: key.replace(/\b[a-z]/g, (c) => c.toUpperCase()), category: null, subcategory: NOT_PERSON },
+    });
+    return 0;
+  }
+  if (kind === "match" && value !== "unknown") return answerMatch(userId, key, value);
+
   if (kind === "conversion") {
     // Remember the answer so the question isn't asked again.
     await db.merchantAlias.upsert({

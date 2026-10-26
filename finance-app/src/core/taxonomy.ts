@@ -9,7 +9,7 @@ export const TAXONOMY: Readonly<Record<string, readonly string[]>> = {
   Utilities: ["Electricity", "Internet", "Airtime & data", "TV"],
   Shopping: ["Clothing", "Personal care", "Electronics", "Online", "Online payment", "Card purchase", "Vendors", "Services"],
   Subscriptions: ["Streaming", "Software"],
-  Family: ["Family support", "Spouse", "Partner", "Siblings", "Parents", "Children", "Black tax", "Education", "Gifts"],
+  Family: ["Family support", "Partner", "Parents", "Black tax", "Spouse", "Siblings", "Children", "Education", "Gifts"],
   Giving: ["Church", "Tithe", "Offering", "Charity"],
   Debt: ["Loan repayment", "Loans", "Loan proceeds"],
   Healthcare: ["Fitness"],

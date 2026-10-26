@@ -99,6 +99,11 @@ export function mappingFor(relationship: string, type: string, vendor?: { catego
   return MONEY_OUT[relationship];
 }
 
+/** The label a saved person gives a payment in this direction. */
+export function labelFor(p: { relationship: string; vendorCategory?: string | null; vendorSubcategory?: string | null }, type: string): Label | null {
+  return mappingFor(p.relationship, type, { category: p.vendorCategory, subcategory: p.vendorSubcategory });
+}
+
 /** The relationship an AI label implies, so the model can propose who someone is. The owner confirms. */
 export function relationshipForLabel(category: string, subcategory: string | null): Relationship | undefined {
   if (category === OWN_TRANSFER && subcategory === "Between own accounts") return "me";
