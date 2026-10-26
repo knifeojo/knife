@@ -5,6 +5,7 @@ import { ALL_CATEGORIES } from "@/core/categorize";
 import { formatMoney } from "@/lib/money";
 import { Card, PageHeader } from "@/components/ui";
 import { answerQuestionAction, confirmSuggestionAction, dismissSuggestionAction } from "../actions";
+import { PersonAnswers, PersonStatsLine } from "./person-answers";
 
 const labelOf = (g: SuggestionGroup) => (g.subcategory ? `${g.category} / ${g.subcategory}` : g.category);
 
@@ -43,6 +44,10 @@ export default async function Review() {
             : "Nothing to ask right now. New questions appear when new names show up in your transactions."
         }
       />
+      <p className="-mt-2 mb-4 text-sm text-ink-2">
+        People come first: tell Ledger who someone is once and every payment to and from them is labelled. See and change them on{" "}
+        <Link href="/app/people" className="text-accent underline">Your people</Link>.
+      </p>
       {!questions.length && !suggestions.length && (
         <Card>
           <p className="text-sm text-ink-2">All caught up. You can still change any category on the <Link href="/app/transactions" className="text-accent underline">Transactions</Link> page.</p>
@@ -58,6 +63,7 @@ export default async function Review() {
                   <h2 className="font-semibold mt-1">{q.title}</h2>
                   <p className="text-sm text-ink-2 mt-1">{q.prompt}</p>
                   {q.hint && <p className="text-xs mt-2 inline-flex rounded-full bg-accent-soft text-accent px-2 py-0.5">{q.hint}</p>}
+                  <PersonStatsLine q={q} />
                 </div>
                 {q.totalMinor > 0n && (
                   <div className="text-right shrink-0">
@@ -99,7 +105,8 @@ export default async function Review() {
                   </ul>
                 </div>
               )}
-              {q.aiSuggestion && <AiPick g={q.aiSuggestion} />}
+              {q.aiSuggestion && !(q.person && q.aiRelationship) && <AiPick g={q.aiSuggestion} />}
+              {q.person ? <PersonAnswers q={q} /> : <>
               <div className="mt-4 flex flex-wrap gap-2">
                 {q.options.map((o, k) => (
                   <form key={o.value} action={answerQuestionAction}>
@@ -148,6 +155,7 @@ export default async function Review() {
                   <p className="text-xs text-ink-3 mt-2">Your words become the label (e.g. Housing / &ldquo;My landlady&rdquo;) and apply to every payment with this name.</p>
                 </details>
               )}
+              </>}
             </Card>
           </li>
         ))}

@@ -135,6 +135,22 @@ function Answer({ r }: { r: AffordabilityJson }) {
         </div>
       </div>
 
+      {i.familyObligations?.length > 0 && (
+        <div className="card p-5" data-testid="family-obligations">
+          <h2 className="font-semibold">Family obligations</h2>
+          <p className="text-xs text-ink-3 mt-0.5">
+            Support for your spouse, children, parents and extended family, per month. Ledger treats it as an obligation and never suggests cutting it.
+            Regular ones are already in the recurring bills above.
+          </p>
+          <dl className="mt-3 text-sm">
+            {i.familyObligations.map((f) => (
+              <Row key={f.label} label={`${f.label}${f.recurring ? " · regular" : ` · ${f.months} of ${i.incomeMonths.length || 1} months`}`} value={money(f.monthlyMinor)} />
+            ))}
+          </dl>
+          <p className="text-xs text-ink-3 mt-2">Missing someone? Tell Ledger on <Link href="/app/people" className="text-brand underline">Your people</Link>.</p>
+        </div>
+      )}
+
       {i.oneOffsSince && (
         <div className="card p-5">
           <h2 className="font-semibold">One-off spends since {day(i.oneOffsSince)}</h2>
