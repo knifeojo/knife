@@ -3,7 +3,7 @@
 // "POS/WEB PMNT @ SHOPRITE IKEJA CITY MALL LA NG", "TO SHOPRITE NIGERIA LTD". Deterministic: no AI involved.
 
 /** Words that say how or where money moved, not who received it. */
-const NOISE = new Set([
+export const NOISE: ReadonlySet<string> = new Set([
   // rails, wallets and banks that sit next to the name
   "opay", "palmpay", "moniepoint", "monie", "kuda", "paystack", "flutterwave", "paga", "vfd", "vbank", "mfb", "psb", "bank", "microfinance",
   "nip", "fip", "trf", "transfer", "payment", "pmnt", "pmt", "pos", "web", "purchase", "purch", "ussd", "mob", "utu", "outward", "inward", "instant",

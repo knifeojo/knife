@@ -1,3 +1,4 @@
+import { mappingFor, matchPeople, type KnownPerson } from "./people-match";
 import type { Classification, TransactionType } from "./types";
 
 export const EXPENSE_CATEGORIES = [
@@ -422,6 +423,8 @@ export interface UserRule {
   canonicalName: string;
   category?: string | null;
   subcategory?: string | null;
+  /** A person the owner told Ledger about. Matched on the other party's name, not on `pattern`. */
+  person?: KnownPerson;
 }
 
 /** Key used to learn from user corrections: merchant name when known, else the counterparty, else cleaned narration. */
@@ -431,15 +434,53 @@ export function learningKey(description: string, merchantName?: string | null, c
   return description.toLowerCase().replace(/[0-9]+/g, "").replace(/\s+/g, " ").trim().slice(0, 40);
 }
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The narration with a person's name words taken out, so a name like "Gift" is not read as a purpose. */
+function withoutName(description: string, names: string[]): string {
+  const words = [...new Set(names.flatMap((n) => n.toUpperCase().split(/[^A-Z]+/)).filter((w) => w.length >= 2))];
+  if (!words.length) return description;
+  return description.replace(new RegExp(`\\b(?:${words.map(escapeRe).join("|")})\\b`, "gi"), " ").replace(/\s+/g, " ").trim();
+}
+
 /**
  * Deterministic categorization. Only proposes merchant/category/subcategory; it never sees or
  * returns amount, date or reference, so it cannot alter them.
+ *
+ * Known people (rules with `person`) come after fees, own transfers, lenders and purpose words, and
+ * before everything else: "TO OPAY - OJO GIFT A" is Family / Spouse once the owner said Gift is his wife,
+ * but "SCHOOL FEES TO GIFT" is still Education. Only a confident, unambiguous name match applies.
  */
 export function categorize(
   input: { description: string; type: TransactionType },
   userRules: UserRule[] = [],
   /** Account holder name(s), so transfers between the user's own accounts are not counted as income or spending. */
   owners: string[] = [],
+): Classification {
+  const people = userRules.flatMap((r) => (r.person ? [r.person] : []));
+  if (!people.length) return categorizeRules(input, userRules, owners);
+  const rules = userRules.filter((r) => !r.person);
+  const full = categorizeRules(input, rules, owners);
+  const match = matchPeople(full.counterparty, people);
+  if (match.status !== "match") return full;
+  const person = people.find((p) => p.id === match.personId)!;
+  const personId = person.id;
+  if (full.source === "rule" && ["Fees", "Debt", OWN_TRANSFER].includes(full.category)) return { ...full, personId };
+  const names = [full.counterparty!, person.displayName, ...person.aliases.filter((a) => !a.rejected).map((a) => a.name)];
+  const purpose = categorizeRules({ description: withoutName(input.description, names), type: input.type }, rules.filter((r) => !isNamePattern(r.pattern)), owners);
+  const generic = purpose.category === "Transfers" || purpose.category === "Other" || (purpose.category === INCOME_CATEGORY && purpose.subcategory === "Transfer");
+  if (purpose.source === "user" || (purpose.source === "rule" && purpose.confidence >= 0.9 && !generic)) {
+    return { ...purpose, merchantName: purpose.merchantName ?? person.displayName, counterparty: full.counterparty, personId };
+  }
+  const label = mappingFor(person.relationship, input.type, { category: person.vendorCategory, subcategory: person.vendorSubcategory });
+  if (!label) return { ...full, personId };
+  return { category: label.category, subcategory: label.subcategory ?? undefined, merchantName: person.displayName, counterparty: full.counterparty, source: "user", confidence: 1, personId };
+}
+
+function categorizeRules(
+  input: { description: string; type: TransactionType },
+  userRules: UserRule[],
+  owners: string[],
 ): Classification {
   const desc = input.description.toLowerCase();
   const collapsed = desc.replace(/\s+/g, " ");
