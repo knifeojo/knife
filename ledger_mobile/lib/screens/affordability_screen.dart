@@ -207,6 +207,16 @@ class AffordabilityAnswer extends StatelessWidget {
             _Line('Usual surplus', money(r.monthlySurplusMinor), strong: true),
           ],
         ),
+        if (r.familyObligations.isNotEmpty)
+          _Section(
+            key: const Key('afford-family'),
+            title: 'Family obligations',
+            subtitle: 'What you send family each month. Ledger treats this as a commitment you keep, not something to cut.',
+            rows: [
+              for (final f in r.familyObligations)
+                _Line('${f.label}${f.recurring ? ', every month' : ', in ${f.months} month${f.months == 1 ? '' : 's'}'}', money(f.monthlyMinor)),
+            ],
+          ),
         _Section(
           title: '${formatDay(r.windowFrom)} to ${formatDay(r.windowTo.subtract(const Duration(milliseconds: 1)))}',
           rows: [
@@ -293,7 +303,7 @@ class _Line {
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.title, this.subtitle, required this.rows});
+  const _Section({super.key, required this.title, this.subtitle, required this.rows});
 
   final String title;
   final String? subtitle;
