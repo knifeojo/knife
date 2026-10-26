@@ -136,12 +136,25 @@ function wordScore(c: string, a: string): number {
 }
 
 /**
+ * Narration cleanup rejoins a lone trailing letter to the word before it (PDF line wraps), so
+ * "OJO GIFT A" arrives as "OJO GIFTA". Split it back when the letter is another known name's initial.
+ */
+function unglue(c: string[], a: string[]): string[] {
+  return c.flatMap((w) => {
+    if (w.length < 4 || a.includes(w)) return [w];
+    const head = w.slice(0, -1), tail = w.slice(-1);
+    return a.includes(head) && a.some((x) => x !== head && x[0] === tail && !c.includes(x)) ? [head, tail] : [w];
+  });
+}
+
+/**
  * How sure Ledger is that `candidate` (as a bank wrote it) is the person saved as `known`, from 0 to 1.
  * Token-set matching: words in any order, cut-off words and initials count for less, words in the
  * narration that the known name lacks count against it, and one word alone is capped below AUTO_MATCH.
  */
 export function nameScore(candidate: string, known: string): number {
-  const c = nameWords(candidate), a = nameWords(known);
+  const a = nameWords(known);
+  const c = unglue(nameWords(candidate), a);
   if (!c.length || !a.length) return 0;
   if (c.join("") === a.join("") || [...c].sort().join(" ") === [...a].sort().join(" ")) return 1;
   const pairs: { i: number; j: number; s: number }[] = [];
@@ -211,7 +224,8 @@ export function matchPeople(name: string | null | undefined, people: readonly Kn
   const candidates = scored.filter((s) => s.confidence >= REVIEW_MATCH);
   const [best, second] = scored;
   if (!best || best.confidence < REVIEW_MATCH) return { status: "none", confidence: best?.confidence ?? 0, candidates: [] };
-  const clear = !second || best.confidence - second.confidence >= MARGIN;
+  // A spelling the owner saved (score 1) wins unless another person has it too.
+  const clear = !second || best.confidence - second.confidence >= MARGIN - 1e-9 || (best.confidence === 1 && second.confidence < 1);
   if (best.confidence >= AUTO_MATCH && clear) return { status: "match", personId: best.personId, confidence: best.confidence, candidates };
   return { status: "ambiguous", confidence: best.confidence, candidates };
 }

@@ -157,16 +157,19 @@ async function relabel(
   for (const row of rows) {
     const wasLinked = !!row.personId && linked.has(row.personId);
     const matched = matchPeople(row.counterparty, people).personId === personId;
-    if (!wasLinked && !matched) continue;
+    // Someone new can make another person's name ambiguous ("Tunde Ojo" once two Tundes are known).
+    const other = row.personId && !wasLinked ? people.find((p) => p.id === row.personId) : undefined;
+    if (!wasLinked && !matched && !other) continue;
     const type = row.type as "DEBIT" | "CREDIT";
     const c = categorize({ description: row.description, type }, rules, owners);
-    const fromPrevious = wasLinked && previous.some((s) => sameLabel(row, labelFor(s, type)));
+    if (other && c.personId === other.id) continue;
+    const fromPrevious = (wasLinked && previous.some((s) => sameLabel(row, labelFor(s, type)))) || (!!other && sameLabel(row, labelFor(other, type)));
     const fromRetired = row.classificationSource === "user" && retired.some((r) => sameLabel(row, { category: r.category!, subcategory: r.subcategory }));
     const ownLabel = row.classificationSource === "pair" || (row.classificationSource === "user" && !fromPrevious && !fromRetired);
 
     let next: Omit<RowBefore, "id">;
     if (ownLabel) {
-      next = { ...row, personId: c.personId === personId ? personId : null };
+      next = { ...row, personId: c.personId ?? null };
     } else if (c.personId === personId || !matched) {
       next = {
         category: c.category, subcategory: c.subcategory ?? null, merchantName: c.merchantName ?? row.merchantName,
