@@ -10,6 +10,8 @@ import { ALL_CATEGORIES } from "@/core/categorize";
 import { NotFoundError, monthPeriod, recategorize } from "@/core/analytics";
 import { reapplyCategories, reapplyMessage, syncEmailSource } from "@/core/ledger";
 import { QUESTION_KINDS, answerQuestion, askAgain, type QuestionKind } from "@/core/review";
+import { PeopleInputError, PersonNotFoundError, addPeopleFromText, createPerson, deletePerson, mergePeople, undoPeopleBatch, updatePerson, type PersonPatch } from "@/core/people";
+import { isRelationship } from "@/core/people-match";
 import { AI_FEATURES, aiAllowed, configFor, parseRoute, routingFor, setUserPrefs, type AiPrefs } from "@/core/ai/client";
 import { aiClassifier, llmFor, suggestCategories, suggestInBackground } from "@/core/ai/categorizer";
 import { SuggestionNotFoundError, confirmSuggestion, dismissSuggestion } from "@/core/ai/suggestions";
@@ -164,8 +166,98 @@ export async function answerQuestionAction(form: FormData) {
   const value = String(form.get("value"));
   const text = String(form.get("otherText") ?? "").slice(0, 60);
   if (value === "other" && !text.trim()) return;
-  await answerQuestion(user.id, kind, String(form.get("key")).slice(0, 120), value, value === "other" ? { text, category: String(form.get("otherCategory") ?? "") || undefined } : undefined);
+  const vendorCategory = String(form.get("vendorCategory") ?? "");
+  const vendor = value === "rel:vendor" && ALL_CATEGORIES.includes(vendorCategory)
+    ? { text: "", category: vendorCategory, subcategory: String(form.get("vendorSubcategory") ?? "").slice(0, 40) || undefined }
+    : undefined;
+  await answerQuestion(user.id, kind, String(form.get("key")).slice(0, 120), value, value === "other" ? { text, category: String(form.get("otherCategory") ?? "") || undefined } : vendor);
   revalidatePath("/app", "layout");
+}
+
+// ---- Your people ----
+
+const field = (form: FormData, name: string, max = 80) => String(form.get(name) ?? "").trim().slice(0, max);
+const peopleDone = () => revalidatePath("/app", "layout");
+
+/** "My wife is Gift Adebayo Ojo" lines. Lines Ledger could not read come back in the URL to fix. */
+export async function addPeopleTextAction(form: FormData) {
+  const user = await requireUser();
+  const text = String(form.get("text") ?? "").slice(0, 2000);
+  if (!text.trim()) return;
+  const res = await addPeopleFromText(user.id, text);
+  peopleDone();
+  const q = new URLSearchParams({ added: String(res.added.length), updated: String(res.added.reduce((t, a) => t + a.changed, 0)) });
+  if (res.unread.length) q.set("unread", res.unread.join("\n").slice(0, 500));
+  redirect(`/app/people?${q}`);
+}
+
+export async function addPersonAction(form: FormData) {
+  const user = await requireUser();
+  const relationship = field(form, "relationship", 20);
+  const displayName = field(form, "displayName");
+  if (!displayName || !isRelationship(relationship)) return;
+  const vendorCategory = field(form, "vendorCategory", 40);
+  await createPerson(user.id, {
+    displayName, relationship, note: field(form, "note", 120) || null,
+    ...(relationship === "vendor" && ALL_CATEGORIES.includes(vendorCategory) && { vendorCategory, vendorSubcategory: field(form, "vendorSubcategory", 40) || null }),
+  });
+  peopleDone();
+}
+
+export async function updatePersonAction(form: FormData) {
+  const user = await requireUser();
+  const id = field(form, "id", 40);
+  const patch: PersonPatch = {};
+  const relationship = field(form, "relationship", 20);
+  if (isRelationship(relationship)) patch.relationship = relationship;
+  if (form.has("note")) patch.note = field(form, "note", 120) || null;
+  if (form.has("vendorCategory")) {
+    const c = field(form, "vendorCategory", 40);
+    patch.vendorCategory = ALL_CATEGORIES.includes(c) ? c : null;
+    patch.vendorSubcategory = field(form, "vendorSubcategory", 40) || null;
+  }
+  const alias = field(form, "alias");
+  const aliasOp = field(form, "aliasOp", 10);
+  if (alias && aliasOp === "add") patch.addAliases = [alias];
+  if (alias && aliasOp === "reject") patch.rejectAliases = [alias];
+  if (alias && aliasOp === "remove") patch.removeAliases = [alias];
+  if (!Object.keys(patch).length) return;
+  try {
+    await updatePerson(user.id, id, patch);
+  } catch (e) {
+    if (!(e instanceof PersonNotFoundError || e instanceof PeopleInputError)) throw e;
+  }
+  peopleDone();
+}
+
+export async function mergePeopleAction(form: FormData) {
+  const user = await requireUser();
+  try {
+    await mergePeople(user.id, field(form, "targetId", 40), field(form, "sourceId", 40));
+  } catch (e) {
+    if (!(e instanceof PersonNotFoundError || e instanceof PeopleInputError)) throw e;
+  }
+  peopleDone();
+}
+
+export async function deletePersonAction(form: FormData) {
+  const user = await requireUser();
+  try {
+    await deletePerson(user.id, field(form, "id", 40));
+  } catch (e) {
+    if (!(e instanceof PersonNotFoundError)) throw e;
+  }
+  peopleDone();
+}
+
+export async function undoPeopleAction(form: FormData) {
+  const user = await requireUser();
+  try {
+    await undoPeopleBatch(user.id, field(form, "batchId", 40) || undefined);
+  } catch (e) {
+    if (!(e instanceof PersonNotFoundError || e instanceof PeopleInputError)) throw e;
+  }
+  peopleDone();
 }
 
 export async function askAgainAction(form: FormData) {

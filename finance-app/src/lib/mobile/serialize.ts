@@ -1,6 +1,7 @@
 import type { Account, Transaction } from "@prisma/client";
 import { cadenceOf, type CadenceIndex } from "@/core/cadence";
 import type { SuggestionGroup } from "@/core/ai/suggestions";
+import type { PeopleOverview, PersonSummary } from "@/core/people";
 
 type TxWithAccount = Transaction & {
   account?: Pick<Account, "accountName" | "institution" | "maskedAccountNumber"> | null;
@@ -64,4 +65,29 @@ export function suggestionJson(g: SuggestionGroup) {
     examples: g.examples,
     classificationSource: "ai",
   };
+}
+
+/** A person on "Your people", money as minor-unit strings. */
+export function personJson(p: PersonSummary) {
+  return {
+    id: p.id,
+    displayName: p.displayName,
+    relationship: p.relationship,
+    relationshipLabel: p.relationshipLabel,
+    note: p.note,
+    vendorCategory: p.vendorCategory,
+    vendorSubcategory: p.vendorSubcategory,
+    aliases: p.aliases,
+    category: p.category,
+    subcategory: p.subcategory,
+    count: p.count,
+    inMinor: minor(p.inMinor),
+    outMinor: minor(p.outMinor),
+    lastDate: p.lastDate,
+    months: p.months.map((m) => ({ month: m.month, inMinor: minor(m.inMinor), outMinor: minor(m.outMinor) })),
+  };
+}
+
+export function peopleJson(o: PeopleOverview) {
+  return { people: o.people.map(personJson), undo: o.undo ?? null };
 }

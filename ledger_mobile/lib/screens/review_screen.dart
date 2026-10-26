@@ -5,6 +5,7 @@ import '../api/models.dart';
 import '../format.dart';
 import '../state/ledger_controller.dart';
 import '../widgets/common.dart';
+import 'people_screen.dart';
 
 /// Opens Review. Resolves to true when at least one answer was saved, so the caller can reload its figures.
 Future<bool> openReview(BuildContext context) async {
@@ -46,7 +47,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
   }
 
-  Future<void> _answer(ReviewQuestion q, String value, {String? otherText, String? otherCategory}) async {
+  Future<void> _answer(ReviewQuestion q, String value, {String? otherText, String? otherCategory, String? vendorCategory, String? vendorSubcategory}) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -56,11 +57,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
         value: value,
         otherText: otherText,
         otherCategory: otherCategory,
+        vendorCategory: vendorCategory,
+        vendorSubcategory: vendorSubcategory,
       );
       _changed = true;
-      messenger.showSnackBar(
-        SnackBar(content: Text(value == 'unknown' ? 'Ledger will not ask about this again.' : 'Saved. $updated payment${updated == 1 ? '' : 's'} relabelled.')),
-      );
+      final relabelled = '$updated payment${updated == 1 ? '' : 's'} relabelled.';
+      final message = switch (value) {
+        'unknown' => 'Ledger will not ask about this again.',
+        'not_person' => 'Ledger will not ask about this name as a person again.',
+        _ when value.startsWith('rel:') => 'Saved to Your people. $relabelled You can change it or undo it there.',
+        _ => 'Saved. $relabelled',
+      };
+      messenger.showSnackBar(SnackBar(content: Text(message)));
       await _load();
     } on ApiException catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(error.message)));
@@ -95,6 +103,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
     await _answer(q, 'other', otherText: result.text, otherCategory: result.category);
   }
 
+  Future<void> _vendor(ReviewQuestion q, List<String> categories) async {
+    final result = await showDialog<({String category, String? what})>(
+      context: context,
+      builder: (_) => VendorDialog(categories: categories),
+    );
+    if (result == null) return;
+    await _answer(q, 'rel:vendor', vendorCategory: result.category, vendorSubcategory: result.what);
+  }
+
+  Future<void> _openPeople() async {
+    final changed = await openPeople(context);
+    if (changed) {
+      _changed = true;
+      await _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final queue = _queue;
@@ -104,7 +129,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
         if (!didPop) Navigator.of(context).pop(_changed);
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('Review')),
+        appBar: AppBar(
+          title: const Text('Review'),
+          actions: [IconButton(key: const Key('review-people'), tooltip: 'Your people', icon: const Icon(Icons.people_outline), onPressed: _openPeople)],
+        ),
         body: RefreshIndicator(
           onRefresh: _load,
           child: ListView(
@@ -130,6 +158,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     busy: _busy,
                     onAnswer: (value, {otherText, otherCategory}) => _answer(q, value, otherText: otherText, otherCategory: otherCategory),
                     onOther: () => _other(q, queue.categories),
+                    onVendor: () => _vendor(q, queue.categories),
                     onSuggestion: _suggestion,
                   ),
               if (queue != null && queue.suggestions.isNotEmpty) ...[
@@ -247,6 +276,7 @@ class ReviewQuestionCard extends StatelessWidget {
     required this.busy,
     required this.onAnswer,
     required this.onOther,
+    this.onVendor,
     this.onSuggestion,
   });
 
@@ -256,6 +286,9 @@ class ReviewQuestionCard extends StatelessWidget {
   final bool busy;
   final ReviewAnswer onAnswer;
   final VoidCallback onOther;
+
+  /// "Vendor / service provider": asks what they are paid for, then answers rel:vendor.
+  final VoidCallback? onVendor;
   final SuggestionAnswer? onSuggestion;
 
   @override
@@ -263,6 +296,15 @@ class ReviewQuestionCard extends StatelessWidget {
     final theme = Theme.of(context);
     final q = question;
     final examples = q.examples;
+    if (q.isPerson) {
+      return Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: PersonQuestionBody(question: q, index: index, total: total, busy: busy, onAnswer: onAnswer, onOther: onOther, onVendor: onVendor),
+        ),
+      );
+    }
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -337,6 +379,207 @@ class ReviewQuestionCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// "Paid out ₦50,000 in 4 · Received ₦10,000 in 1 · last 2026-09-30".
+class PersonStatsLine extends StatelessWidget {
+  const PersonStatsLine({super.key, required this.stats});
+
+  final PersonStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = stats;
+    final parts = [
+      if (s.outCount > 0) 'Paid out ${formatMinor(s.outMinor)} in ${s.outCount}',
+      if (s.inCount > 0) 'Received ${formatMinor(s.inMinor)} in ${s.inCount}',
+      if (s.lastDate.isNotEmpty) 'last ${s.lastDate}',
+    ];
+    return Text(parts.join(' · '), style: Theme.of(context).textTheme.bodySmall);
+  }
+}
+
+/// "Who is NAME to you?": one tap per relationship, the AI's guess highlighted, the rarer answers
+/// behind "Someone else…", and Skip / Not a person.
+class PersonQuestionBody extends StatefulWidget {
+  const PersonQuestionBody({
+    super.key,
+    required this.question,
+    required this.index,
+    required this.total,
+    required this.busy,
+    required this.onAnswer,
+    required this.onOther,
+    this.onVendor,
+  });
+
+  final ReviewQuestion question;
+  final int index;
+  final int total;
+  final bool busy;
+  final ReviewAnswer onAnswer;
+  final VoidCallback onOther;
+  final VoidCallback? onVendor;
+
+  @override
+  State<PersonQuestionBody> createState() => _PersonQuestionBodyState();
+}
+
+class _PersonQuestionBodyState extends State<PersonQuestionBody> {
+  bool _more = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final q = widget.question;
+    final busy = widget.busy;
+    final stats = q.person!;
+    final relationships = q.options.where((o) => o.group == 'relationship' && o.value != 'rel:other').toList();
+    final other = q.options.where((o) => o.value == 'rel:other');
+    final more = q.options.where((o) => o.group == 'more');
+    final control = q.options.where((o) => o.group == 'control');
+    final aiPick = q.aiRelationship == null ? null : 'rel:${q.aiRelationship}';
+    final aiOption = relationships.where((o) => o.value == aiPick).firstOrNull;
+
+    void tap(ReviewOption o) {
+      if (o.value == 'rel:vendor' && widget.onVendor != null) {
+        widget.onVendor!();
+      } else {
+        widget.onAnswer(o.value);
+      }
+    }
+
+    Widget button(ReviewOption o) {
+      final key = Key('rel-${o.value.substring(4)}');
+      final label = Text(o.label);
+      if (o.value == aiPick) return FilledButton(key: key, onPressed: busy ? null : () => tap(o), child: label);
+      return OutlinedButton(key: key, onPressed: busy ? null : () => tap(o), child: label);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Question ${widget.index + 1} of ${widget.total} · about a person', style: theme.textTheme.labelSmall),
+        const SizedBox(height: 4),
+        Text(q.title, style: theme.textTheme.titleMedium),
+        const SizedBox(height: 4),
+        Text(q.prompt, style: theme.textTheme.bodyMedium),
+        const SizedBox(height: 6),
+        PersonStatsLine(key: Key('person-stats-${q.key}'), stats: stats),
+        if (stats.variants.length > 1) ...[
+          const SizedBox(height: 4),
+          Text('Also written as: ${stats.variants.skip(1).join(', ')}', style: theme.textTheme.bodySmall),
+        ],
+        if (q.examples.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text('What your bank wrote', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 4),
+          for (final e in q.examples)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(6)),
+              child: SelectableText(e, style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),
+            ),
+        ],
+        if (aiOption != null) ...[
+          const SizedBox(height: 6),
+          Text('AI thinks: ${aiOption.label}. Tap it to confirm.', key: Key('ai-relationship-${q.key}'), style: theme.textTheme.labelSmall),
+        ],
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, children: [for (final o in relationships) button(o)]),
+        const SizedBox(height: 4),
+        if (!_more)
+          TextButton(key: Key('someone-else-${q.key}'), onPressed: busy ? null : () => setState(() => _more = true), child: const Text('Someone else…'))
+        else ...[
+          const SizedBox(height: 6),
+          Text('Someone else', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final o in other) button(o),
+              for (final o in more) OutlinedButton(onPressed: busy ? null : () => widget.onAnswer(o.value), child: Text(o.label)),
+              TextButton(key: Key('other-${q.key}'), onPressed: busy ? null : widget.onOther, child: const Text('Other… type your own answer')),
+            ],
+          ),
+        ],
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final o in control)
+              TextButton(
+                key: Key('${o.value == 'not_person' ? 'not-person' : 'skip'}-${q.key}'),
+                onPressed: busy ? null : () => widget.onAnswer(o.value),
+                child: Text(o.label),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// "What do you pay them for?" for a vendor: a category, and optionally the service.
+class VendorDialog extends StatefulWidget {
+  const VendorDialog({super.key, required this.categories});
+
+  final List<String> categories;
+
+  @override
+  State<VendorDialog> createState() => _VendorDialogState();
+}
+
+class _VendorDialogState extends State<VendorDialog> {
+  final _what = TextEditingController();
+  String? _category;
+
+  @override
+  void dispose() {
+    _what.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('What do you pay them for?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<String>(
+            key: const Key('vendor-category'),
+            initialValue: _category,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Category'),
+            items: [for (final c in widget.categories) DropdownMenuItem<String>(value: c, child: Text(c))],
+            onChanged: (value) => setState(() => _category = value),
+          ),
+          TextField(
+            key: const Key('vendor-what'),
+            controller: _what,
+            maxLength: 40,
+            decoration: const InputDecoration(labelText: 'What for (optional)', hintText: 'e.g. tailor, driver, hair'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        FilledButton(
+          key: const Key('vendor-save'),
+          onPressed: _category == null
+              ? null
+              : () {
+                  final what = _what.text.trim();
+                  Navigator.of(context).pop((category: _category!, what: what.isEmpty ? null : what));
+                },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

@@ -526,12 +526,16 @@ class HomeSummary {
 }
 
 class ReviewOption {
-  const ReviewOption({required this.value, required this.label, required this.category, this.subcategory});
+  const ReviewOption({required this.value, required this.label, required this.category, this.subcategory, this.group});
 
   final String value;
   final String label;
   final String category;
   final String? subcategory;
+
+  /// "relationship" (one-tap answers about a person), "more" (behind Someone else), "control" (Skip,
+  /// Not a person), or null for other questions and older servers.
+  final String? group;
 
   factory ReviewOption.fromJson(Map<String, dynamic> json) {
     return ReviewOption(
@@ -539,6 +543,34 @@ class ReviewOption {
       label: _string(json, 'label'),
       category: _string(json, 'category'),
       subcategory: _optionalString(json, 'subcategory'),
+      group: _optionalString(json, 'group'),
+    );
+  }
+}
+
+/// Money both ways with one individual, for "Who is NAME to you?".
+class PersonStats {
+  const PersonStats({required this.inCount, required this.inMinor, required this.outCount, required this.outMinor, required this.lastDate, required this.variants});
+
+  final int inCount;
+  final String inMinor;
+  final int outCount;
+  final String outMinor;
+
+  /// YYYY-MM-DD.
+  final String lastDate;
+
+  /// Every spelling the bank used.
+  final List<String> variants;
+
+  factory PersonStats.fromJson(Map<String, dynamic> json) {
+    return PersonStats(
+      inCount: _int(json, 'inCount'),
+      inMinor: _minor(json, 'inMinor'),
+      outCount: _int(json, 'outCount'),
+      outMinor: _minor(json, 'outMinor'),
+      lastDate: _string(json, 'lastDate'),
+      variants: _optionalStringList(json, 'variants'),
     );
   }
 }
@@ -768,6 +800,8 @@ class ReviewQuestion {
     required this.narrationHints,
     required this.allowsOther,
     this.aiSuggestion,
+    this.person,
+    this.aiRelationship,
   });
 
   final String kind;
@@ -788,6 +822,14 @@ class ReviewQuestion {
   /// The AI's pick for this payee, shown pre-selected. Null on servers without AI.
   final AiSuggestion? aiSuggestion;
 
+  /// Set for questions about an individual. Null on older servers.
+  final PersonStats? person;
+
+  /// The relationship the AI proposes ("spouse"). The owner confirms by tapping it.
+  final String? aiRelationship;
+
+  bool get isPerson => person != null && options.any((o) => o.group == 'relationship');
+
   factory ReviewQuestion.fromJson(Map<String, dynamic> json) {
     return ReviewQuestion(
       kind: _string(json, 'kind'),
@@ -803,6 +845,8 @@ class ReviewQuestion {
       narrationHints: _optionalList(json, 'narrationHints').map(NarrationHint.fromJson).toList(),
       allowsOther: json['allowsOther'] != false,
       aiSuggestion: json['aiSuggestion'] == null ? null : AiSuggestion.fromJson(_map(json, 'aiSuggestion')),
+      person: json['person'] == null ? null : PersonStats.fromJson(_map(json, 'person')),
+      aiRelationship: _optionalString(json, 'aiRelationship'),
     );
   }
 }
@@ -825,6 +869,145 @@ class ReviewQueue {
       suggestions: _optionalList(json, 'suggestions').map(AiSuggestion.fromJson).toList(),
     );
   }
+}
+
+/// A relationship the owner can pick: value "spouse", label "Spouse / partner".
+class RelationshipChoice {
+  const RelationshipChoice({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  factory RelationshipChoice.fromJson(Map<String, dynamic> json) => RelationshipChoice(value: _string(json, 'value'), label: _string(json, 'label'));
+}
+
+class PersonMonth {
+  const PersonMonth({required this.month, required this.inMinor, required this.outMinor});
+
+  /// "2026-09".
+  final String month;
+  final String inMinor;
+  final String outMinor;
+
+  factory PersonMonth.fromJson(Map<String, dynamic> json) =>
+      PersonMonth(month: _string(json, 'month'), inMinor: _minor(json, 'inMinor'), outMinor: _minor(json, 'outMinor'));
+}
+
+class PersonAlias {
+  const PersonAlias({required this.name, required this.rejected});
+
+  final String name;
+
+  /// The owner said this spelling is someone else.
+  final bool rejected;
+
+  factory PersonAlias.fromJson(Map<String, dynamic> json) => PersonAlias(name: _string(json, 'name'), rejected: json['rejected'] == true);
+}
+
+/// Someone on "Your people".
+class Person {
+  const Person({
+    required this.id,
+    required this.displayName,
+    required this.relationship,
+    required this.relationshipLabel,
+    this.note,
+    this.vendorCategory,
+    this.vendorSubcategory,
+    required this.aliases,
+    this.category,
+    this.subcategory,
+    required this.count,
+    required this.inMinor,
+    required this.outMinor,
+    this.lastDate,
+    required this.months,
+  });
+
+  final String id;
+  final String displayName;
+  final String relationship;
+  final String relationshipLabel;
+  final String? note;
+  final String? vendorCategory;
+  final String? vendorSubcategory;
+  final List<PersonAlias> aliases;
+
+  /// The label payments to them get, e.g. Family / Spouse. Null for "Someone else".
+  final String? category;
+  final String? subcategory;
+  final int count;
+  final String inMinor;
+  final String outMinor;
+  final String? lastDate;
+
+  /// Newest first.
+  final List<PersonMonth> months;
+
+  String? get label => category == null ? null : (subcategory == null ? category : '$category / $subcategory');
+
+  factory Person.fromJson(Map<String, dynamic> json) {
+    return Person(
+      id: _string(json, 'id'),
+      displayName: _string(json, 'displayName'),
+      relationship: _string(json, 'relationship'),
+      relationshipLabel: _string(json, 'relationshipLabel'),
+      note: _optionalString(json, 'note'),
+      vendorCategory: _optionalString(json, 'vendorCategory'),
+      vendorSubcategory: _optionalString(json, 'vendorSubcategory'),
+      aliases: _optionalList(json, 'aliases').map(PersonAlias.fromJson).toList(),
+      category: _optionalString(json, 'category'),
+      subcategory: _optionalString(json, 'subcategory'),
+      count: _int(json, 'count'),
+      inMinor: _minor(json, 'inMinor'),
+      outMinor: _minor(json, 'outMinor'),
+      lastDate: _optionalString(json, 'lastDate'),
+      months: _optionalList(json, 'months').map(PersonMonth.fromJson).toList(),
+    );
+  }
+}
+
+/// The newest People change, while it can still be undone.
+class PeopleUndo {
+  const PeopleUndo({required this.batchId, required this.label, required this.changed});
+
+  final String batchId;
+  final String label;
+  final int changed;
+
+  factory PeopleUndo.fromJson(Map<String, dynamic> json) =>
+      PeopleUndo(batchId: _string(json, 'batchId'), label: _string(json, 'label'), changed: _int(json, 'changed'));
+}
+
+class PeopleList {
+  const PeopleList({required this.people, this.undo, this.relationships = const [], this.categories = const [], this.unread = const []});
+
+  final List<Person> people;
+  final PeopleUndo? undo;
+  final List<RelationshipChoice> relationships;
+  final List<String> categories;
+
+  /// Lines of "My wife is …" text the server could not read.
+  final List<String> unread;
+
+  factory PeopleList.fromJson(Map<String, dynamic> json) {
+    return PeopleList(
+      people: _list(json, 'people').map(Person.fromJson).toList(),
+      undo: json['undo'] == null ? null : PeopleUndo.fromJson(_map(json, 'undo')),
+      relationships: _optionalList(json, 'relationships').map(RelationshipChoice.fromJson).toList(),
+      categories: _optionalStringList(json, 'categories'),
+      unread: _optionalStringList(json, 'unread'),
+    );
+  }
+
+  /// Keeps the relationship and category lists from GET when a write returns only people.
+  PeopleList withChoicesFrom(PeopleList? previous) => PeopleList(
+        people: people,
+        undo: undo,
+        relationships: relationships.isNotEmpty ? relationships : previous?.relationships ?? const [],
+        categories: categories.isNotEmpty ? categories : previous?.categories ?? const [],
+        unread: unread,
+      );
 }
 
 /// Answer from "Re-run categorization".
@@ -1175,6 +1358,7 @@ class AffordabilityCheck {
     this.oneOffsTotalMinor = '0',
     this.oneOffMinMinor = '0',
     this.oneOffsSince,
+    this.familyObligations = const [],
   });
 
   final String verdict; // yes | stretch | no
@@ -1210,6 +1394,9 @@ class AffordabilityCheck {
   final String oneOffsTotalMinor;
   final String oneOffMinMinor;
   final DateTime? oneOffsSince;
+
+  /// Family support by kind (Spouse, Black tax…). An obligation, never a cut. Empty on older servers.
+  final List<FamilyObligation> familyObligations;
 
   factory AffordabilityCheck.fromJson(Map<String, dynamic> json) {
     final window = _map(json, 'window');
@@ -1254,8 +1441,25 @@ class AffordabilityCheck {
       oneOffsTotalMinor: _optionalMinor(inputs, 'oneOffsTotalMinor') ?? '0',
       oneOffMinMinor: _optionalMinor(inputs, 'oneOffMinMinor') ?? '0',
       oneOffsSince: _optionalDate(inputs, 'oneOffsSince'),
+      familyObligations: _optionalList(inputs, 'familyObligations').map(FamilyObligation.fromJson).toList(),
     );
   }
+}
+
+class FamilyObligation {
+  const FamilyObligation({required this.label, required this.monthlyMinor, required this.months, required this.recurring});
+
+  final String label;
+  final String monthlyMinor;
+  final int months;
+  final bool recurring;
+
+  factory FamilyObligation.fromJson(Map<String, dynamic> json) => FamilyObligation(
+        label: _string(json, 'label'),
+        monthlyMinor: _minor(json, 'monthlyMinor'),
+        months: _int(json, 'months'),
+        recurring: json['recurring'] == true,
+      );
 }
 
 class ApiException implements Exception {

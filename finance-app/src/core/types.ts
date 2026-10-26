@@ -52,6 +52,8 @@ export interface Classification {
   counterparty?: string;
   source: "rule" | "user" | "ai" | "default";
   confidence: number;
+  /** The known person on the other side, when the name matched one confidently. */
+  personId?: string;
 }
 
 export interface BankAlertParser {

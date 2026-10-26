@@ -5,6 +5,7 @@ import '../api/models.dart';
 import '../server_url.dart';
 import '../state/ledger_controller.dart';
 import 'loans_screen.dart';
+import 'people_screen.dart';
 import 'review_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -50,6 +51,12 @@ class SettingsScreen extends StatelessWidget {
           const Text('Statements show repayments, not what is left. Enter the balance from your loan app so Afford can use it.'),
           const SizedBox(height: 8),
           OutlinedButton(key: const Key('settings-loans'), onPressed: () => openLoans(context), child: const Text('Your loans')),
+          const SizedBox(height: 24),
+          Text('People', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          const Text('Statements show names, not relationships. Tell Ledger who your family and regular contacts are and their payments are labelled for good.'),
+          const SizedBox(height: 8),
+          OutlinedButton(key: const Key('settings-people'), onPressed: () => openPeople(context), child: const Text('Your people')),
           const SizedBox(height: 24),
           OutlinedButton(onPressed: controller.signOut, child: const Text('Sign out')),
           const SizedBox(height: 8),

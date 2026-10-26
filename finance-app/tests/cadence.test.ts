@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { db } from "@/lib/db";
 import { issueSession } from "@/lib/auth";
 import { importStatement } from "@/core/statement-import";
@@ -13,6 +13,15 @@ import { POST as categorizePost } from "@/app/api/v1/categorize/route";
 // Synthetic figures only. ₦ amounts are converted to kobo with BigInt.
 const N = (naira: number) => BigInt(naira) * 100n;
 const NOW = new Date("2026-10-10T09:00:00Z");
+
+/** The API routes read the clock and these fixtures have fixed dates, so tests that call them pin it. Only Date is faked. */
+function pinClock(now: Date) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
+}
 
 describe("cadence: the rule", () => {
   const stream = (id: string, category: string, type: "DEBIT" | "CREDIT" = "DEBIT"): RecurringItem => ({
@@ -311,6 +320,7 @@ describe("matched payees, recurring by name, and the everyday drill-down", () =>
   });
 
   it("the mobile API adds payees, named recurring groups, cadence=everyday, Review and Re-run without changing existing fields", async () => {
+    pinClock(NOW);
     const user = await db.user.create({ data: { email: "payees-api@test.dev" } });
     await importStatement(user.id, { name: "synthetic.csv", bytes: Buffer.from(PERSON_CSV) });
     const { token } = await issueSession(user.id);

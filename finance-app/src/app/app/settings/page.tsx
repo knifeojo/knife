@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
@@ -30,6 +31,12 @@ export default async function Settings() {
           <div><dt className="text-xs text-ink-3">Name</dt><dd>{user.name ?? "Not set"}</dd></div>
           <div><dt className="text-xs text-ink-3">Email</dt><dd className="truncate">{user.isDemo ? "Demo account" : user.email}</dd></div>
         </dl>
+      </Card>
+      <Card title="Your people">
+        <p className="text-sm text-ink-2">
+          Family, friends and people you pay. Their relationship decides how payments with them are labelled (spouse, siblings, parents, black tax, your own other account), ahead of the AI.
+        </p>
+        <Link href="/app/people" className="btn btn-secondary h-9 text-sm mt-3" data-testid="settings-people">Manage your people</Link>
       </Card>
       <Card title="AI">
         <p className="text-sm text-ink-2">

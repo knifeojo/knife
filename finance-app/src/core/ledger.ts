@@ -6,6 +6,7 @@ import { accountKey, computeFingerprint, findFuzzyMatch } from "./dedup";
 import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
 import { BANK_SOURCES, INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
+import type { KnownPerson } from "./people-match";
 import { pairOwnTransfers } from "./transfers";
 import type { CanonicalTransaction } from "./types";
 
@@ -19,11 +20,27 @@ export async function loadOwners(userId: string): Promise<string[]> {
   return [...new Set(accts.map((a) => a.holderName!))];
 }
 
+/** The owner's learned rules (MerchantAlias) plus the people they told Ledger about. */
 export async function loadUserRules(userId: string): Promise<UserRule[]> {
-  return db.merchantAlias.findMany({
+  const [aliases, people] = await Promise.all([
+    db.merchantAlias.findMany({
+      where: { userId },
+      select: { pattern: true, canonicalName: true, category: true, subcategory: true },
+    }),
+    loadKnownPeople(userId),
+  ]);
+  return [...aliases, ...people.map((p) => ({ pattern: `person:${p.id}`, canonicalName: p.displayName, category: null, subcategory: null, person: p }))];
+}
+
+export async function loadKnownPeople(userId: string): Promise<KnownPerson[]> {
+  const rows = await db.person.findMany({
     where: { userId },
-    select: { pattern: true, canonicalName: true, category: true, subcategory: true },
+    orderBy: { createdAt: "asc" },
+    include: { aliases: { select: { name: true, key: true, rejected: true } } },
   });
+  return rows.map((p) => ({
+    id: p.id, displayName: p.displayName, relationship: p.relationship, vendorCategory: p.vendorCategory, vendorSubcategory: p.vendorSubcategory, aliases: p.aliases,
+  }));
 }
 
 async function upsertAccount(userId: string, tx: CanonicalTransaction) {
@@ -90,6 +107,7 @@ async function enrich(userId: string, transactionId: string, tx: CanonicalTransa
       reference: existing.reference ?? tx.reference,
       counterparty: c.counterparty ?? (c.category === "Fees" ? null : existing.counterparty),
       merchantName: c.merchantName ?? existing.merchantName,
+      personId: c.personId ?? existing.personId,
       ...(keepLabel ? {} : { category: c.category, subcategory: c.subcategory ?? null, classificationSource: c.source, classificationConfidence: c.confidence }),
     },
   });
@@ -165,6 +183,7 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
         subcategory: c.subcategory,
         classificationSource: c.source,
         classificationConfidence: c.confidence,
+        personId: c.personId,
         parseConfidence: tx.confidence,
         sources: {
           create: { userId, source: tx.source, sourceTransactionId: tx.sourceTransactionId, matchType: "created" },
@@ -311,6 +330,7 @@ export async function reapplyCategories(userId: string): Promise<{ checked: numb
       counterparty: c.counterparty ?? null,
       classificationSource: c.source,
       classificationConfidence: c.confidence,
+      personId: c.personId ?? null,
     };
     if (Object.entries(next).some(([k, v]) => (t as Record<string, unknown>)[k] !== v)) {
       await db.transaction.update({ where: { id: t.id }, data: next });

@@ -20,7 +20,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const txCount = await db.transaction.count({ where: { userId: user.id } });
   if (txCount === 0) return <Onboarding />;
 
-  const [s, bal, cats, trend, recent, bills, big, lastConn, sources, questions, cadence] = await Promise.all([
+  const [s, bal, cats, trend, recent, bills, big, lastConn, sources, questions, cadence, peopleCount] = await Promise.all([
     summary(user.id, period),
     balances(user.id),
     spendingByCategory(user.id, period),
@@ -32,7 +32,9 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     incomeSources(user.id, period),
     user.isDemo ? Promise.resolve([]) : buildQuestions(user.id),
     loadCadence(user.id, now),
+    db.person.count({ where: { userId: user.id } }),
   ]);
+  const peopleAsked = questions.filter((q) => q.person).length;
   const latestBalanceDate = bal.accounts.reduce<Date | null>((d, a) => (a.balanceUpdatedAt && (!d || a.balanceUpdatedAt > d) ? a.balanceUpdatedAt : d), null);
 
   return (
@@ -42,6 +44,15 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         subtitle={`Last synced ${relativeTime(lastConn?.lastSyncedAt)}`}
         action={<MonthSwitcher offset={offset} basePath="/app" />}
       />
+
+      {peopleCount === 0 && peopleAsked > 0 && (
+        <Link href="/app/people" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 px-4 py-3 text-sm hover:opacity-90" data-testid="people-onboarding">
+          <span>
+            <strong>Who are your people?</strong> Ledger found {peopleAsked} {peopleAsked === 1 ? "person" : "people"} you send money to. Tell it who your spouse, siblings and parents are, and their payments are labelled for you.
+          </span>
+          <span className="font-medium text-accent">Add your family</span>
+        </Link>
+      )}
 
       {questions.length > 0 && (
         <Link href="/app/review" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-accent-soft px-4 py-3 text-sm hover:opacity-90">

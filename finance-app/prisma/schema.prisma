@@ -36,6 +36,8 @@ model User {
   syncRuns     SyncRun[]
   loans        Loan[]
   suggestions  CategorySuggestion[]
+  people       Person[]
+  peopleBatches PeopleBatch[]
 }
 
 model Session {
@@ -122,6 +124,9 @@ model Transaction {
   // Feeds FX learning before the matching bank credit is imported.
   fxQuoteCurrency          String?
   fxQuoteMinor             BigInt?
+  // The known person on the other side, when the name matched one confidently (see core/people).
+  personId                 String?
+  person                   Person?  @relation(fields: [personId], references: [id], onDelete: SetNull)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
@@ -131,6 +136,66 @@ model Transaction {
   @@unique([userId, fingerprint])
   @@index([userId, transactionDate])
   @@index([userId, category])
+  @@index([userId, personId])
+}
+
+// Someone the owner pays or is paid by, and who they are to the owner. The relationship decides the
+// category of every payment to or from them (core/people-match mappingFor), ahead of the AI.
+model Person {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName       String
+  // spouse | sibling | parent | child | extended | friend | vendor | colleague | me | other
+  relationship      String
+  note              String?
+  // Vendors only: what the owner buys from them.
+  vendorCategory    String?
+  vendorSubcategory String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  aliases      PersonAlias[]
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+// A name as banks write it ("OJO GIFT A", "TRF TO GIFT"). `rejected` records the owner saying that
+// spelling is NOT this person, so fuzzy matching stops proposing it.
+model PersonAlias {
+  id        String   @id @default(cuid())
+  userId    String
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  name      String
+  // Normalized name words, sorted: one row per spelling per person.
+  key       String
+  rejected  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([personId, key])
+  @@index([userId])
+}
+
+// One relabel from a People answer or edit, kept so it can be undone. JSON is stored as text.
+model PeopleBatch {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Not a relation: the person may be deleted by an undo or a merge.
+  personId  String?
+  label     String
+  // [{ id, category, subcategory, classificationSource, classificationConfidence, personId }] as they were before.
+  changes   String
+  // The person (with aliases) before the change, or null when the change created them.
+  before    String?
+  // Name rules from earlier Review answers that this person replaced.
+  removedRules String  @default("[]")
+  createdAt DateTime  @default(now())
+  undoneAt  DateTime?
+
+  @@index([userId, createdAt])
 }
 
 // Every observation of a transaction from any source. Enables dedup audit and future reconciliation.

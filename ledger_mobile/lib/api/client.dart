@@ -68,9 +68,26 @@ class LedgerApi {
     return _parse(_object(_uri('/api/v1/review'), _get), ReviewQueue.fromJson);
   }
 
-  /// Answers one Review question. `value` "other" needs `otherText`; "unknown" is "Can't remember". Returns rows updated.
-  Future<int> answerReview({required String kind, required String key, required String value, String? otherText, String? otherCategory}) async {
-    final body = {'kind': kind, 'key': key, 'value': value, 'otherText': ?otherText, 'otherCategory': ?otherCategory};
+  /// Answers one Review question. `value` "other" needs `otherText`; "unknown" is "Can't remember" / Skip;
+  /// `rel:<relationship>` saves the person ("rel:vendor" takes `vendorCategory`). Returns rows updated.
+  Future<int> answerReview({
+    required String kind,
+    required String key,
+    required String value,
+    String? otherText,
+    String? otherCategory,
+    String? vendorCategory,
+    String? vendorSubcategory,
+  }) async {
+    final body = {
+      'kind': kind,
+      'key': key,
+      'value': value,
+      'otherText': ?otherText,
+      'otherCategory': ?otherCategory,
+      'vendorCategory': ?vendorCategory,
+      'vendorSubcategory': ?vendorSubcategory,
+    };
     final json = await _object(_uri('/api/v1/review'), (uri) => _post(uri, body));
     final updated = json['updated'];
     if (updated is! int) throw const ApiException(0, 'The server did not confirm the answer.');
@@ -130,6 +147,65 @@ class LedgerApi {
       ),
       AffordabilityCheck.fromJson,
     );
+  }
+
+  Future<PeopleList> people() => _people(_parse(_object(_uri('/api/v1/people'), _get), PeopleList.fromJson));
+
+  /// "My wife is Gift Adebayo Ojo", one per line. Lines it could not read come back in `unread`.
+  Future<PeopleList> addPeopleText(String text) {
+    return _people(_parse(_object(_uri('/api/v1/people'), (uri) => _post(uri, {'text': text})), PeopleList.fromJson));
+  }
+
+  Future<PeopleList> addPerson({required String displayName, required String relationship, String? note, String? vendorCategory, String? vendorSubcategory}) {
+    final body = {'displayName': displayName, 'relationship': relationship, 'note': ?note, 'vendorCategory': ?vendorCategory, 'vendorSubcategory': ?vendorSubcategory};
+    return _people(_parse(_object(_uri('/api/v1/people'), (uri) => _post(uri, body)), PeopleList.fromJson));
+  }
+
+  /// Changes a person and relabels their payments. Only the fields given are sent.
+  Future<PeopleList> updatePerson(
+    String id, {
+    String? relationship,
+    String? note,
+    String? vendorCategory,
+    String? vendorSubcategory,
+    List<String>? addAliases,
+    List<String>? rejectAliases,
+    List<String>? removeAliases,
+  }) {
+    final body = {
+      'relationship': ?relationship,
+      'note': ?note,
+      'vendorCategory': ?vendorCategory,
+      'vendorSubcategory': ?vendorSubcategory,
+      'addAliases': ?addAliases,
+      'rejectAliases': ?rejectAliases,
+      'removeAliases': ?removeAliases,
+    };
+    return _people(_parse(_object(_personUri(id), (uri) => _patch(uri, body)), PeopleList.fromJson));
+  }
+
+  Future<PeopleList> mergePeople({required String targetId, required String sourceId}) {
+    return _people(_parse(_object(_uri('/api/v1/people/merge'), (uri) => _post(uri, {'targetId': targetId, 'sourceId': sourceId})), PeopleList.fromJson));
+  }
+
+  Future<PeopleList> deletePerson(String id) => _people(_parse(_object(_personUri(id), _delete), PeopleList.fromJson));
+
+  Future<PeopleList> undoPeople({String? batchId}) {
+    return _people(_parse(_object(_uri('/api/v1/people/undo'), (uri) => _post(uri, {'batchId': ?batchId})), PeopleList.fromJson));
+  }
+
+  Uri _personUri(String id) => _uri('/api/v1/people/${Uri.encodeComponent(id)}');
+
+  /// A server from before People answers 404 with an HTML page.
+  Future<T> _people<T>(Future<T> call) async {
+    try {
+      return await call;
+    } on ApiException catch (error) {
+      if (error.status == 404 && !error.message.contains('Person') && !error.message.contains('undo')) {
+        throw const ApiException(404, 'This Ledger server does not have Your people yet. Update it to manage people from the phone.');
+      }
+      rethrow;
+    }
   }
 
   Future<LoanList> loans() => _loans(_parse(_object(_uri('/api/v1/loans'), _get), LoanList.fromJson));
@@ -204,6 +280,8 @@ class LedgerApi {
   Future<http.Response> _post(Uri uri, Map<String, Object?> body) {
     return _http.post(uri, headers: _headers(json: true), body: jsonEncode(body)).timeout(_timeout);
   }
+
+  Future<http.Response> _delete(Uri uri) => _http.delete(uri, headers: _headers()).timeout(_timeout);
 
   Future<http.Response> _patch(Uri uri, Map<String, Object?> body) {
     return _http.patch(uri, headers: _headers(json: true), body: jsonEncode(body)).timeout(_timeout);

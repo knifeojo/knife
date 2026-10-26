@@ -104,9 +104,47 @@ class LedgerController extends ChangeNotifier {
 
   Future<ReviewQueue> review() => _guard((api) => api.review());
 
-  Future<int> answerReview({required String kind, required String key, required String value, String? otherText, String? otherCategory}) {
-    return _guard((api) => api.answerReview(kind: kind, key: key, value: value, otherText: otherText, otherCategory: otherCategory));
+  Future<int> answerReview({
+    required String kind,
+    required String key,
+    required String value,
+    String? otherText,
+    String? otherCategory,
+    String? vendorCategory,
+    String? vendorSubcategory,
+  }) {
+    return _guard(
+      (api) => api.answerReview(
+        kind: kind,
+        key: key,
+        value: value,
+        otherText: otherText,
+        otherCategory: otherCategory,
+        vendorCategory: vendorCategory,
+        vendorSubcategory: vendorSubcategory,
+      ),
+    );
   }
+
+  Future<PeopleList> people() => _guard((api) => api.people());
+
+  Future<PeopleList> addPeopleText(String text) => _guard((api) => api.addPeopleText(text));
+
+  Future<PeopleList> addPerson({required String displayName, required String relationship, String? note}) {
+    return _guard((api) => api.addPerson(displayName: displayName, relationship: relationship, note: note));
+  }
+
+  Future<PeopleList> updatePerson(String id, {String? relationship, List<String>? addAliases, List<String>? rejectAliases, List<String>? removeAliases}) {
+    return _guard(
+      (api) => api.updatePerson(id, relationship: relationship, addAliases: addAliases, rejectAliases: rejectAliases, removeAliases: removeAliases),
+    );
+  }
+
+  Future<PeopleList> mergePeople({required String targetId, required String sourceId}) => _guard((api) => api.mergePeople(targetId: targetId, sourceId: sourceId));
+
+  Future<PeopleList> deletePerson(String id) => _guard((api) => api.deletePerson(id));
+
+  Future<PeopleList> undoPeople({String? batchId}) => _guard((api) => api.undoPeople(batchId: batchId));
 
   Future<int> answerSuggestion({required String id, required String action}) => _guard((api) => api.answerSuggestion(id: id, action: action));
 
