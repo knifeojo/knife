@@ -19,7 +19,7 @@ The server URL is not compiled into the app. You set it on the first screen, so 
 | Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with what would help (loans to clear, spending to cut, one-offs) and the figures behind it, recurring bills and one-offs shown apart |
 | Loans | Settings → Your loans. Loans entered by hand (`/api/v1/loans`): balance left, instalments, next and last payment. Add, edit, close or reopen. A loan with statement repayments after its balance date is marked out of date. Afford shows the balance on a loan line, or **Add your balance** when there is none |
 | Your people | Settings → Your people (or the people icon on Review). Who the names in your statements are: add family with plain sentences ("My wife is Gift Ojo"), change a relationship, add or reject bank spellings, merge duplicates, remove, and undo. Each person shows what their payments are labelled and the totals per month. Review asks "Who is NAME to you?" first, with one-tap relationships and the AI's guess highlighted |
-| Settings | Re-run categorization (`POST /api/v1/categorize`, same as the web button), open Review, show the server, sign out, or forget the server |
+| Settings | Re-run categorization, bank-alert **Sync now** / last-synced, open Review, show the server, sign out, or forget the server |
 
 Afford does no maths on the phone. The server works out the answer from the ledger (see “Can I really afford this?” in `../finance-app/README.md`). The phone only turns what you type (“2.5m”, “500k”) into kobo and shows the result.
 
@@ -91,6 +91,16 @@ flutter test
 - There is no MFA. Do not expose the Ledger port to the public internet. A tailnet is the intended path.
 - Statement files and PDF passwords are sent once and are not saved by the app or the server.
 - Login uses the same “invalid email or password” message for an unknown account and a wrong password. Signup still says when the email is already registered.
+
+## Bank SMS (sideloaded APK)
+
+Google Play does not allow `RECEIVE_SMS` / `READ_SMS` for a personal-finance listing. This works on the sideloaded Samsung APK.
+
+Settings explains the opt-in. Only sender IDs on the bank allowlist (`GTBank`, `FirstBank`, `STERLING`, `PROVIDUS`, plus extras from the server registry) are read. Phone numbers and telco/promo IDs are dropped on the device and never uploaded. Parsed fields plus the raw bank SMS go to `POST /api/v1/alerts/sms`. If Tailscale is down they sit in an on-device queue and retry.
+
+A `NotificationListenerService` stub is in the Android tree as a fallback for bank-app push notifications.
+
+See `../finance-app/docs/alert-ingestion.md` for iPhone Shortcuts and the macOS Messages importer.
 
 ## Known gaps
 

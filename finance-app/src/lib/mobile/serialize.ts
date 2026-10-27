@@ -27,8 +27,11 @@ export function accountJson(account: Account) {
 }
 
 /** With a cadence index, adds `cadence` ("recurring" | "one_off" | null) and `recurringBill`. Older clients ignore both. */
-export function transactionJson(tx: TxWithAccount, cadence?: CadenceIndex) {
+type TxWithSources = TxWithAccount & { sources?: { source: string }[]; feeOfId?: string | null };
+
+export function transactionJson(tx: TxWithSources, cadence?: CadenceIndex) {
   const kind = cadence ? cadenceOf(tx, cadence) : undefined;
+  const sources = tx.sources?.length ? [...new Set(tx.sources.map((s) => s.source))] : [tx.source];
   return {
     id: tx.id,
     accountId: tx.accountId,
@@ -44,6 +47,9 @@ export function transactionJson(tx: TxWithAccount, cadence?: CadenceIndex) {
     counterparty: tx.counterparty,
     category: tx.category,
     subcategory: tx.subcategory,
+    source: tx.source,
+    sources,
+    feeOfId: tx.feeOfId ?? null,
     ...(cadence && { cadence: kind ?? null, recurringBill: kind === "recurring" && !!cadence.recurring.get(tx.id)?.bill }),
   };
 }

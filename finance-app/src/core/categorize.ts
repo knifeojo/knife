@@ -57,7 +57,7 @@ const BETTING = /bet9ja|sportybet|betking|1xbet|nairabet|merrybet|\bmsport\b|ban
 // Ordered: first match wins. Patterns run against the lowercased description.
 const RULES: Rule[] = [
   // Income
-  { match: /salary|payroll|\bsal\b/, category: INCOME_CATEGORY, subcategory: "Salary", only: "CREDIT" },
+  { match: /salary|payroll|\bsal\b|paymentdeel/, category: INCOME_CATEGORY, subcategory: "Salary", only: "CREDIT" },
   { match: /upwork/, merchant: "Upwork", category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /deel|remote\.com|payoneer|fiverr|toptal/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /invoice|consult/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },

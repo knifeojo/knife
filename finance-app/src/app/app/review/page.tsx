@@ -4,8 +4,9 @@ import { reviewWithSuggestions, type SuggestionGroup } from "@/core/ai/suggestio
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { formatMoney } from "@/lib/money";
 import { Card, PageHeader } from "@/components/ui";
-import { answerQuestionAction, confirmSuggestionAction, dismissSuggestionAction } from "../actions";
+import { answerQuestionAction, confirmSuggestionAction, dismissGapAction, dismissReconAction, dismissSuggestionAction, resolveUnparsedAction } from "../actions";
 import { onboardingState } from "@/core/onboarding";
+import { db } from "@/lib/db";
 import { TopPeopleCard } from "../top-people";
 import { PersonAnswers, PersonStatsLine } from "./person-answers";
 
@@ -33,7 +34,13 @@ function AiPick({ g }: { g: SuggestionGroup }) {
 
 export default async function Review() {
   const user = await requireUser();
-  const [{ questions, suggestions }, welcome] = await Promise.all([reviewWithSuggestions(user.id), onboardingState(user.id)]);
+  const [{ questions, suggestions }, welcome, unparsed, gaps, flags] = await Promise.all([
+    reviewWithSuggestions(user.id),
+    onboardingState(user.id),
+    db.unparsedAlert.findMany({ where: { userId: user.id, status: "open" }, orderBy: { receivedAt: "desc" }, take: 40 }),
+    db.balanceGap.findMany({ where: { userId: user.id, status: "open" }, orderBy: { atDate: "desc" }, take: 20 }),
+    db.reconFlag.findMany({ where: { userId: user.id, status: "open" }, orderBy: { createdAt: "desc" }, take: 20 }),
+  ]);
   const total = questions.reduce((s, q) => s + q.totalMinor, 0n);
 
   return (
@@ -51,7 +58,57 @@ export default async function Review() {
         <Link href="/app/people" className="text-accent underline">Your people</Link>.
       </p>
       {welcome.topPeople.show && <TopPeopleCard people={welcome.topPeople.people} />}
-      {!questions.length && !suggestions.length && (
+      {unparsed.length > 0 && (
+        <Card title="Unparsed bank alerts" className="mb-4">
+          <p className="text-sm text-ink-2 mb-3">Known bank senders we could not post automatically. Samples stay on this machine only.</p>
+          <ul className="space-y-3">
+            {unparsed.map((u) => (
+              <li key={u.id} className="text-sm border-t border-border pt-3 first:border-0 first:pt-0">
+                <p className="text-xs text-ink-3">{u.channel} · {u.sender} · {u.reason}{u.parser ? ` · ${u.parser}` : ""}</p>
+                <pre className="mt-1 text-xs font-mono whitespace-pre-wrap break-words bg-surface-2 rounded px-2 py-1">{u.rawText}</pre>
+                <div className="mt-2 flex gap-2">
+                  <form action={resolveUnparsedAction}>
+                    <input type="hidden" name="id" value={u.id} />
+                    <input type="hidden" name="action" value="add" />
+                    <button className="btn btn-secondary h-8 text-xs">Try to add</button>
+                  </form>
+                  <form action={resolveUnparsedAction}>
+                    <input type="hidden" name="id" value={u.id} />
+                    <input type="hidden" name="action" value="ignore" />
+                    <button className="btn btn-ghost h-8 text-xs">Ignore</button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {gaps.length > 0 && (
+        <Card title="Possible missed transactions" className="mb-4">
+          <p className="text-sm text-ink-2 mb-3">The running balance on an alert does not follow from the previous one.</p>
+          <ul className="space-y-2 text-sm">
+            {gaps.map((g) => (
+              <li key={g.id} className="flex justify-between gap-3">
+                <span>Gap of {formatMoney(g.gapMinor)} on {g.atDate.toLocaleDateString("en-GB")}</span>
+                <form action={dismissGapAction}><input type="hidden" name="id" value={g.id} /><button className="btn btn-ghost h-8 text-xs">Dismiss</button></form>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {flags.length > 0 && (
+        <Card title="Alert vs statement" className="mb-4">
+          <ul className="space-y-2 text-sm">
+            {flags.map((f) => (
+              <li key={f.id} className="flex justify-between gap-3">
+                <span>{f.kind === "alert_without_statement" ? "Alert with no statement row" : "Statement row with no alert"} — {f.detail}</span>
+                <form action={dismissReconAction}><input type="hidden" name="id" value={f.id} /><button className="btn btn-ghost h-8 text-xs">Dismiss</button></form>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {!questions.length && !suggestions.length && !unparsed.length && !gaps.length && !flags.length && (
         <Card>
           <p className="text-sm text-ink-2">All caught up. You can still change any category on the <Link href="/app/transactions" className="text-accent underline">Transactions</Link> page.</p>
         </Card>

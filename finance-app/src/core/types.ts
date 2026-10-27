@@ -3,7 +3,7 @@
 export type TransactionType = "CREDIT" | "DEBIT";
 // Extensible later: "TRANSFER" | "REVERSAL" | "REFUND" | "FEE" | "UNKNOWN"
 
-export type SourceType = "gmail" | "fixture" | "demo" | "statement" | "mono" | "sms" | "manual";
+export type SourceType = "gmail" | "imap" | "inbound" | "fixture" | "demo" | "statement" | "mono" | "sms" | "manual";
 
 /** A raw email as handed to parsers. Bodies live in memory only and are never persisted. */
 export interface EmailMessage {

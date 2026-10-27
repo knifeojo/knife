@@ -37,7 +37,10 @@ export async function syncNow(_: SyncState, form: FormData): Promise<SyncState> 
   const conn = await db.financialConnection.findFirst({ where: { userId: user.id, provider, status: { not: "revoked" } } });
   if (!conn) return { error: "Connection not found" };
   try {
-    const source = provider === "gmail" ? new GmailEmailSource(conn.id) : new FixtureEmailSource();
+    const source =
+      provider === "gmail" ? new GmailEmailSource(conn.id)
+      : provider === "imap" ? (await import("@/core/alerts/imap")).ImapEmailSource.fromConnection(conn)
+      : new FixtureEmailSource();
     const r = await syncEmailSource(user.id, conn.id, source);
     revalidatePath("/app", "layout");
     return {
@@ -66,6 +69,87 @@ export async function importSampleAlerts(): Promise<SyncState> {
   return {
     ok: `Scanned ${r.emailsScanned} sample emails: ${r.created} new, ${r.duplicates} duplicates merged, ${r.parseFailures} parse failures, ${r.skipped} not bank alerts.`,
   };
+}
+
+export async function saveImapConnection(form: FormData) {
+  const user = await requireUser();
+  if (user.isDemo) redirect("/app/accounts?imap=demo");
+  const host = String(form.get("imapHost") ?? "").trim().slice(0, 200);
+  const port = Number(form.get("imapPort") ?? 993);
+  const imapUser = String(form.get("imapUser") ?? "").trim().slice(0, 200);
+  if (!host || !imapUser || !Number.isInteger(port) || port < 1 || port > 65535) redirect("/app/accounts?imap=error");
+  await db.financialConnection.upsert({
+    where: { userId_provider: { userId: user.id, provider: "imap" } },
+    update: { imapHost: host, imapPort: port, imapUser, providerAccountId: imapUser, status: "active", lastError: null },
+    create: { userId: user.id, provider: "imap", imapHost: host, imapPort: port, imapUser, providerAccountId: imapUser, status: "active" },
+  });
+  revalidatePath("/app", "layout");
+  redirect("/app/accounts?imap=saved");
+}
+
+export async function importPastAlerts(_: SyncState, form: FormData): Promise<SyncState> {
+  const user = await requireUser();
+  const provider = String(form.get("provider") || "gmail");
+  const conn = await db.financialConnection.findFirst({ where: { userId: user.id, provider, status: { not: "revoked" } } });
+  if (!conn) return { error: "Connect Gmail or IMAP first." };
+  await db.financialConnection.update({ where: { id: conn.id }, data: { lastSyncedAt: null, gmailHistoryId: null } });
+  try {
+    const { syncOneConnection } = await import("@/core/alerts/scheduler");
+    if (provider === "gmail" || provider === "imap") await syncOneConnection(conn.id);
+    else {
+      const { FixtureEmailSource } = await import("@/core/providers/fixture");
+      await syncEmailSource(user.id, conn.id, new FixtureEmailSource());
+    }
+    revalidatePath("/app", "layout");
+    return { ok: "Imported past alerts." };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Import failed" };
+  }
+}
+
+export async function importMboxAction(form: FormData) {
+  const user = await requireUser();
+  const file = form.get("mbox");
+  if (!(file instanceof File) || !file.size) redirect("/app/accounts?mbox=empty");
+  if (file.size > 20_000_000) redirect("/app/accounts?mbox=large");
+  const { parseMbox } = await import("@/core/alerts/mbox");
+  const { ingestAlertMessage } = await import("@/core/alerts/ingest");
+  const { emailToAlert } = await import("@/core/alerts/email-adapter");
+  const emails = parseMbox(await file.text());
+  let created = 0;
+  let review = 0;
+  for (const email of emails) {
+    const r = await ingestAlertMessage(user.id, emailToAlert(email), { source: "inbound", sourceId: email.id });
+    if (r.status === "created") created++;
+    if (r.status === "review" || r.status === "unparsed") review++;
+  }
+  revalidatePath("/app", "layout");
+  redirect(`/app/accounts?mbox=ok&found=${created}&review=${review}&scanned=${emails.length}`);
+}
+
+export async function dismissForwardingNotice(form: FormData) {
+  const user = await requireUser();
+  await db.forwardingNotice.updateMany({ where: { id: String(form.get("id")), userId: user.id }, data: { status: "dismissed" } });
+  revalidatePath("/app", "layout");
+}
+
+export async function resolveUnparsedAction(form: FormData) {
+  const user = await requireUser();
+  const { resolveUnparsed } = await import("@/core/alerts/ingest");
+  await resolveUnparsed(user.id, String(form.get("id")), form.get("action") === "add" ? "add" : "ignore");
+  revalidatePath("/app", "layout");
+}
+
+export async function dismissGapAction(form: FormData) {
+  const user = await requireUser();
+  await db.balanceGap.updateMany({ where: { id: String(form.get("id")), userId: user.id }, data: { status: "dismissed" } });
+  revalidatePath("/app", "layout");
+}
+
+export async function dismissReconAction(form: FormData) {
+  const user = await requireUser();
+  await db.reconFlag.updateMany({ where: { id: String(form.get("id")), userId: user.id }, data: { status: "dismissed" } });
+  revalidatePath("/app", "layout");
 }
 
 export async function disconnectGmail() {
@@ -114,6 +198,11 @@ export async function deleteMyData() {
     db.transactionSource.deleteMany({ where: { userId: user.id } }),
     db.account.deleteMany({ where: { userId: user.id } }),
     db.processedEmail.deleteMany({ where: { userId: user.id } }),
+    db.processedAlert.deleteMany({ where: { userId: user.id } }),
+    db.unparsedAlert.deleteMany({ where: { userId: user.id } }),
+    db.balanceGap.deleteMany({ where: { userId: user.id } }),
+    db.reconFlag.deleteMany({ where: { userId: user.id } }),
+    db.forwardingNotice.deleteMany({ where: { userId: user.id } }),
     db.merchantAlias.deleteMany({ where: { userId: user.id } }),
     db.syncRun.deleteMany({ where: { userId: user.id } }),
     db.loan.deleteMany({ where: { userId: user.id } }),

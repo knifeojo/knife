@@ -44,6 +44,15 @@ model User {
   suggestions  CategorySuggestion[]
   people       Person[]
   peopleBatches PeopleBatch[]
+  // Personal inbound address token (alerts-<token>@domain) and iOS Shortcuts SMS token.
+  inboundEmailToken String? @unique
+  smsIngestToken    String? @unique
+
+  unparsedAlerts    UnparsedAlert[]
+  balanceGaps       BalanceGap[]
+  reconFlags        ReconFlag[]
+  forwardingNotices ForwardingNotice[]
+  processedAlerts   ProcessedAlert[]
 }
 
 model Session {
@@ -62,8 +71,8 @@ model FinancialConnection {
   id                     String    @id @default(cuid())
   userId                 String
   user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider               String // gmail | fixture | demo
-  providerAccountId      String? // e.g. the Gmail address
+  provider               String // gmail | fixture | demo | imap | statement
+  providerAccountId      String? // e.g. the Gmail address or IMAP username
   status                 String    @default("active") // active | revoked | error
   encryptedRefreshToken  String?
   encryptedAccessToken   String?
@@ -73,6 +82,13 @@ model FinancialConnection {
   lastSyncedAt           DateTime?
   lastProcessedMessageId String?
   lastError              String?
+  // IMAP host/port/user only. The app password lives in a local env/secret file, never in this row.
+  imapHost               String?
+  imapPort               Int?
+  imapUser               String?
+  syncIntervalMinutes    Int? // null = server default (ALERT_SYNC_MINUTES, 5)
+  nextRetryAt            DateTime?
+  backoffMs              Int       @default(0)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
@@ -93,6 +109,9 @@ model Account {
   currency            String    @default("NGN")
   balanceMinor        BigInt?
   balanceUpdatedAt    DateTime?
+  // Inclusive Lagos range covered by the latest imported statement (for alert-vs-statement recon).
+  statementCoveredFrom DateTime?
+  statementCoveredTo   DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -107,7 +126,7 @@ model Transaction {
   user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountId                String
   account                  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  source                   String // first source that created the row: gmail | statement | mono | sms | fixture | demo
+  source                   String // first source that created the row: gmail | imap | inbound | statement | mono | sms | fixture | demo | manual
   sourceTransactionId      String
   fingerprint              String
   transactionDate          DateTime
@@ -133,6 +152,10 @@ model Transaction {
   // The known person on the other side, when the name matched one confidently (see core/people).
   personId                 String?
   person                   Person?  @relation(fields: [personId], references: [id], onDelete: SetNull)
+  // A fee/VAT/stamp-duty alert linked to the adjacent transfer (same minute, same account).
+  feeOfId                  String?
+  feeOf                    Transaction?  @relation("FeeOf", fields: [feeOfId], references: [id], onDelete: SetNull)
+  fees                     Transaction[] @relation("FeeOf")
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
@@ -353,4 +376,90 @@ model Loan {
   updatedAt        DateTime  @updatedAt
 
   @@index([userId, status])
+}
+
+// Bank alert that a parser recognised as a sender but could not turn into a transaction,
+// or a low-confidence fallback match waiting in Review. Raw text stays on this machine.
+model UnparsedAlert {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel    String // email | sms
+  sender     String
+  receivedAt DateTime
+  rawText    String
+  reason     String // unparsed | low_confidence | known_sender
+  parser     String?
+  status     String    @default("open") // open | added | ignored
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, status])
+}
+
+// Running-balance gap: previous Bal +/- Amt != this Bal. Possible missed transaction.
+model BalanceGap {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId     String
+  previousTxId  String?
+  currentTxId   String?
+  expectedMinor BigInt
+  actualMinor   BigInt
+  gapMinor      BigInt
+  atDate        DateTime
+  status        String   @default("open") // open | dismissed
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, currentTxId])
+  @@index([userId, status])
+}
+
+// Alert vs statement mismatches after a statement covers a date range.
+model ReconFlag {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId     String?
+  transactionId String?
+  kind          String // alert_without_statement | statement_without_alert | missed_transaction
+  detail        String
+  status        String   @default("open") // open | dismissed
+  createdAt     DateTime @default(now())
+
+  @@index([userId, status])
+}
+
+// Gmail "forwarding confirmation" code/link surfaced so the owner can finish setup.
+model ForwardingNotice {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code       String?
+  link       String?
+  subject    String
+  receivedAt DateTime
+  status     String   @default("new") // new | dismissed
+  createdAt  DateTime @default(now())
+
+  @@index([userId, status])
+}
+
+// Dedup watermark for SMS / inbound / IMAP messages (email Gmail still uses ProcessedEmail).
+model ProcessedAlert {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel       String // email | sms
+  sourceId      String
+  sender        String
+  subject       String?
+  receivedAt    DateTime
+  status        String // parsed | duplicate | skipped | failed | review | unparsed | confirmation
+  parser        String?
+  transactionId String?
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, channel, sourceId])
 }

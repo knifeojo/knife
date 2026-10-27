@@ -199,6 +199,14 @@ class LedgerController extends ChangeNotifier {
     return _guard((api) => api.uploadStatement(filename: filename, bytes: bytes, password: password));
   }
 
+  Future<Map<String, dynamic>> alertStatus() => _guard((api) => api.alertStatus());
+
+  Future<Map<String, dynamic>> syncAlerts() => _guard((api) => api.syncAlerts());
+
+  Future<Map<String, dynamic>> uploadSms({required String sender, required String body, DateTime? receivedAt, String? sourceId}) {
+    return _guard((api) => api.uploadSms(sender: sender, body: body, receivedAt: receivedAt, sourceId: sourceId));
+  }
+
   LedgerApi _api() {
     final url = serverUrl;
     if (url == null) throw StateError('No server URL');

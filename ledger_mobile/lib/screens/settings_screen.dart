@@ -58,6 +58,12 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 8),
           OutlinedButton(key: const Key('settings-people'), onPressed: () => openPeople(context), child: const Text('Your people')),
           const SizedBox(height: 24),
+          Text('Bank alerts', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 4),
+          const Text('Email sync runs on the Ledger server. SMS is opt-in on this phone: only listed bank sender IDs are read. Personal messages are never uploaded. Google Play does not allow this permission; this is for the sideloaded APK.'),
+          const SizedBox(height: 8),
+          const AlertSyncCard(),
+          const SizedBox(height: 24),
           OutlinedButton(onPressed: controller.signOut, child: const Text('Sign out')),
           const SizedBox(height: 8),
           TextButton(onPressed: controller.forgetServer, child: const Text('Use a different server')),
@@ -259,6 +265,59 @@ class _AiSettingsCardState extends State<AiSettingsCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class AlertSyncCard extends StatefulWidget {
+  const AlertSyncCard({super.key});
+
+  @override
+  State<AlertSyncCard> createState() => _AlertSyncCardState();
+}
+
+class _AlertSyncCardState extends State<AlertSyncCard> {
+  String? _last;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final status = await context.read<LedgerController>().alertStatus();
+      if (mounted) setState(() => _last = status['lastSyncedAt'] as String?);
+    } on ApiException {
+      if (mounted) setState(() => _last = null);
+    }
+  }
+
+  Future<void> _sync() async {
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await context.read<LedgerController>().syncAlerts();
+      await _load();
+      messenger.showSnackBar(const SnackBar(content: Text('Synced bank alerts.')));
+    } on ApiException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(_last == null ? 'Last synced: never (or this server has no alert status yet)' : 'Last synced: $_last', key: const Key('alert-last-synced')),
+        const SizedBox(height: 8),
+        FilledButton(key: const Key('alert-sync-now'), onPressed: _busy ? null : _sync, child: Text(_busy ? 'Syncing…' : 'Sync now')),
+      ],
     );
   }
 }

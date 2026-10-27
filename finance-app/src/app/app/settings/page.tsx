@@ -3,7 +3,10 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { logout } from "../../(auth)/actions";
-import { askAgainAction, deleteMyData, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction, setAiRoutesAction } from "../actions";
+import { askAgainAction, deleteMyData, dismissForwardingNotice, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction, setAiRoutesAction } from "../actions";
+import { ensureUserTokens, inboundAddress } from "@/core/alerts/tokens";
+import { defaultSyncMinutes } from "@/core/alerts/secrets";
+import { relativeTime } from "@/components/ui";
 import { AI_FEATURES, type AiRoute } from "@/core/ai/client";
 import { aiSettingsStatus } from "@/core/ai/status";
 import { scoreHistory } from "@/core/eval";
@@ -14,12 +17,17 @@ const ROUTE_LABEL: Record<AiRoute, string> = { local: "Local", cloud: "Cloud (re
 
 export default async function Settings() {
   const user = await requireUser();
-  const [txCount, learned, history, status] = await Promise.all([
+  const tokens = await ensureUserTokens(user.id);
+  const inbound = inboundAddress(tokens.inboundEmailToken);
+  const [txCount, learned, history, status, connections, notices] = await Promise.all([
     db.transaction.count({ where: { userId: user.id } }),
     db.merchantAlias.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 20 }),
     scoreHistory(user.id, 8),
     aiSettingsStatus(user.id),
+    db.financialConnection.findMany({ where: { userId: user.id, status: { not: "revoked" } } }),
+    db.forwardingNotice.findMany({ where: { userId: user.id, status: "new" }, orderBy: { receivedAt: "desc" }, take: 5 }),
   ]);
+  const lastSync = connections.reduce<Date | null>((acc, c) => (!c.lastSyncedAt ? acc : !acc || c.lastSyncedAt > acc ? c.lastSyncedAt : acc), null);
   const ready = status.reachable && status.modelInstalled;
   const localReady = status.local.reachable && status.local.modelInstalled;
   const cloud = status.cloudProvider;
@@ -31,6 +39,42 @@ export default async function Settings() {
           <div><dt className="text-xs text-ink-3">Name</dt><dd>{user.name ?? "Not set"}</dd></div>
           <div><dt className="text-xs text-ink-3">Email</dt><dd className="truncate">{user.isDemo ? "Demo account" : user.email}</dd></div>
         </dl>
+      </Card>
+      <Card title="Bank alerts">
+        <p className="text-sm text-ink-2">Last synced {relativeTime(lastSync)}. Background sync runs every {defaultSyncMinutes()} minutes while this server is up.</p>
+        <p className="text-sm text-ink-2 mt-2">
+          Manage Gmail, IMAP and &ldquo;Sync now&rdquo; on <Link href="/app/accounts" className="text-accent underline">Accounts</Link>.
+        </p>
+        <div className="mt-4 space-y-3 text-sm">
+          <div>
+            <div className="text-xs text-ink-3">Personal forwarding address</div>
+            <p className="font-mono break-all">{inbound ?? `alerts-${tokens.inboundEmailToken}@your-domain (set INBOUND_EMAIL_DOMAIN to activate)`}</p>
+            <p className="text-xs text-ink-3 mt-1">Gmail → Settings → Forwarding → add this address. Confirm the code that appears below, then import the filter XML so only bank senders are forwarded.</p>
+            {inbound && (
+              <a className="btn btn-secondary h-9 text-sm mt-2 inline-flex" href="/app/alerts/filters">Download Gmail filters</a>
+            )}
+          </div>
+          <div>
+            <div className="text-xs text-ink-3">iPhone Shortcuts token</div>
+            <p className="font-mono break-all">{tokens.smsIngestToken}</p>
+            <p className="text-xs text-ink-3 mt-1">Header <code>X-Ledger-Sms-Token</code> on <code>POST /api/v1/alerts/sms</code>. See docs/alert-ingestion.md.</p>
+          </div>
+        </div>
+        {notices.length > 0 && (
+          <div className="mt-4 rounded-lg bg-accent-soft p-3 text-sm">
+            <p className="font-medium">Gmail forwarding confirmation</p>
+            {notices.map((n) => (
+              <div key={n.id} className="mt-2">
+                {n.code && <p>Code: <span className="font-mono">{n.code}</span></p>}
+                {n.link && <p><a className="text-accent underline break-all" href={n.link}>Open confirmation link</a></p>}
+                <form action={dismissForwardingNotice} className="mt-1">
+                  <input type="hidden" name="id" value={n.id} />
+                  <button className="btn btn-ghost h-8 px-2 text-xs">Dismiss</button>
+                </form>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
       <Card title="Your people">
         <p className="text-sm text-ink-2">
