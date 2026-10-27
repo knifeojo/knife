@@ -122,6 +122,34 @@ describe("lenders (FairMoney and Renmoney are loans, not wallets)", () => {
   });
 });
 
+describe("SMS alert narrations", () => {
+  it("labels PAYMENTDEEL as Income / Salary (Deel payroll)", () => {
+    expect(categorize({ description: "PAYMENTDEEL INC-WRAMFB-GRP", type: "CREDIT" })).toMatchObject({
+      category: "Income",
+      subcategory: "Salary",
+    });
+  });
+
+  it("treats a Sterling inflow from the owner's reordered name as an own transfer", () => {
+    expect(categorize({ description: "DOE JOHN SAMUEL", type: "CREDIT" }, [], ["John Samuel Doe"])).toMatchObject({
+      category: "Own transfer",
+      subcategory: "Between own accounts",
+    });
+    expect(categorize({ description: "DOE JOHN SAMUEL", type: "CREDIT" }, [], ["Ada Okafor"]).category).not.toBe("Own transfer");
+  });
+
+  it("maps APPLE.COM/BILL card spend to Apple subscriptions", () => {
+    expect(categorize({ description: "APPLE.COM/BILL CORK IE", type: "DEBIT" })).toMatchObject({
+      merchantName: "Apple",
+      category: "Subscriptions",
+    });
+  });
+
+  it("reads a Sterling-style credit that is only the sender's name", () => {
+    expect(extractCounterparty("DOE JOHN SAMUEL", "CREDIT")).toBe("Doe John Samuel");
+  });
+});
+
 describe("Deel and Pesa narrations", () => {
   it("does not leave a Deel withdrawal in Other", () => {
     const c = categorize({ description: "Money transfer to your bank / Deel withdrawal / NGN", type: "DEBIT" });

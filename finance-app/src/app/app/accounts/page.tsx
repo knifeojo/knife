@@ -6,13 +6,20 @@ import { Badge, Card, Empty, Money, PageHeader, lagosDateLabel, relativeTime } f
 import { SyncButton } from "@/components/sync-button";
 import { StatementUpload } from "@/components/statement-upload";
 import { openIssues } from "@/core/statement-import";
-import { disconnectGmail, importSampleAlerts, syncNow } from "../actions";
+import { disconnectGmail, importMboxAction, importPastAlerts, importSampleAlerts, saveImapConnection, syncNow } from "../actions";
+import { defaultSyncMinutes } from "@/core/alerts/secrets";
 
 const NOTICES: Record<string, { tone: "accent" | "warn"; text: string }> = {
   denied: { tone: "warn", text: "Gmail access was not granted. Nothing was connected." },
   demo: { tone: "warn", text: "Demo accounts cannot connect Gmail. Create a real account first." },
   unconfigured: { tone: "warn", text: "Gmail is not configured on this server yet." },
   error: { tone: "warn", text: "Something went wrong connecting Gmail. Please try again." },
+};
+
+const EXTRA_NOTICES: Record<string, { tone: "accent" | "warn"; text: string }> = {
+  saved: { tone: "accent", text: "IMAP settings saved. Put the app password in IMAP_PASSWORD or ~/.ledger/secrets.env — it is never stored here." },
+  demo: { tone: "warn", text: "Demo accounts cannot connect IMAP." },
+  error: { tone: "warn", text: "Check the IMAP host, port and username." },
 };
 
 export default async function Accounts({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -25,10 +32,14 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
   ]);
   const issues = await openIssues(user.id);
   const gmail = connections.find((c) => c.provider === "gmail" && c.status !== "revoked");
+  const imap = connections.find((c) => c.provider === "imap" && c.status !== "revoked");
   const notice =
     sp.gmail === "connected"
       ? { tone: "accent" as const, text: `Gmail connected. Scanned ${sp.scanned ?? 0} alerts and found ${sp.found ?? 0} new transactions${Number(sp.failed) ? `; ${sp.failed} could not be parsed` : ""}.` }
-      : sp.gmail ? NOTICES[sp.gmail] : undefined;
+      : sp.gmail ? NOTICES[sp.gmail]
+      : sp.imap ? EXTRA_NOTICES[sp.imap]
+      : sp.mbox === "ok" ? { tone: "accent" as const, text: `Read ${sp.scanned ?? 0} mbox messages: ${sp.found ?? 0} posted, ${sp.review ?? 0} sent to Review.` }
+      : undefined;
 
   return (
     <>
@@ -69,11 +80,12 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
                 <div><dt className="text-ink-3 text-xs">Mailbox</dt><dd className="truncate">{gmail.providerAccountId}</dd></div>
                 <div><dt className="text-ink-3 text-xs">Last synced</dt><dd>{relativeTime(gmail.lastSyncedAt)}</dd></div>
                 <div><dt className="text-ink-3 text-xs">Access</dt><dd>Read-only</dd></div>
-                <div><dt className="text-ink-3 text-xs">Banks</dt><dd>GTBank</dd></div>
+                <div><dt className="text-ink-3 text-xs">Background</dt><dd>Every {gmail.syncIntervalMinutes ?? defaultSyncMinutes()} min</dd></div>
               </dl>
               {gmail.lastError && <p className="text-sm text-warn-ink bg-warn-bg rounded-lg px-3 py-2">{gmail.lastError}</p>}
               <div className="flex flex-wrap gap-3 items-start">
                 <SyncButton action={syncNow} provider="gmail" />
+                <SyncButton action={importPastAlerts} provider="gmail" label="Import past alerts" />
                 <form action={disconnectGmail}><button className="btn btn-danger">Disconnect Gmail</button></form>
               </div>
               <p className="text-xs text-ink-3">Disconnecting revokes our access at Google and deletes the stored tokens. Your ledger stays until you delete it in Settings.</p>
@@ -87,6 +99,39 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
           )}
         </Card>
       </div>
+
+      <Card title="Yahoo Mail and other IMAP" className="mt-4">
+        <p className="text-sm text-ink-2 mb-3">
+          Read-only IMAP with an app password. Host, port and username are stored here. The password stays in <code>IMAP_PASSWORD</code> or <code>~/.ledger/secrets.env</code> on this Mac — never in the database, never in the repo, never returned by the API.
+        </p>
+        {imap && (
+          <p className="text-sm mb-3">Last synced {relativeTime(imap.lastSyncedAt)}{imap.lastError ? ` · ${imap.lastError}` : ""}</p>
+        )}
+        <form action={saveImapConnection} className="grid sm:grid-cols-3 gap-3 items-end">
+          <div>
+            <label className="label" htmlFor="imapHost">Host</label>
+            <input id="imapHost" name="imapHost" className="input mt-1" defaultValue={imap?.imapHost ?? "imap.mail.yahoo.com"} required />
+          </div>
+          <div>
+            <label className="label" htmlFor="imapPort">Port</label>
+            <input id="imapPort" name="imapPort" className="input mt-1" defaultValue={imap?.imapPort ?? 993} />
+          </div>
+          <div>
+            <label className="label" htmlFor="imapUser">Username</label>
+            <input id="imapUser" name="imapUser" className="input mt-1" defaultValue={imap?.imapUser ?? ""} required />
+          </div>
+          <button className="btn btn-secondary">{imap ? "Save IMAP" : "Connect IMAP"}</button>
+        </form>
+        {imap && <div className="mt-3"><SyncButton action={syncNow} provider="imap" /></div>}
+      </Card>
+
+      <Card title="Import past alerts from an .mbox file" className="mt-4">
+        <p className="text-sm text-ink-2 mb-3">One-time upload. Messages are parsed in memory and discarded. Only known bank senders are posted.</p>
+        <form action={importMboxAction} className="flex flex-wrap gap-3 items-center">
+          <input type="file" name="mbox" accept=".mbox,.txt" className="text-sm" />
+          <button className="btn btn-secondary">Upload mbox</button>
+        </form>
+      </Card>
 
       {!user.isDemo && (
         <Card title="Import bank statements" className="mt-4">

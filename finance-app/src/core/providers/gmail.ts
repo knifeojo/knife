@@ -175,6 +175,33 @@ export class GmailEmailSource implements EmailSource {
     return ids.slice(0, max);
   }
 
+  /** Incremental: message ids added since historyId. `stale` means the cursor is too old — fall back to after-date. */
+  async listHistoryMessageIds(startHistoryId: string): Promise<{ ids: string[]; historyId?: string; stale?: boolean }> {
+    try {
+      const ids = new Set<string>();
+      let pageToken: string | undefined;
+      let newest: string | undefined;
+      do {
+        const params = new URLSearchParams({ startHistoryId, historyTypes: "messageAdded", maxResults: "100" });
+        if (pageToken) params.set("pageToken", pageToken);
+        const token = await accessTokenFor(this.connectionId);
+        const res = await fetch(`${GMAIL_API}/history?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.status === 404 || res.status === 410) return { ids: [], stale: true };
+        if (!res.ok) throw new Error(`gmail ${res.status}`);
+        const page = await res.json();
+        for (const h of page.history ?? []) {
+          for (const added of h.messagesAdded ?? []) if (added.message?.id) ids.add(added.message.id);
+        }
+        newest = page.historyId ?? newest;
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+      return { ids: [...ids], historyId: newest };
+    } catch (e) {
+      if (String(e).includes("404") || String(e).includes("410")) return { ids: [], stale: true };
+      throw e;
+    }
+  }
+
   async getMessage(id: string): Promise<EmailMessage> {
     const msg = await this.get(`/messages/${id}?format=full`);
     const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];

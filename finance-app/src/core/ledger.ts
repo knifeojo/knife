@@ -14,10 +14,22 @@ export type IngestResult =
   | { status: "created"; transactionId: string }
   | { status: "duplicate"; transactionId: string; matchType: "source" | "exact" | "fuzzy" };
 
-/** Names of the user's account holders, for spotting transfers between their own accounts. */
+/** Names of the user, for spotting transfers between their own accounts (reordered names included). */
 export async function loadOwners(userId: string): Promise<string[]> {
-  const accts = await db.account.findMany({ where: { userId, holderName: { not: null } }, select: { holderName: true } });
-  return [...new Set(accts.map((a) => a.holderName!))];
+  const [accts, user, mes] = await Promise.all([
+    db.account.findMany({ where: { userId, holderName: { not: null } }, select: { holderName: true } }),
+    db.user.findUnique({ where: { id: userId }, select: { name: true } }),
+    db.person.findMany({
+      where: { userId, relationship: "me" },
+      select: { displayName: true, aliases: { where: { rejected: false }, select: { name: true } } },
+    }),
+  ]);
+  const names = [
+    ...accts.map((a) => a.holderName!),
+    ...(user?.name ? [user.name] : []),
+    ...mes.flatMap((p) => [p.displayName, ...p.aliases.map((a) => a.name)]),
+  ];
+  return [...new Set(names.filter(Boolean))];
 }
 
 /** The owner's learned rules (MerchantAlias) plus the people they told Ledger about. */
@@ -90,8 +102,9 @@ async function enrich(userId: string, transactionId: string, tx: CanonicalTransa
   const existing = await db.transaction.findUnique({ where: { id: transactionId } });
   if (!existing || tx.description === existing.description) return;
   // Re-reading the SAME kind of document (statement vs statement): the newer reading wins, so earlier
-  // reader mistakes are corrected. Across sources (alert vs statement) only a richer version wins.
-  if (existing.source !== tx.source) {
+  // reader mistakes are corrected. Across sources (alert vs statement) only a richer version wins —
+  // except a statement is the source of truth and always upgrades the stored fields.
+  if (existing.source !== tx.source && tx.source !== "statement") {
     if (tx.description.length <= existing.description.length) return;
     const words = (s: string) => s.toUpperCase().replace(/\d{6,}/g, " ").split(/[^A-Z0-9]+/).filter((w) => w.length >= 3);
     const oldWords = words(existing.description);
@@ -233,8 +246,19 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
     const rules = await loadUserRules(userId);
     const owners = await loadOwners(userId);
     let lastId: string | undefined;
+    let historyId: string | undefined;
     for (const bank of BANK_SOURCES) {
-      const ids = await source.listMessageIds({ query: bank.query, after, max: MAX_MESSAGES_PER_SYNC });
+      let ids: string[] = [];
+      if (source.listHistoryMessageIds && conn.gmailHistoryId && conn.lastSyncedAt) {
+        const hist = await source.listHistoryMessageIds(conn.gmailHistoryId);
+        if (hist.stale) ids = await source.listMessageIds({ query: bank.query, after, max: MAX_MESSAGES_PER_SYNC });
+        else {
+          ids = hist.ids.slice(0, MAX_MESSAGES_PER_SYNC);
+          historyId = hist.historyId;
+        }
+      } else {
+        ids = await source.listMessageIds({ query: bank.query, after, max: MAX_MESSAGES_PER_SYNC });
+      }
       const done = new Set(
         (await db.processedEmail.findMany({ where: { userId, messageId: { in: ids } }, select: { messageId: true } })).map((p) => p.messageId),
       );
@@ -250,13 +274,19 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
           confidences.push(outcome.transaction.confidence);
           const r = await ingestTransaction(userId, { ...outcome.transaction, source: source.source, sourceTransactionId: id }, rules, owners);
           transactionId = r.transactionId;
-          if (r.status === "created") m.created++;
-          else {
+          if (r.status === "created") {
+            m.created++;
+            const { linkAdjacentFee } = await import("./alerts/fees");
+            await linkAdjacentFee(userId, r.transactionId);
+          } else {
             m.duplicates++;
             status = "duplicate";
           }
-        } else if (outcome.status === "failed") m.parseFailures++;
-        else m.skipped++;
+        } else if (outcome.status === "failed") {
+          m.parseFailures++;
+          const { queueKnownUnparsed } = await import("./alerts/ingest-email");
+          await queueKnownUnparsed(userId, email, outcome.parser);
+        } else m.skipped++;
 
         // Metadata only. The body is dropped here and never persisted.
         await db.processedEmail.create({
@@ -277,9 +307,18 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
     }
 
     await pairOwnTransfers(userId);
+    const accounts = await db.account.findMany({ where: { userId }, select: { id: true } });
+    const { scanBalanceGaps } = await import("./alerts/balance");
+    for (const a of accounts) await scanBalanceGaps(userId, a.id);
     await db.financialConnection.update({
       where: { id: connectionId },
-      data: { lastSyncedAt: new Date(), lastProcessedMessageId: lastId ?? conn.lastProcessedMessageId, status: "active", lastError: null },
+      data: {
+        lastSyncedAt: new Date(),
+        lastProcessedMessageId: lastId ?? conn.lastProcessedMessageId,
+        status: "active",
+        lastError: null,
+        ...(historyId ? { gmailHistoryId: historyId } : {}),
+      },
     });
     await db.syncRun.update({
       where: { id: run.id },

@@ -3,7 +3,28 @@ import { cadenceLabel, type CadenceIndex } from "@/core/cadence";
 import { Badge, Money, lagosDateLabel } from "./ui";
 import { CategorySelect } from "./category-select";
 
-const SOURCE_LABEL: Record<string, string> = { gmail: "Gmail", fixture: "Sample", demo: "Demo", statement: "Statement", mono: "Open banking", sms: "SMS" };
+const SOURCE_LABEL: Record<string, string> = {
+  gmail: "Email",
+  imap: "IMAP",
+  inbound: "Forwarded",
+  fixture: "Sample",
+  demo: "Demo",
+  statement: "Statement",
+  mono: "Open banking",
+  sms: "SMS",
+  manual: "Manual",
+};
+
+function SourceBadges({ source, sources }: { source: string; sources?: { source: string }[] }) {
+  const labels = [...new Set((sources?.length ? sources.map((s) => s.source) : [source]).map((s) => SOURCE_LABEL[s] ?? s))];
+  return (
+    <span className="inline-flex flex-wrap justify-end gap-1">
+      {labels.map((l) => (
+        <Badge key={l} tone={l === "Statement" ? "accent" : "neutral"}>{l}</Badge>
+      ))}
+    </span>
+  );
+}
 
 export function CadenceBadge({ tx, cadence }: { tx: Transaction; cadence: CadenceIndex }) {
   const kind = cadenceLabel(tx, cadence);
@@ -14,7 +35,7 @@ export function CadenceBadge({ tx, cadence }: { tx: Transaction; cadence: Cadenc
   return null;
 }
 
-export function TxTable({ rows, editable = true, showBalance = true, cadence }: { rows: (Transaction & { account?: Account })[]; editable?: boolean; showBalance?: boolean; cadence?: CadenceIndex }) {
+export function TxTable({ rows, editable = true, showBalance = true, cadence }: { rows: (Transaction & { account?: Account; sources?: { source: string }[] })[]; editable?: boolean; showBalance?: boolean; cadence?: CadenceIndex }) {
   return (
     <div className="overflow-x-auto -mx-5">
       <table className="w-full text-sm min-w-[720px]">
@@ -53,7 +74,7 @@ export function TxTable({ rows, editable = true, showBalance = true, cadence }: 
                   {t.balanceAfterMinor !== null ? <Money minor={t.balanceAfterMinor} currency={t.currency} compact /> : null}
                 </td>
               )}
-              <td className="px-5 py-3 text-right text-xs text-ink-3 whitespace-nowrap">{SOURCE_LABEL[t.source] ?? t.source}</td>
+              <td className="px-5 py-3 text-right text-xs text-ink-3 whitespace-nowrap"><SourceBadges source={t.source} sources={t.sources} /></td>
             </tr>
           ))}
         </tbody>

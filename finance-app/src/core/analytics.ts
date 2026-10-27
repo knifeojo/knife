@@ -405,7 +405,7 @@ export async function listTransactions(userId: string, f: TransactionFilters, pa
     }),
   };
   const [rows, total] = await Promise.all([
-    db.transaction.findMany({ where, orderBy: { transactionDate: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include: { account: true } }),
+    db.transaction.findMany({ where, orderBy: { transactionDate: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include: { account: true, sources: true } }),
     db.transaction.count({ where }),
   ]);
   return { rows, total, page, pageSize };

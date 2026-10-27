@@ -57,7 +57,7 @@ const BETTING = /bet9ja|sportybet|betking|1xbet|nairabet|merrybet|\bmsport\b|ban
 // Ordered: first match wins. Patterns run against the lowercased description.
 const RULES: Rule[] = [
   // Income
-  { match: /salary|payroll|\bsal\b/, category: INCOME_CATEGORY, subcategory: "Salary", only: "CREDIT" },
+  { match: /salary|payroll|\bsal\b|paymentdeel/, category: INCOME_CATEGORY, subcategory: "Salary", only: "CREDIT" },
   { match: /upwork/, merchant: "Upwork", category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /deel|remote\.com|payoneer|fiverr|toptal/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /invoice|consult/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
@@ -314,6 +314,20 @@ export function extractCounterparty(description: string, type: TransactionType):
   const slash = d.match(/^([A-Z][A-Za-z0-9 .&'-]{2,50}?)\s+\/\s+\S/);
   if (type === "CREDIT" && slash && !/^(money transfer|transfer|payment|deposit|nip|trf)\b/i.test(slash[1])) return cleanName(slash[1]);
   if (type === "CREDIT" && (d.match(/-/g) ?? []).length >= 1) return senderFromDashes(d);
+  // Sterling (and similar) inflows print only the sender's name: "DOE JOHN SAMUEL".
+  const tokens = nameTokens(d);
+  if (
+    type === "CREDIT" &&
+    tokens.length >= 2 &&
+    tokens.length <= 5 &&
+    d.length <= 60 &&
+    !/\d/.test(d) &&
+    !COMPANY.test(d) &&
+    !TRANSFER_MARKER.test(d) &&
+    !/[/:@]/.test(d)
+  ) {
+    return titleCase(d);
+  }
   return undefined;
 }
 

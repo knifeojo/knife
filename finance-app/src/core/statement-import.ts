@@ -111,6 +111,8 @@ export async function importStatement(
     const last = await db.syncRun.findFirst({ where: { userId }, orderBy: { startedAt: "desc" } });
     if (last) await db.syncRun.update({ where: { id: last.id }, data: { linked } });
   }
+  const { reconcileAfterStatement } = await import("./alerts/after-statement");
+  await reconcileAfterStatement(userId);
   const [first, ...others] = summaries;
   return others.length ? { ...first, others } : first;
 }

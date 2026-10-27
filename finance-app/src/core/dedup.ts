@@ -16,6 +16,8 @@ const NOISE = /\b(TRF|NIP|FIP|POS|WEB|PURCHASE|TRANSFER|TO|FROM|FRM|FOR|REF|NG|L
 export function normalizeDescription(desc: string): string {
   return desc
     .toUpperCase()
+    // GTBank SMS payroll credits print "PAYMENTDEEL"; statements/emails often say "DEEL INC".
+    .replace(/PAYMENTDEEL/g, "DEEL")
     .replace(/[^A-Z0-9 ]+/g, " ")
     .replace(NOISE, " ")
     .replace(/\b\d{6,}\b/g, " ") // long numeric ids differ between sources

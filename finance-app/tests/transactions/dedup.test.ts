@@ -85,4 +85,24 @@ describe("fuzzy cross-source matching", () => {
   it("rejects conflicting references", () => {
     expect(isFuzzyMatch({ ...base, source: "statement", reference: "ZZZ999" }, asCandidate(base))).toBe(false);
   });
+
+  it("links a PAYMENTDEEL SMS credit to a Deel INC statement/email credit", () => {
+    const sms: CanonicalTransaction = {
+      ...base,
+      source: "sms",
+      type: "CREDIT",
+      amountMinor: 51_839_025n,
+      reference: undefined,
+      description: "PAYMENTDEEL INC-WRAMFB-GRP",
+      transactionDate: new Date("2026-10-07T10:08:00Z"),
+    };
+    const statement = asCandidate({
+      ...sms,
+      source: "statement",
+      sourceTransactionId: "stmt-deel",
+      description: "W5WM-MONIE MFB-DEEL INC",
+      transactionDate: new Date("2026-10-07T00:00:00Z"),
+    });
+    expect(isFuzzyMatch(sms, statement)).toBe(true);
+  });
 });

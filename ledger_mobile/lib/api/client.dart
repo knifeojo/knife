@@ -283,6 +283,24 @@ class LedgerApi {
     }
   }
 
+  Future<Map<String, dynamic>> uploadSms({required String sender, required String body, DateTime? receivedAt, String? sourceId}) {
+    return _object(
+      _uri('/api/v1/alerts/sms'),
+      (uri) => _post(uri, {
+        'sender': sender,
+        'body': body,
+        'receivedAt': ?receivedAt?.toUtc().toIso8601String(),
+        'sourceId': ?sourceId,
+      }),
+    );
+  }
+
+  Future<Map<String, dynamic>> alertStatus() => _object(_uri('/api/v1/alerts/status'), _get);
+
+  Future<Map<String, dynamic>> syncAlerts() => _object(_uri('/api/v1/alerts/sync'), (uri) => _post(uri, const {}));
+
+  Future<Map<String, dynamic>> alertParsers() => _object(_uri('/api/v1/alerts/parsers'), _get);
+
   Future<List<StatementFileResult>> uploadStatement({required String filename, required Uint8List bytes, String? password}) async {
     final request = http.MultipartRequest('POST', _uri('/api/v1/statements'));
     request.headers.addAll(_headers());

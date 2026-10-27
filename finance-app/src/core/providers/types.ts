@@ -5,6 +5,7 @@ export interface EmailSource {
   readonly source: SourceType;
   listMessageIds(opts: { query: string; after?: Date; max?: number }): Promise<string[]>;
   getMessage(id: string): Promise<EmailMessage>;
+  listHistoryMessageIds?(startHistoryId: string): Promise<{ ids: string[]; historyId?: string; stale?: boolean }>;
 }
 
 // Future structured providers (Mono, statements, SMS) implement this and feed the same ledger
