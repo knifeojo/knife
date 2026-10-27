@@ -41,6 +41,23 @@ export function PersonAnswers({ q }: { q: QuestionWithSuggestion }) {
   const ai = q.aiRelationship ? `rel:${q.aiRelationship}` : undefined;
   return (
     <>
+      {q.guess && (
+        <div className="mt-3 rounded-lg border border-accent/40 bg-accent-soft px-3 py-2.5" data-testid="people-guess">
+          <p className="text-xs text-accent font-medium">{q.guess.reason}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {q.guess.answers.map((a) => (
+              <form key={`${a.value}:${a.label}`} action={answerQuestionAction}>
+                <input type="hidden" name="kind" value={q.kind} />
+                <input type="hidden" name="key" value={q.key} />
+                <input type="hidden" name="value" value={a.value} />
+                {a.vendorCategory && <input type="hidden" name="vendorCategory" value={a.vendorCategory} />}
+                {a.vendorSubcategory && <input type="hidden" name="vendorSubcategory" value={a.vendorSubcategory} />}
+                <button className="btn btn-primary h-9 text-sm" data-testid={`guess-${a.label}`}>{a.label}</button>
+              </form>
+            ))}
+          </div>
+        </div>
+      )}
       {ai && (
         <p className="mt-3 text-xs text-accent font-medium" data-testid="ai-relationship">
           AI thinks this is your {q.options.find((o) => o.value === ai)?.label.toLowerCase()}. Tap it to confirm.

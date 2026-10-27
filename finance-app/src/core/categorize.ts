@@ -1,3 +1,4 @@
+import { matchDirectory, namesOnlyBusiness } from "./merchants/directory";
 import { mappingFor, matchPeople, type KnownPerson } from "./people-match";
 import type { Classification, TransactionType } from "./types";
 
@@ -477,6 +478,52 @@ export function categorize(
   return { category: label.category, subcategory: label.subcategory ?? undefined, merchantName: person.displayName, counterparty: full.counterparty, source: "user", confidence: 1, personId };
 }
 
+// Directory labels sit below Ledger's own rules (0.9) so a purpose word or a known person still wins,
+// and above the AI backlog cut-off (0.6) so the model only sees true unknowns. A wallet or POS
+// aggregator says where the money went, not what it bought, so those are less certain.
+const DIRECTORY_CONFIDENCE = 0.85;
+const WEAK_DIRECTORY_KINDS = new Set(["wallet", "pos"]);
+
+/**
+ * The seeded merchant directory (data/merchants-ng.json). It reads the narration with the other
+ * party's name taken out, so "TO OPAY - BOLAJI GLO" is not airtime; the other party's name only
+ * counts when it is nothing but the brand ("TO ZBN - JENDOL SUPERSTORES LTD").
+ */
+function directoryLabel(
+  type: TransactionType,
+  ruleDesc: string,
+  rawCounterparty: string | undefined,
+  counterparty: string | undefined,
+): Classification | undefined {
+  const names = [rawCounterparty, counterparty].filter((n): n is string => !!n);
+  const named = counterparty ? matchDirectory(counterparty) : undefined;
+  const isBrand = !!named && namesOnlyBusiness(counterparty!, named.alias);
+  const hit = matchDirectory(names.length ? withoutName(ruleDesc, names) : ruleDesc) ?? (isBrand ? named : undefined);
+  if (!hit) return undefined;
+  const { entry } = hit;
+  // A lender named beside a person is usually that person's bank, unless the narration says loan.
+  if (entry.kind === "lender" && counterparty && !isBrand && !/repay|loan|disburs/.test(ruleDesc)) return undefined;
+  const label = (category: string, subcategory?: string): Classification => ({
+    category,
+    subcategory,
+    merchantName: entry.name,
+    counterparty,
+    source: "rule",
+    confidence: WEAK_DIRECTORY_KINDS.has(entry.kind) ? 0.65 : DIRECTORY_CONFIDENCE,
+  });
+  switch (entry.kind) {
+    // Funding your own wallet names nobody else; "TO KUDA - TOLU ADE" is a transfer to Tolu.
+    case "wallet":
+      return type === "DEBIT" && !counterparty ? label(entry.category, entry.subcategory) : undefined;
+    case "savings":
+      return type === "CREDIT" && /interest/.test(ruleDesc) ? undefined : label(entry.category, entry.subcategory);
+    case "lender":
+      return label("Debt", type === "CREDIT" ? "Loan proceeds" : entry.subcategory);
+    default:
+      return type === "DEBIT" ? label(entry.category, entry.subcategory) : undefined;
+  }
+}
+
 function categorizeRules(
   input: { description: string; type: TransactionType },
   userRules: UserRule[],
@@ -585,6 +632,9 @@ function categorizeRules(
       confidence: 0.9,
     };
   }
+
+  const known = directoryLabel(input.type, ruleDesc, rawCounterparty, counterparty);
+  if (known) return known;
 
   // A card payment at a shop no rule knows: the shop's name may still say what it sells. If it does not,
   // it is still a purchase (not a transfer), filed under Shopping and flagged for review.

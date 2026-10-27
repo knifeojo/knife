@@ -1,0 +1,3281 @@
+{
+  "version": 1,
+  "updated": "2026-10-27",
+  "about": "Common Nigerian merchants, billers, wallets, lenders and savings apps, matched before any AI runs. Aliases are lowercase words matched whole against the narration (punctuation ignored; multi-word aliases also match when the bank ran the words together). Labels use the app taxonomy (src/core/taxonomy.ts). Kinds: wallet entries only label a debit that names nobody else (funding your own wallet); lender debits are repayments and credits are loan proceeds; savings entries are own transfers both ways.",
+  "merchants": [
+    {
+      "name": "MTN",
+      "kind": "telco",
+      "category": "Utilities",
+      "subcategory": "Airtime & data",
+      "aliases": [
+        "mtn",
+        "mtn nigeria",
+        "mtnn"
+      ]
+    },
+    {
+      "name": "Airtel",
+      "kind": "telco",
+      "category": "Utilities",
+      "subcategory": "Airtime & data",
+      "aliases": [
+        "airtel",
+        "airtel nigeria"
+      ]
+    },
+    {
+      "name": "Glo",
+      "kind": "telco",
+      "category": "Utilities",
+      "subcategory": "Airtime & data",
+      "aliases": [
+        "glo",
+        "globacom",
+        "glo mobile"
+      ]
+    },
+    {
+      "name": "9mobile",
+      "kind": "telco",
+      "category": "Utilities",
+      "subcategory": "Airtime & data",
+      "aliases": [
+        "9mobile",
+        "etisalat nigeria"
+      ]
+    },
+    {
+      "name": "ntel",
+      "kind": "telco",
+      "category": "Utilities",
+      "subcategory": "Airtime & data",
+      "aliases": [
+        "ntel"
+      ]
+    },
+    {
+      "name": "Spectranet",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "spectranet"
+      ]
+    },
+    {
+      "name": "Smile",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "smile communications",
+        "smile 4g",
+        "smile telecoms"
+      ]
+    },
+    {
+      "name": "Swift Networks",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "swift networks",
+        "swift 4g"
+      ]
+    },
+    {
+      "name": "ipNX",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "ipnx"
+      ]
+    },
+    {
+      "name": "Tizeti",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "tizeti",
+        "wifi.com.ng"
+      ]
+    },
+    {
+      "name": "FiberOne",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "fiberone",
+        "fibre one",
+        "fiber one broadband"
+      ]
+    },
+    {
+      "name": "Starlink",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "starlink"
+      ]
+    },
+    {
+      "name": "VDT Communications",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "vdt communications"
+      ]
+    },
+    {
+      "name": "MainOne",
+      "kind": "isp",
+      "category": "Utilities",
+      "subcategory": "Internet",
+      "aliases": [
+        "mainone",
+        "main one cable"
+      ]
+    },
+    {
+      "name": "Ikeja Electric",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "ikeja electric",
+        "ikedc"
+      ]
+    },
+    {
+      "name": "Eko Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "eko electric",
+        "eko electricity",
+        "ekedc",
+        "eko disco"
+      ]
+    },
+    {
+      "name": "Abuja Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "aedc",
+        "abuja electricity"
+      ]
+    },
+    {
+      "name": "Ibadan Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "ibedc",
+        "ibadan electricity"
+      ]
+    },
+    {
+      "name": "Port Harcourt Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "phed",
+        "port harcourt electricity"
+      ]
+    },
+    {
+      "name": "Enugu Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "eedc",
+        "enugu electricity"
+      ]
+    },
+    {
+      "name": "Kaduna Electric",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "kaduna electric",
+        "kaedco"
+      ]
+    },
+    {
+      "name": "Jos Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "jos electricity",
+        "jedc"
+      ]
+    },
+    {
+      "name": "Benin Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "bedc",
+        "benin electricity"
+      ]
+    },
+    {
+      "name": "Yola Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "yedc",
+        "yola electricity"
+      ]
+    },
+    {
+      "name": "Kano Electricity",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "kedco",
+        "kano electricity"
+      ]
+    },
+    {
+      "name": "Aba Power",
+      "kind": "electricity",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "aba power"
+      ]
+    },
+    {
+      "name": "BuyPower",
+      "kind": "bills",
+      "category": "Utilities",
+      "subcategory": "Electricity",
+      "aliases": [
+        "buypower",
+        "buy power"
+      ]
+    },
+    {
+      "name": "VTpass",
+      "kind": "bills",
+      "category": "Utilities",
+      "aliases": [
+        "vtpass"
+      ]
+    },
+    {
+      "name": "Baxi",
+      "kind": "bills",
+      "category": "Utilities",
+      "aliases": [
+        "baxi"
+      ]
+    },
+    {
+      "name": "iRecharge",
+      "kind": "bills",
+      "category": "Utilities",
+      "aliases": [
+        "irecharge"
+      ]
+    },
+    {
+      "name": "Quickteller",
+      "kind": "bills",
+      "category": "Utilities",
+      "aliases": [
+        "quickteller"
+      ]
+    },
+    {
+      "name": "PayArena",
+      "kind": "bills",
+      "category": "Utilities",
+      "aliases": [
+        "payarena"
+      ]
+    },
+    {
+      "name": "MultiChoice",
+      "kind": "tv",
+      "category": "Utilities",
+      "subcategory": "TV",
+      "aliases": [
+        "multichoice",
+        "dstv",
+        "gotv"
+      ]
+    },
+    {
+      "name": "StarTimes",
+      "kind": "tv",
+      "category": "Utilities",
+      "subcategory": "TV",
+      "aliases": [
+        "startimes"
+      ]
+    },
+    {
+      "name": "TStv",
+      "kind": "tv",
+      "category": "Utilities",
+      "subcategory": "TV",
+      "aliases": [
+        "tstv"
+      ]
+    },
+    {
+      "name": "LAWMA",
+      "kind": "waste",
+      "category": "Utilities",
+      "aliases": [
+        "lawma"
+      ]
+    },
+    {
+      "name": "Lagos Water Corporation",
+      "kind": "water",
+      "category": "Utilities",
+      "aliases": [
+        "lagos water corporation",
+        "lagos water corp"
+      ]
+    },
+    {
+      "name": "FCT Water Board",
+      "kind": "water",
+      "category": "Utilities",
+      "aliases": [
+        "fct water board"
+      ]
+    },
+    {
+      "name": "Netflix",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "netflix"
+      ]
+    },
+    {
+      "name": "Spotify",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "spotify"
+      ]
+    },
+    {
+      "name": "Showmax",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "showmax"
+      ]
+    },
+    {
+      "name": "YouTube",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "youtube",
+        "youtube premium"
+      ]
+    },
+    {
+      "name": "Prime Video",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "prime video",
+        "primevideo",
+        "amazon prime"
+      ]
+    },
+    {
+      "name": "Boomplay",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "boomplay"
+      ]
+    },
+    {
+      "name": "Audiomack",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "audiomack"
+      ]
+    },
+    {
+      "name": "Deezer",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "deezer"
+      ]
+    },
+    {
+      "name": "Apple Music",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "apple music"
+      ]
+    },
+    {
+      "name": "iROKOtv",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "irokotv",
+        "iroko tv"
+      ]
+    },
+    {
+      "name": "Disney+",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Streaming",
+      "aliases": [
+        "disney plus",
+        "disneyplus"
+      ]
+    },
+    {
+      "name": "Apple",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "aliases": [
+        "apple.com",
+        "itunes",
+        "icloud"
+      ]
+    },
+    {
+      "name": "OpenAI",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "openai",
+        "chatgpt"
+      ]
+    },
+    {
+      "name": "Anthropic",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "anthropic",
+        "claude.ai"
+      ]
+    },
+    {
+      "name": "Google",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "google workspace",
+        "gsuite",
+        "google one",
+        "google storage"
+      ]
+    },
+    {
+      "name": "Microsoft",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "microsoft",
+        "office 365",
+        "msft"
+      ]
+    },
+    {
+      "name": "Adobe",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "adobe"
+      ]
+    },
+    {
+      "name": "Canva",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "canva"
+      ]
+    },
+    {
+      "name": "Notion",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "notion.so",
+        "notion labs"
+      ]
+    },
+    {
+      "name": "Figma",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "figma"
+      ]
+    },
+    {
+      "name": "Slack",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "slack technologies",
+        "slack.com"
+      ]
+    },
+    {
+      "name": "Zoom",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "zoom.us",
+        "zoom video"
+      ]
+    },
+    {
+      "name": "GitHub",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "github"
+      ]
+    },
+    {
+      "name": "Dropbox",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "dropbox"
+      ]
+    },
+    {
+      "name": "LinkedIn",
+      "kind": "subscription",
+      "category": "Subscriptions",
+      "subcategory": "Software",
+      "aliases": [
+        "linkedin"
+      ]
+    },
+    {
+      "name": "Uber",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "uber",
+        "uber bv",
+        "uber trip"
+      ]
+    },
+    {
+      "name": "Bolt",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "bolt",
+        "bolt.eu",
+        "taxify"
+      ]
+    },
+    {
+      "name": "inDrive",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "indrive",
+        "indriver"
+      ]
+    },
+    {
+      "name": "LagRide",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "lagride"
+      ]
+    },
+    {
+      "name": "Gokada",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "gokada"
+      ]
+    },
+    {
+      "name": "MAX",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "max.ng",
+        "maxng"
+      ]
+    },
+    {
+      "name": "SafeBoda",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "safeboda"
+      ]
+    },
+    {
+      "name": "ORide",
+      "kind": "ride",
+      "category": "Transport",
+      "subcategory": "Ride hailing",
+      "aliases": [
+        "oride"
+      ]
+    },
+    {
+      "name": "Shuttlers",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Public transport",
+      "aliases": [
+        "shuttlers"
+      ]
+    },
+    {
+      "name": "Plentywaka",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Public transport",
+      "aliases": [
+        "plentywaka"
+      ]
+    },
+    {
+      "name": "LAMATA",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Public transport",
+      "aliases": [
+        "lamata"
+      ]
+    },
+    {
+      "name": "Cowry Card",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Public transport",
+      "aliases": [
+        "cowry card",
+        "cowrycard"
+      ]
+    },
+    {
+      "name": "Primero",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Public transport",
+      "aliases": [
+        "primero transport",
+        "primero"
+      ]
+    },
+    {
+      "name": "LagBus",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Public transport",
+      "aliases": [
+        "lagbus"
+      ]
+    },
+    {
+      "name": "ABC Transport",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Interstate bus",
+      "aliases": [
+        "abc transport"
+      ]
+    },
+    {
+      "name": "GIG Mobility",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Interstate bus",
+      "aliases": [
+        "gigm",
+        "gig mobility",
+        "god is good motors"
+      ]
+    },
+    {
+      "name": "Chisco",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Interstate bus",
+      "aliases": [
+        "chisco"
+      ]
+    },
+    {
+      "name": "Peace Mass Transit",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Interstate bus",
+      "aliases": [
+        "peace mass transit"
+      ]
+    },
+    {
+      "name": "Young Shall Grow Motors",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Interstate bus",
+      "aliases": [
+        "young shall grow"
+      ]
+    },
+    {
+      "name": "Libra Motors",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Interstate bus",
+      "aliases": [
+        "libra motors"
+      ]
+    },
+    {
+      "name": "GUO Transport",
+      "kind": "transport",
+      "category": "Transport",
+      "subcategory": "Interstate bus",
+      "aliases": [
+        "guo transport"
+      ]
+    },
+    {
+      "name": "TotalEnergies",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "totalenergies",
+        "total energies",
+        "total nigeria"
+      ]
+    },
+    {
+      "name": "11 Plc",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "11 plc",
+        "mobil"
+      ]
+    },
+    {
+      "name": "Oando",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "oando"
+      ]
+    },
+    {
+      "name": "Conoil",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "conoil"
+      ]
+    },
+    {
+      "name": "Ardova",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "ardova",
+        "forte oil"
+      ]
+    },
+    {
+      "name": "NNPC",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "nnpc",
+        "nnpc retail",
+        "nnpc mega station"
+      ]
+    },
+    {
+      "name": "MRS",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "mrs oil"
+      ]
+    },
+    {
+      "name": "NIPCO",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "nipco"
+      ]
+    },
+    {
+      "name": "Rain Oil",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "rain oil",
+        "rainoil"
+      ]
+    },
+    {
+      "name": "Matrix Energy",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "matrix energy"
+      ]
+    },
+    {
+      "name": "Eterna",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "eterna"
+      ]
+    },
+    {
+      "name": "AYM Shafa",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "aym shafa"
+      ]
+    },
+    {
+      "name": "Bovas",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "bovas"
+      ]
+    },
+    {
+      "name": "Enyo",
+      "kind": "fuel",
+      "category": "Transport",
+      "subcategory": "Fuel",
+      "aliases": [
+        "enyo retail"
+      ]
+    },
+    {
+      "name": "Lekki Concession Company",
+      "kind": "toll",
+      "category": "Transport",
+      "subcategory": "Tolls",
+      "aliases": [
+        "lekki concession",
+        "lcc toll"
+      ]
+    },
+    {
+      "name": "FRSC",
+      "kind": "government",
+      "category": "Transport",
+      "subcategory": "Car",
+      "aliases": [
+        "frsc",
+        "federal road safety"
+      ]
+    },
+    {
+      "name": "GIG Logistics",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "gig logistics",
+        "giglogistics"
+      ]
+    },
+    {
+      "name": "DHL",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "dhl"
+      ]
+    },
+    {
+      "name": "FedEx",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "fedex"
+      ]
+    },
+    {
+      "name": "Aramex",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "aramex"
+      ]
+    },
+    {
+      "name": "Kwik Delivery",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "kwik delivery"
+      ]
+    },
+    {
+      "name": "Sendbox",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "sendbox"
+      ]
+    },
+    {
+      "name": "Red Star Express",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "red star express"
+      ]
+    },
+    {
+      "name": "NIPOST",
+      "kind": "logistics",
+      "category": "Transport",
+      "subcategory": "Delivery",
+      "aliases": [
+        "nipost"
+      ]
+    },
+    {
+      "name": "Chowdeck",
+      "kind": "delivery",
+      "category": "Food",
+      "subcategory": "Delivery",
+      "aliases": [
+        "chowdeck"
+      ]
+    },
+    {
+      "name": "Glovo",
+      "kind": "delivery",
+      "category": "Food",
+      "subcategory": "Delivery",
+      "aliases": [
+        "glovo"
+      ]
+    },
+    {
+      "name": "Jumia Food",
+      "kind": "delivery",
+      "category": "Food",
+      "subcategory": "Delivery",
+      "aliases": [
+        "jumia food",
+        "jumiafood"
+      ]
+    },
+    {
+      "name": "Bolt Food",
+      "kind": "delivery",
+      "category": "Food",
+      "subcategory": "Delivery",
+      "aliases": [
+        "bolt food",
+        "boltfood"
+      ]
+    },
+    {
+      "name": "Heyfood",
+      "kind": "delivery",
+      "category": "Food",
+      "subcategory": "Delivery",
+      "aliases": [
+        "heyfood"
+      ]
+    },
+    {
+      "name": "FoodCourt",
+      "kind": "delivery",
+      "category": "Food",
+      "subcategory": "Delivery",
+      "aliases": [
+        "foodcourt"
+      ]
+    },
+    {
+      "name": "Chopnow",
+      "kind": "delivery",
+      "category": "Food",
+      "subcategory": "Delivery",
+      "aliases": [
+        "chopnow"
+      ]
+    },
+    {
+      "name": "Chicken Republic",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "chicken republic"
+      ]
+    },
+    {
+      "name": "Food Concepts",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "food concepts"
+      ]
+    },
+    {
+      "name": "KFC",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "kfc"
+      ]
+    },
+    {
+      "name": "Domino's Pizza",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "dominos",
+        "domino s",
+        "dominos pizza"
+      ]
+    },
+    {
+      "name": "Cold Stone Creamery",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "cold stone",
+        "coldstone"
+      ]
+    },
+    {
+      "name": "Mr Bigg's",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "mr biggs",
+        "mr bigg s",
+        "mrbiggs"
+      ]
+    },
+    {
+      "name": "Sweet Sensation",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "sweet sensation"
+      ]
+    },
+    {
+      "name": "Kilimanjaro",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "kilimanjaro"
+      ]
+    },
+    {
+      "name": "The Place",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "the place"
+      ]
+    },
+    {
+      "name": "Tantalizers",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "tantalizers",
+        "tantalisers"
+      ]
+    },
+    {
+      "name": "Bukka Hut",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "bukka hut",
+        "bukkahut"
+      ]
+    },
+    {
+      "name": "Debonairs Pizza",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "debonairs"
+      ]
+    },
+    {
+      "name": "Pizza Hut",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "pizza hut",
+        "pizzahut"
+      ]
+    },
+    {
+      "name": "Yellow Chilli",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "yellow chilli"
+      ]
+    },
+    {
+      "name": "Ofada Boy",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "ofada boy"
+      ]
+    },
+    {
+      "name": "Mega Chicken",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "mega chicken"
+      ]
+    },
+    {
+      "name": "Item 7",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "item 7",
+        "item7"
+      ]
+    },
+    {
+      "name": "Tasty Fried Chicken",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "tasty fried chicken"
+      ]
+    },
+    {
+      "name": "Barcelos",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "barcelos"
+      ]
+    },
+    {
+      "name": "Johnny Rockets",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "johnny rockets"
+      ]
+    },
+    {
+      "name": "Cafe Neo",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "cafe neo",
+        "cafeneo"
+      ]
+    },
+    {
+      "name": "Burger King",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "burger king"
+      ]
+    },
+    {
+      "name": "Hard Rock Cafe",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "hard rock cafe"
+      ]
+    },
+    {
+      "name": "Krispy Kreme",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "krispy kreme"
+      ]
+    },
+    {
+      "name": "Chocolat Royal",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "chocolat royal"
+      ]
+    },
+    {
+      "name": "Captain Cook",
+      "kind": "restaurant",
+      "category": "Food",
+      "subcategory": "Eating out",
+      "aliases": [
+        "captain cook"
+      ]
+    },
+    {
+      "name": "Shoprite",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "shoprite"
+      ]
+    },
+    {
+      "name": "Spar",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "spar"
+      ]
+    },
+    {
+      "name": "Ebeano",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "ebeano",
+        "prince ebeano"
+      ]
+    },
+    {
+      "name": "Justrite",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "justrite"
+      ]
+    },
+    {
+      "name": "Market Square",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "market square"
+      ]
+    },
+    {
+      "name": "Hubmart",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "hubmart"
+      ]
+    },
+    {
+      "name": "Foodco",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "foodco"
+      ]
+    },
+    {
+      "name": "Sahad Stores",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "sahad stores"
+      ]
+    },
+    {
+      "name": "Grand Square",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "grand square"
+      ]
+    },
+    {
+      "name": "Addide",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "addide"
+      ]
+    },
+    {
+      "name": "Park n Shop",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "park n shop",
+        "parknshop"
+      ]
+    },
+    {
+      "name": "Farm City",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "farm city",
+        "farmcity"
+      ]
+    },
+    {
+      "name": "Mega Plaza",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "mega plaza",
+        "megaplaza"
+      ]
+    },
+    {
+      "name": "Jendol Superstores",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "jendol"
+      ]
+    },
+    {
+      "name": "Bokku Mart",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "bokku"
+      ]
+    },
+    {
+      "name": "Supermart.ng",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "supermart.ng",
+        "supermart"
+      ]
+    },
+    {
+      "name": "Next Cash and Carry",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "next cash and carry",
+        "next cash carry"
+      ]
+    },
+    {
+      "name": "Blenco",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "blenco"
+      ]
+    },
+    {
+      "name": "H-Medix",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "h medix",
+        "hmedix"
+      ]
+    },
+    {
+      "name": "Dunes Center",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "dunes center",
+        "dunes centre"
+      ]
+    },
+    {
+      "name": "Everyday Supermarket",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "everyday supermarket"
+      ]
+    },
+    {
+      "name": "Roban Stores",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "roban stores"
+      ]
+    },
+    {
+      "name": "Goodies Supermarket",
+      "kind": "supermarket",
+      "category": "Food",
+      "subcategory": "Groceries",
+      "aliases": [
+        "goodies supermarket"
+      ]
+    },
+    {
+      "name": "Jumia",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "jumia"
+      ]
+    },
+    {
+      "name": "Konga",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "konga"
+      ]
+    },
+    {
+      "name": "Jiji",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "jiji",
+        "jiji.ng"
+      ]
+    },
+    {
+      "name": "PayPorte",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "payporte"
+      ]
+    },
+    {
+      "name": "Temu",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "temu"
+      ]
+    },
+    {
+      "name": "Shein",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "shein"
+      ]
+    },
+    {
+      "name": "AliExpress",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "aliexpress"
+      ]
+    },
+    {
+      "name": "Amazon",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "amazon",
+        "amzn"
+      ]
+    },
+    {
+      "name": "eBay",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "ebay"
+      ]
+    },
+    {
+      "name": "Etsy",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Online",
+      "aliases": [
+        "etsy"
+      ]
+    },
+    {
+      "name": "Mr Price",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Clothing",
+      "aliases": [
+        "mr price",
+        "mrprice"
+      ]
+    },
+    {
+      "name": "Miniso",
+      "kind": "shopping",
+      "category": "Shopping",
+      "aliases": [
+        "miniso"
+      ]
+    },
+    {
+      "name": "Slot",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Electronics",
+      "aliases": [
+        "slot systems",
+        "slot nigeria",
+        "slot ltd"
+      ]
+    },
+    {
+      "name": "Pointek",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Electronics",
+      "aliases": [
+        "pointek"
+      ]
+    },
+    {
+      "name": "Fouani",
+      "kind": "shopping",
+      "category": "Shopping",
+      "subcategory": "Electronics",
+      "aliases": [
+        "fouani"
+      ]
+    },
+    {
+      "name": "MedPlus",
+      "kind": "pharmacy",
+      "category": "Healthcare",
+      "aliases": [
+        "medplus",
+        "med plus pharmacy"
+      ]
+    },
+    {
+      "name": "HealthPlus",
+      "kind": "pharmacy",
+      "category": "Healthcare",
+      "aliases": [
+        "healthplus",
+        "health plus"
+      ]
+    },
+    {
+      "name": "Alpha Pharmacy",
+      "kind": "pharmacy",
+      "category": "Healthcare",
+      "aliases": [
+        "alpha pharmacy"
+      ]
+    },
+    {
+      "name": "Hygeia HMO",
+      "kind": "hmo",
+      "category": "Healthcare",
+      "aliases": [
+        "hygeia"
+      ]
+    },
+    {
+      "name": "Reliance Health",
+      "kind": "hmo",
+      "category": "Healthcare",
+      "aliases": [
+        "reliance hmo",
+        "reliance health"
+      ]
+    },
+    {
+      "name": "AXA Mansard Health",
+      "kind": "hmo",
+      "category": "Healthcare",
+      "aliases": [
+        "axa mansard health"
+      ]
+    },
+    {
+      "name": "Avon HMO",
+      "kind": "hmo",
+      "category": "Healthcare",
+      "aliases": [
+        "avon hmo",
+        "avon healthcare"
+      ]
+    },
+    {
+      "name": "Leadway Health",
+      "kind": "hmo",
+      "category": "Healthcare",
+      "aliases": [
+        "leadway health"
+      ]
+    },
+    {
+      "name": "Clearline HMO",
+      "kind": "hmo",
+      "category": "Healthcare",
+      "aliases": [
+        "clearline hmo",
+        "clearline"
+      ]
+    },
+    {
+      "name": "Total Health Trust",
+      "kind": "hmo",
+      "category": "Healthcare",
+      "aliases": [
+        "total health trust"
+      ]
+    },
+    {
+      "name": "Clina-Lancet",
+      "kind": "health",
+      "category": "Healthcare",
+      "aliases": [
+        "clina lancet",
+        "clinalancet"
+      ]
+    },
+    {
+      "name": "Synlab",
+      "kind": "health",
+      "category": "Healthcare",
+      "aliases": [
+        "synlab"
+      ]
+    },
+    {
+      "name": "Lagoon Hospitals",
+      "kind": "health",
+      "category": "Healthcare",
+      "aliases": [
+        "lagoon hospital",
+        "lagoon hospitals"
+      ]
+    },
+    {
+      "name": "Reddington Hospital",
+      "kind": "health",
+      "category": "Healthcare",
+      "aliases": [
+        "reddington hospital",
+        "reddington"
+      ]
+    },
+    {
+      "name": "Evercare Hospital",
+      "kind": "health",
+      "category": "Healthcare",
+      "aliases": [
+        "evercare"
+      ]
+    },
+    {
+      "name": "Eko Hospital",
+      "kind": "health",
+      "category": "Healthcare",
+      "aliases": [
+        "eko hospital"
+      ]
+    },
+    {
+      "name": "St. Nicholas Hospital",
+      "kind": "health",
+      "category": "Healthcare",
+      "aliases": [
+        "st nicholas hospital"
+      ]
+    },
+    {
+      "name": "i-Fitness",
+      "kind": "fitness",
+      "category": "Healthcare",
+      "subcategory": "Fitness",
+      "aliases": [
+        "i fitness",
+        "ifitness"
+      ]
+    },
+    {
+      "name": "Bodyline",
+      "kind": "fitness",
+      "category": "Healthcare",
+      "subcategory": "Fitness",
+      "aliases": [
+        "bodyline"
+      ]
+    },
+    {
+      "name": "Bet9ja",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "bet9ja"
+      ]
+    },
+    {
+      "name": "SportyBet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "sportybet",
+        "sporty bet"
+      ]
+    },
+    {
+      "name": "BetKing",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "betking"
+      ]
+    },
+    {
+      "name": "1xBet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "1xbet"
+      ]
+    },
+    {
+      "name": "NairaBet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "nairabet"
+      ]
+    },
+    {
+      "name": "MerryBet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "merrybet"
+      ]
+    },
+    {
+      "name": "MSport",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "msport"
+      ]
+    },
+    {
+      "name": "BangBet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "bangbet"
+      ]
+    },
+    {
+      "name": "Betway",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "betway"
+      ]
+    },
+    {
+      "name": "Parimatch",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "parimatch"
+      ]
+    },
+    {
+      "name": "AccessBET",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "accessbet"
+      ]
+    },
+    {
+      "name": "SureBet247",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "surebet247",
+        "surebet"
+      ]
+    },
+    {
+      "name": "Lottomania",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "lottomania"
+      ]
+    },
+    {
+      "name": "Premier Lotto",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "premier lotto",
+        "baba ijebu"
+      ]
+    },
+    {
+      "name": "NaijaBet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "naijabet"
+      ]
+    },
+    {
+      "name": "BetLand",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "betland"
+      ]
+    },
+    {
+      "name": "22Bet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "22bet"
+      ]
+    },
+    {
+      "name": "BetBonanza",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "betbonanza"
+      ]
+    },
+    {
+      "name": "BetWinner",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "betwinner"
+      ]
+    },
+    {
+      "name": "LiveScore Bet",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "livescore bet",
+        "livescorebet"
+      ]
+    },
+    {
+      "name": "Supabets",
+      "kind": "betting",
+      "category": "Other",
+      "subcategory": "Betting",
+      "aliases": [
+        "supabets"
+      ]
+    },
+    {
+      "name": "FairMoney",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "fairmoney",
+        "fair money"
+      ]
+    },
+    {
+      "name": "Renmoney",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "renmoney",
+        "ren money"
+      ]
+    },
+    {
+      "name": "PalmCredit",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "palmcredit",
+        "palm credit"
+      ]
+    },
+    {
+      "name": "Carbon",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "carbon",
+        "paylater",
+        "onefi"
+      ]
+    },
+    {
+      "name": "Branch",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "branch international",
+        "branch.co"
+      ]
+    },
+    {
+      "name": "Aella",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "aella credit",
+        "aellacredit"
+      ]
+    },
+    {
+      "name": "QuickCheck",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "quickcheck",
+        "quick check"
+      ]
+    },
+    {
+      "name": "OKash",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "okash"
+      ]
+    },
+    {
+      "name": "EaseMoni",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "easemoni"
+      ]
+    },
+    {
+      "name": "Lendigo",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "lendigo"
+      ]
+    },
+    {
+      "name": "Specta",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "specta"
+      ]
+    },
+    {
+      "name": "NewCredit",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "newcredit"
+      ]
+    },
+    {
+      "name": "SokoLoan",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "sokoloan"
+      ]
+    },
+    {
+      "name": "Zedvance",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "zedvance"
+      ]
+    },
+    {
+      "name": "Credit Direct",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "credit direct"
+      ]
+    },
+    {
+      "name": "KiaKia",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "kiakia"
+      ]
+    },
+    {
+      "name": "Page Financials",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "page financials"
+      ]
+    },
+    {
+      "name": "C24",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "c24 limited",
+        "c24 ltd"
+      ]
+    },
+    {
+      "name": "GTBank QuickCredit",
+      "kind": "lender",
+      "category": "Debt",
+      "subcategory": "Loan repayment",
+      "aliases": [
+        "quickcredit"
+      ]
+    },
+    {
+      "name": "PiggyVest",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "piggyvest",
+        "piggy vest",
+        "piggybank",
+        "piggybank.ng"
+      ]
+    },
+    {
+      "name": "Cowrywise",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "cowrywise"
+      ]
+    },
+    {
+      "name": "Risevest",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "risevest",
+        "rise vest"
+      ]
+    },
+    {
+      "name": "Bamboo",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "bamboo invest",
+        "investbamboo",
+        "bamboo systems"
+      ]
+    },
+    {
+      "name": "Trove",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "trove finance"
+      ]
+    },
+    {
+      "name": "OWealth",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "owealth"
+      ]
+    },
+    {
+      "name": "PalmPay CashBox",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "cashbox"
+      ]
+    },
+    {
+      "name": "ALAT Goals",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "alat goals",
+        "alat goal"
+      ]
+    },
+    {
+      "name": "Stanbic IBTC Asset Management",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "stanbic ibtc asset"
+      ]
+    },
+    {
+      "name": "ARM Investment Managers",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "arm investment"
+      ]
+    },
+    {
+      "name": "Meristem",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "meristem"
+      ]
+    },
+    {
+      "name": "United Capital",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "united capital"
+      ]
+    },
+    {
+      "name": "Cordros",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "cordros"
+      ]
+    },
+    {
+      "name": "Chapel Hill Denham",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "chapel hill denham"
+      ]
+    },
+    {
+      "name": "Afrinvest",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "afrinvest"
+      ]
+    },
+    {
+      "name": "Lotus Capital",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "lotus capital"
+      ]
+    },
+    {
+      "name": "Investment One",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "investment one"
+      ]
+    },
+    {
+      "name": "Vetiva",
+      "kind": "savings",
+      "category": "Own transfer",
+      "subcategory": "Savings",
+      "aliases": [
+        "vetiva"
+      ]
+    },
+    {
+      "name": "OPay",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "opay",
+        "opay digital"
+      ]
+    },
+    {
+      "name": "PalmPay",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "palmpay"
+      ]
+    },
+    {
+      "name": "Kuda",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "kuda",
+        "kuda mfb",
+        "kudamfb"
+      ]
+    },
+    {
+      "name": "Moniepoint",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "moniepoint",
+        "moniepoint mfb",
+        "moniemfb"
+      ]
+    },
+    {
+      "name": "Paga",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "paga"
+      ]
+    },
+    {
+      "name": "Chipper Cash",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "chipper cash",
+        "chipper"
+      ]
+    },
+    {
+      "name": "VBank",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "vbank",
+        "vfd mfb"
+      ]
+    },
+    {
+      "name": "Eyowo",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "eyowo"
+      ]
+    },
+    {
+      "name": "Sparkle",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "sparkle"
+      ]
+    },
+    {
+      "name": "Rubies",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "rubies",
+        "rubies mfb"
+      ]
+    },
+    {
+      "name": "GoMoney",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "gomoney"
+      ]
+    },
+    {
+      "name": "Mintyn",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "mintyn"
+      ]
+    },
+    {
+      "name": "ALAT",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "alat"
+      ]
+    },
+    {
+      "name": "Barter",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "barter by flutterwave"
+      ]
+    },
+    {
+      "name": "Raenest",
+      "kind": "wallet",
+      "category": "Own transfer",
+      "subcategory": "Wallet top-up",
+      "aliases": [
+        "raenest",
+        "geegpay"
+      ]
+    },
+    {
+      "name": "Paystack",
+      "kind": "gateway",
+      "category": "Shopping",
+      "subcategory": "Online payment",
+      "aliases": [
+        "paystack"
+      ]
+    },
+    {
+      "name": "Flutterwave",
+      "kind": "gateway",
+      "category": "Shopping",
+      "subcategory": "Online payment",
+      "aliases": [
+        "flutterwave",
+        "flw"
+      ]
+    },
+    {
+      "name": "Interswitch",
+      "kind": "gateway",
+      "category": "Shopping",
+      "subcategory": "Online payment",
+      "aliases": [
+        "interswitch"
+      ]
+    },
+    {
+      "name": "Monnify",
+      "kind": "gateway",
+      "category": "Shopping",
+      "subcategory": "Online payment",
+      "aliases": [
+        "monnify"
+      ]
+    },
+    {
+      "name": "Squad",
+      "kind": "gateway",
+      "category": "Shopping",
+      "subcategory": "Online payment",
+      "aliases": [
+        "squadco"
+      ]
+    },
+    {
+      "name": "eTranzact",
+      "kind": "gateway",
+      "category": "Shopping",
+      "subcategory": "Online payment",
+      "aliases": [
+        "etranzact"
+      ]
+    },
+    {
+      "name": "Unified Payments",
+      "kind": "gateway",
+      "category": "Shopping",
+      "subcategory": "Online payment",
+      "aliases": [
+        "unified payments"
+      ]
+    },
+    {
+      "name": "ITEX",
+      "kind": "pos",
+      "category": "Shopping",
+      "subcategory": "Card purchase",
+      "aliases": [
+        "itex"
+      ]
+    },
+    {
+      "name": "Nomba",
+      "kind": "pos",
+      "category": "Shopping",
+      "subcategory": "Card purchase",
+      "aliases": [
+        "nomba"
+      ]
+    },
+    {
+      "name": "TeamApt",
+      "kind": "pos",
+      "category": "Shopping",
+      "subcategory": "Card purchase",
+      "aliases": [
+        "teamapt"
+      ]
+    },
+    {
+      "name": "Moniepoint POS",
+      "kind": "pos",
+      "category": "Shopping",
+      "subcategory": "Card purchase",
+      "aliases": [
+        "moniepoint pos"
+      ]
+    },
+    {
+      "name": "OPay POS",
+      "kind": "pos",
+      "category": "Shopping",
+      "subcategory": "Card purchase",
+      "aliases": [
+        "opay pos"
+      ]
+    },
+    {
+      "name": "Air Peace",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "air peace",
+        "airpeace"
+      ]
+    },
+    {
+      "name": "Arik Air",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "arik air"
+      ]
+    },
+    {
+      "name": "Ibom Air",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "ibom air"
+      ]
+    },
+    {
+      "name": "United Nigeria Airlines",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "united nigeria airlines"
+      ]
+    },
+    {
+      "name": "Overland Airways",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "overland airways"
+      ]
+    },
+    {
+      "name": "Green Africa",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "green africa"
+      ]
+    },
+    {
+      "name": "ValueJet",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "valuejet"
+      ]
+    },
+    {
+      "name": "Max Air",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "max air"
+      ]
+    },
+    {
+      "name": "Aero Contractors",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "aero contractors"
+      ]
+    },
+    {
+      "name": "Dana Air",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "dana air"
+      ]
+    },
+    {
+      "name": "Azman Air",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "azman air"
+      ]
+    },
+    {
+      "name": "Emirates",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "emirates"
+      ]
+    },
+    {
+      "name": "Qatar Airways",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "qatar airways"
+      ]
+    },
+    {
+      "name": "British Airways",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "british airways"
+      ]
+    },
+    {
+      "name": "Kenya Airways",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "kenya airways"
+      ]
+    },
+    {
+      "name": "Ethiopian Airlines",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "ethiopian airlines"
+      ]
+    },
+    {
+      "name": "RwandAir",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "rwandair"
+      ]
+    },
+    {
+      "name": "Lufthansa",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "lufthansa"
+      ]
+    },
+    {
+      "name": "KLM",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "klm"
+      ]
+    },
+    {
+      "name": "Turkish Airlines",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "turkish airlines"
+      ]
+    },
+    {
+      "name": "Virgin Atlantic",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "virgin atlantic"
+      ]
+    },
+    {
+      "name": "Delta Air Lines",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "delta air"
+      ]
+    },
+    {
+      "name": "Air France",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "air france"
+      ]
+    },
+    {
+      "name": "ASKY Airlines",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "asky airlines"
+      ]
+    },
+    {
+      "name": "Africa World Airlines",
+      "kind": "airline",
+      "category": "Travel",
+      "aliases": [
+        "africa world airlines"
+      ]
+    },
+    {
+      "name": "Wakanow",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "wakanow"
+      ]
+    },
+    {
+      "name": "Travelstart",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "travelstart"
+      ]
+    },
+    {
+      "name": "Hotels.ng",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "hotels.ng"
+      ]
+    },
+    {
+      "name": "Booking.com",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "booking.com"
+      ]
+    },
+    {
+      "name": "Expedia",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "expedia"
+      ]
+    },
+    {
+      "name": "Agoda",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "agoda"
+      ]
+    },
+    {
+      "name": "Airbnb",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "airbnb"
+      ]
+    },
+    {
+      "name": "VFS Global",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "vfs global",
+        "vfs"
+      ]
+    },
+    {
+      "name": "TLScontact",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "tlscontact"
+      ]
+    },
+    {
+      "name": "Nigeria Immigration Service",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "nigeria immigration service"
+      ]
+    },
+    {
+      "name": "Eko Hotels",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "eko hotel",
+        "eko hotels"
+      ]
+    },
+    {
+      "name": "Transcorp Hilton",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "transcorp hilton"
+      ]
+    },
+    {
+      "name": "Radisson",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "radisson"
+      ]
+    },
+    {
+      "name": "Sheraton",
+      "kind": "travel",
+      "category": "Travel",
+      "aliases": [
+        "sheraton"
+      ]
+    },
+    {
+      "name": "FIRS",
+      "kind": "government",
+      "category": "Business",
+      "subcategory": "Tax & compliance",
+      "aliases": [
+        "firs",
+        "federal inland revenue"
+      ]
+    },
+    {
+      "name": "LIRS",
+      "kind": "government",
+      "category": "Business",
+      "subcategory": "Tax & compliance",
+      "aliases": [
+        "lirs",
+        "lagos internal revenue"
+      ]
+    },
+    {
+      "name": "CAC",
+      "kind": "government",
+      "category": "Business",
+      "subcategory": "Tax & compliance",
+      "aliases": [
+        "cac",
+        "corporate affairs commission"
+      ]
+    },
+    {
+      "name": "Remita",
+      "kind": "government",
+      "category": "Business",
+      "subcategory": "Tax & compliance",
+      "aliases": [
+        "remita"
+      ]
+    },
+    {
+      "name": "AXA Mansard",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "axa mansard"
+      ]
+    },
+    {
+      "name": "Leadway Assurance",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "leadway assurance",
+        "leadway"
+      ]
+    },
+    {
+      "name": "AIICO Insurance",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "aiico"
+      ]
+    },
+    {
+      "name": "Custodian",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "custodian and allied",
+        "custodian insurance"
+      ]
+    },
+    {
+      "name": "Cornerstone Insurance",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "cornerstone insurance"
+      ]
+    },
+    {
+      "name": "NEM Insurance",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "nem insurance"
+      ]
+    },
+    {
+      "name": "Sovereign Trust Insurance",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "sovereign trust insurance"
+      ]
+    },
+    {
+      "name": "Heirs Insurance",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "heirs insurance"
+      ]
+    },
+    {
+      "name": "Allianz",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "allianz"
+      ]
+    },
+    {
+      "name": "Mutual Benefits Assurance",
+      "kind": "insurance",
+      "category": "Business",
+      "subcategory": "Insurance",
+      "aliases": [
+        "mutual benefits assurance"
+      ]
+    },
+    {
+      "name": "RCCG",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "rccg",
+        "redeemed christian church"
+      ]
+    },
+    {
+      "name": "Winners Chapel",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "winners chapel",
+        "living faith church"
+      ]
+    },
+    {
+      "name": "Daystar Christian Centre",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "daystar"
+      ]
+    },
+    {
+      "name": "MFM",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "mfm",
+        "mountain of fire"
+      ]
+    },
+    {
+      "name": "Deeper Life",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "deeper life",
+        "deeper christian life"
+      ]
+    },
+    {
+      "name": "Salvation Ministries",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "salvation ministries"
+      ]
+    },
+    {
+      "name": "Harvesters",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "harvesters international",
+        "harvesters church"
+      ]
+    },
+    {
+      "name": "House on the Rock",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "house on the rock"
+      ]
+    },
+    {
+      "name": "Koinonia",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "koinonia"
+      ]
+    },
+    {
+      "name": "COZA",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "coza",
+        "commonwealth of zion"
+      ]
+    },
+    {
+      "name": "Dunamis",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "dunamis"
+      ]
+    },
+    {
+      "name": "Christ Embassy",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "christ embassy",
+        "loveworld"
+      ]
+    },
+    {
+      "name": "The Elevation Church",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "elevation church"
+      ]
+    },
+    {
+      "name": "Trinity House",
+      "kind": "church",
+      "category": "Giving",
+      "subcategory": "Church",
+      "aliases": [
+        "trinity house"
+      ]
+    },
+    {
+      "name": "NASFAT",
+      "kind": "religious",
+      "category": "Giving",
+      "aliases": [
+        "nasfat"
+      ]
+    },
+    {
+      "name": "WAEC",
+      "kind": "education",
+      "category": "Family",
+      "subcategory": "Education",
+      "aliases": [
+        "waec"
+      ]
+    },
+    {
+      "name": "JAMB",
+      "kind": "education",
+      "category": "Family",
+      "subcategory": "Education",
+      "aliases": [
+        "jamb"
+      ]
+    },
+    {
+      "name": "NECO",
+      "kind": "education",
+      "category": "Family",
+      "subcategory": "Education",
+      "aliases": [
+        "neco"
+      ]
+    },
+    {
+      "name": "uLesson",
+      "kind": "education",
+      "category": "Family",
+      "subcategory": "Education",
+      "aliases": [
+        "ulesson"
+      ]
+    }
+  ]
+}

@@ -104,6 +104,32 @@ class LedgerController extends ChangeNotifier {
 
   Future<ReviewQueue> review() => _guard((api) => api.review());
 
+  Future<OnboardingState> onboarding() => _guard((api) => api.onboarding());
+
+  Future<OnboardingState> saveOnboarding({
+    bool skip = false,
+    String? ownName,
+    String? relationshipStatus,
+    String? partner,
+    String? parents,
+    String? siblings,
+    String? supported,
+  }) {
+    return _guard(
+      (api) => api.saveOnboarding(
+        skip: skip,
+        ownName: ownName,
+        relationshipStatus: relationshipStatus,
+        partner: partner,
+        parents: parents,
+        siblings: siblings,
+        supported: supported,
+      ),
+    );
+  }
+
+  Future<OnboardingState> finishTopPeople() => _guard((api) => api.finishTopPeople());
+
   Future<int> answerReview({
     required String kind,
     required String key,

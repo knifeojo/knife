@@ -9,6 +9,7 @@ import { log } from "@/lib/log";
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { NotFoundError, monthPeriod, recategorize } from "@/core/analytics";
 import { reapplyCategories, reapplyMessage, syncEmailSource } from "@/core/ledger";
+import { finishTopPeople, isRelationshipStatus, saveOnboarding, splitNames } from "@/core/onboarding";
 import { QUESTION_KINDS, answerQuestion, askAgain, type QuestionKind } from "@/core/review";
 import { PeopleInputError, PersonNotFoundError, addPeopleFromText, createPerson, deletePerson, mergePeople, undoPeopleBatch, updatePerson, type PersonPatch } from "@/core/people";
 import { isRelationship } from "@/core/people-match";
@@ -171,6 +172,28 @@ export async function answerQuestionAction(form: FormData) {
     ? { text: "", category: vendorCategory, subcategory: String(form.get("vendorSubcategory") ?? "").slice(0, 40) || undefined }
     : undefined;
   await answerQuestion(user.id, kind, String(form.get("key")).slice(0, 120), value, value === "other" ? { text, category: String(form.get("otherCategory") ?? "") || undefined } : vendor);
+  revalidatePath("/app", "layout");
+}
+
+export async function saveOnboardingAction(form: FormData) {
+  const user = await requireUser();
+  const status = String(form.get("relationshipStatus") ?? "");
+  await saveOnboarding(user.id, {
+    skip: String(form.get("skip") ?? "") === "1",
+    ownName: String(form.get("ownName") ?? "").slice(0, 80),
+    relationshipStatus: isRelationshipStatus(status) ? status : undefined,
+    partners: splitNames(String(form.get("partner") ?? "")),
+    parents: splitNames(String(form.get("parents") ?? "")),
+    siblings: splitNames(String(form.get("siblings") ?? "")),
+    supported: splitNames(String(form.get("supported") ?? "")),
+  });
+  revalidatePath("/app", "layout");
+  redirect("/app");
+}
+
+export async function finishTopPeopleAction() {
+  const user = await requireUser();
+  await finishTopPeople(user.id);
   revalidatePath("/app", "layout");
 }
 

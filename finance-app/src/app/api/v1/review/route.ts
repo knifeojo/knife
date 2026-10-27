@@ -44,6 +44,19 @@ export async function GET(req: Request) {
       aiRelationship: q.aiRelationship ?? null,
       /** The AI's pick for this payee, shown pre-selected. Null when it has none. */
       aiSuggestion: q.aiSuggestion ? suggestionJson(q.aiSuggestion) : null,
+      /** Ledger's own guess (same surname, a regular payment, money both ways). Null when it has none. */
+      guess: q.guess
+        ? {
+            kind: q.guess.kind,
+            reason: q.guess.reason,
+            answers: q.guess.answers.map((a) => ({
+              value: a.value,
+              label: a.label,
+              vendorCategory: a.vendorCategory ?? null,
+              vendorSubcategory: a.vendorSubcategory ?? null,
+            })),
+          }
+        : null,
     })),
     /** AI suggestions for payees no question covers. */
     suggestions: suggestions.map(suggestionJson),

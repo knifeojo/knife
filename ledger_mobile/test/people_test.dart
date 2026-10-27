@@ -63,6 +63,13 @@ final _personQuestion = <String, Object?>{
   },
   'impactMinor': '17000000',
   'aiRelationship': 'spouse',
+  'guess': {
+    'kind': 'two_way',
+    'reason': 'Money goes both ways between you. A friend?',
+    'answers': [
+      {'value': 'rel:friend', 'label': 'Friend', 'vendorCategory': null, 'vendorSubcategory': null},
+    ],
+  },
 };
 
 final _reviewWithPerson = <String, Object?>{
@@ -163,6 +170,7 @@ void main() {
       expect(q.person!.inCount, 1);
       expect(q.person!.variants, ['Gift Adebayo Ojo', 'Ojo Gift A', 'Gift']);
       expect(q.aiRelationship, 'spouse');
+      expect(q.guess!.kind, 'two_way');
       expect(q.options.where((o) => o.group == 'relationship'), hasLength(10));
     });
 
@@ -224,6 +232,7 @@ void main() {
       expect(find.text('Paid out ₦150,000.00 in 3 · Received ₦20,000.00 in 1 · last 2026-09-30'), findsOneWidget);
       expect(find.text('Also written as: Ojo Gift A, Gift'), findsOneWidget);
       expect(tester.widgetList<SelectableText>(find.byType(SelectableText)).map((t) => t.data), _narrations);
+      expect(find.text('Money goes both ways between you. A friend?'), findsOneWidget);
       expect(find.text('AI thinks: Spouse / partner. Tap it to confirm.'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Spouse / partner'), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, 'Sibling'), findsOneWidget);

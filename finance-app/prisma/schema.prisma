@@ -27,6 +27,12 @@ model User {
   aiEscalation String?
   aiInsights   String?
   aiChat       String?
+  // Onboarding ("Who are your people?"): set when the owner saved or skipped it. Null shows it once.
+  onboardedAt     DateTime?
+  // single | married | engaged | relationship | private
+  relationshipStatus String?
+  // Set when the owner finished or closed "You send money to these people most" after the first upload.
+  topPeopleDoneAt DateTime?
 
   sessions     Session[]
   evalRuns     EvalRun[]

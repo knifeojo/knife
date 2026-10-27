@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../api/models.dart';
 import '../state/ledger_controller.dart';
 import '../widgets/common.dart';
+import 'top_people_screen.dart';
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -68,13 +69,25 @@ class _UploadScreenState extends State<UploadScreen> {
       _error = null;
     });
     try {
-      final results = await context.read<LedgerController>().upload(filename: filename, bytes: bytes, password: _password.text);
+      final controller = context.read<LedgerController>();
+      final results = await controller.upload(filename: filename, bytes: bytes, password: _password.text);
       if (!mounted) return;
       setState(() {
         _results = results;
         _busy = false;
         _password.clear();
       });
+      final created = results.fold<int>(0, (n, r) => n + (r.ok?.created ?? 0));
+      if (created > 0) {
+        try {
+          final state = await controller.onboarding();
+          if (mounted && state.showTopPeople) {
+            await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => TopPeopleScreen(initial: state)));
+          }
+        } on ApiException {
+          // Older servers skip the picker.
+        }
+      }
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {

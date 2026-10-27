@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
 import { COMPANY, canonicalLender, nameHint, nameTokens, normalizeMerchant, sameName } from "../categorize";
+import { isDirectoryBusiness } from "../merchants/directory";
 import { relationshipInfo } from "../people-match";
 
 // The privacy layer for every request that leaves this machine. Cloud call sites build their payload,
@@ -110,7 +111,7 @@ export function looksLikePerson(name: string | null | undefined): boolean {
   if (!name || /\d/.test(name)) return false;
   const tokens = nameTokens(name);
   if (tokens.length < 2 || tokens.length > 5) return false;
-  return !(COMPANY.test(name) || NOT_PERSON.test(name) || nameHint(name) || normalizeMerchant(name) || canonicalLender(name));
+  return !(COMPANY.test(name) || NOT_PERSON.test(name) || nameHint(name) || normalizeMerchant(name) || canonicalLender(name) || isDirectoryBusiness(name));
 }
 
 const STOP_TOKENS = new Set(["THE", "AND", "FOR", "FROM", "VIA", "MRS", "MISS", "MR", "DR", "CHIEF", "ALHAJI", "ALHAJA", "PASTOR", "ENGR", "PROF", "SIR", "MADAM", "AUNTY", "UNCLE"]);

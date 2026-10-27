@@ -785,6 +785,108 @@ class AiRouteStatus {
 }
 
 /// One "Help Ledger get this right" question, the same as the web Review page.
+/// One tap on a local guess: `rel:<relationship>`, plus a vendor label for rent or staff.
+class PeopleGuessAnswer {
+  const PeopleGuessAnswer({required this.value, required this.label, this.vendorCategory, this.vendorSubcategory});
+
+  final String value;
+  final String label;
+  final String? vendorCategory;
+  final String? vendorSubcategory;
+
+  factory PeopleGuessAnswer.fromJson(Map<String, dynamic> json) {
+    return PeopleGuessAnswer(
+      value: _string(json, 'value'),
+      label: _string(json, 'label'),
+      vendorCategory: _optionalString(json, 'vendorCategory'),
+      vendorSubcategory: _optionalString(json, 'vendorSubcategory'),
+    );
+  }
+}
+
+/// Ledger's own guess about who someone is (same surname, a regular payment, money both ways).
+class PeopleGuess {
+  const PeopleGuess({required this.kind, required this.reason, required this.answers});
+
+  final String kind;
+  final String reason;
+  final List<PeopleGuessAnswer> answers;
+
+  factory PeopleGuess.fromJson(Map<String, dynamic> json) {
+    return PeopleGuess(
+      kind: _string(json, 'kind'),
+      reason: _string(json, 'reason'),
+      answers: _list(json, 'answers').map(PeopleGuessAnswer.fromJson).toList(),
+    );
+  }
+}
+
+class TopPerson {
+  const TopPerson({required this.key, required this.display, required this.person, this.guess});
+
+  final String key;
+  final String display;
+  final PersonStats person;
+  final PeopleGuess? guess;
+
+  factory TopPerson.fromJson(Map<String, dynamic> json) {
+    return TopPerson(
+      key: _string(json, 'key'),
+      display: _string(json, 'display'),
+      person: PersonStats.fromJson(_map(json, 'person')),
+      guess: json['guess'] == null ? null : PeopleGuess.fromJson(_map(json, 'guess')),
+    );
+  }
+}
+
+class RelationshipStatusChoice {
+  const RelationshipStatusChoice({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  factory RelationshipStatusChoice.fromJson(Map<String, dynamic> json) =>
+      RelationshipStatusChoice(value: _string(json, 'value'), label: _string(json, 'label'));
+}
+
+/// First-run form and the after-upload "who are these people" picker.
+class OnboardingState {
+  const OnboardingState({
+    required this.needsOnboarding,
+    this.ownName,
+    this.relationshipStatus,
+    required this.trustNote,
+    required this.showTopPeople,
+    required this.topPeople,
+    required this.statuses,
+    required this.relationships,
+  });
+
+  final bool needsOnboarding;
+  final String? ownName;
+  final String? relationshipStatus;
+  final String trustNote;
+  final bool showTopPeople;
+  final List<TopPerson> topPeople;
+  final List<RelationshipStatusChoice> statuses;
+  final List<RelationshipChoice> relationships;
+
+  factory OnboardingState.fromJson(Map<String, dynamic> json) {
+    final top = json['topPeople'];
+    final topMap = top is Map ? _asMap(top) : const <String, dynamic>{};
+    return OnboardingState(
+      needsOnboarding: json['needsOnboarding'] == true,
+      ownName: _optionalString(json, 'ownName'),
+      relationshipStatus: _optionalString(json, 'relationshipStatus'),
+      trustNote: _optionalString(json, 'trustNote') ?? 'These names stay on your device and are never sent to the cloud.',
+      showTopPeople: topMap['show'] == true,
+      topPeople: _optionalList(topMap, 'people').map(TopPerson.fromJson).toList(),
+      statuses: _optionalList(json, 'statuses').map(RelationshipStatusChoice.fromJson).toList(),
+      relationships: _optionalList(json, 'relationships').map(RelationshipChoice.fromJson).toList(),
+    );
+  }
+}
+
 class ReviewQuestion {
   const ReviewQuestion({
     required this.kind,
@@ -802,6 +904,7 @@ class ReviewQuestion {
     this.aiSuggestion,
     this.person,
     this.aiRelationship,
+    this.guess,
   });
 
   final String kind;
@@ -828,6 +931,9 @@ class ReviewQuestion {
   /// The relationship the AI proposes ("spouse"). The owner confirms by tapping it.
   final String? aiRelationship;
 
+  /// Ledger's own guess. Null on older servers or when it has none.
+  final PeopleGuess? guess;
+
   bool get isPerson => person != null && options.any((o) => o.group == 'relationship');
 
   factory ReviewQuestion.fromJson(Map<String, dynamic> json) {
@@ -847,6 +953,7 @@ class ReviewQuestion {
       aiSuggestion: json['aiSuggestion'] == null ? null : AiSuggestion.fromJson(_map(json, 'aiSuggestion')),
       person: json['person'] == null ? null : PersonStats.fromJson(_map(json, 'person')),
       aiRelationship: _optionalString(json, 'aiRelationship'),
+      guess: json['guess'] == null ? null : PeopleGuess.fromJson(_map(json, 'guess')),
     );
   }
 }
