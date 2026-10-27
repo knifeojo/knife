@@ -289,8 +289,8 @@ class LedgerApi {
       (uri) => _post(uri, {
         'sender': sender,
         'body': body,
-        if (receivedAt != null) 'receivedAt': receivedAt.toUtc().toIso8601String(),
-        if (sourceId != null) 'sourceId': sourceId,
+        'receivedAt': ?receivedAt?.toUtc().toIso8601String(),
+        'sourceId': ?sourceId,
       }),
     );
   }

@@ -4,7 +4,7 @@ import { FirstBankSmsParser } from "./firstbank-sms";
 import { GenericFallbackParser } from "./fallback";
 import { GTBankEmailParser } from "./email-adapter";
 import { GTBankSmsParser } from "./gtbank-sms";
-import { isBankMarketing, isKnownBankSender, smsSenderIds } from "./senders";
+import { isAllowedSmsSender, isBankMarketing, isKnownBankSender, smsSenderIds } from "./senders";
 import { ProvidusSmsParser } from "./providus-sms";
 import { SterlingSmsParser } from "./sterling-sms";
 import { STUB_PARSERS } from "./stubs";
@@ -39,6 +39,7 @@ export function parsersFor(msg: AlertMessage): AlertParser[] {
  * The generic fallback is last and always `review` (never auto-posts).
  */
 export function parseAlert(msg: AlertMessage, parsers: AlertParser[] = ALERT_PARSERS): ParseAlertOutcome {
+  if (msg.channel === "sms" && !isAllowedSmsSender(msg.sender)) return { status: "skipped" };
   if (isBankMarketing(msg.body, msg.subject)) return { status: "skipped" };
 
   const pool = parsers === ALERT_PARSERS ? parsersFor(msg) : parsers.filter((p) => p.channels.includes(msg.channel) && !p.stub);

@@ -61,7 +61,7 @@ export class ImapEmailSource implements EmailSource {
       await client.mailboxOpen("INBOX");
       return await fn(client);
     } finally {
-      await client.logout().catch(() => {});
+      await Promise.resolve(client.logout()).catch(() => {});
     }
   }
 

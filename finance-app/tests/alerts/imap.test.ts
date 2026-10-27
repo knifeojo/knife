@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ImapEmailSource, type ImapClientLike } from "@/core/alerts/imap";
+import { log } from "@/lib/log";
 
 function rfc822() {
   return Buffer.from(
@@ -10,7 +11,7 @@ function rfc822() {
 describe("IMAP source (mocked)", () => {
   it("lists uids since a date and parses RFC822 without logging the password", async () => {
     const search = vi.fn().mockResolvedValue([17, 18]);
-    const logout = vi.fn();
+    const logout = vi.fn().mockResolvedValue(undefined);
     const factory = vi.fn((): ImapClientLike => ({
       connect: vi.fn(),
       logout,
@@ -27,7 +28,8 @@ describe("IMAP source (mocked)", () => {
     const msg = await src.getMessage("17");
     expect(msg.from).toMatch(/gtbank.com/);
     expect(msg.subject).toMatch(/GeNS/);
-    expect(JSON.stringify(factory.mock.calls)).not.toContain("app-password-never-logged");
+    expect(factory).toHaveBeenCalledWith(expect.objectContaining({ host: "imap.mail.yahoo.com", user: "me@yahoo.com" }));
+    expect(JSON.stringify(log.redact({ password: "app-password-never-logged", host: "imap.mail.yahoo.com" }))).not.toContain("app-password-never-logged");
     expect(logout).toHaveBeenCalled();
   });
 });
