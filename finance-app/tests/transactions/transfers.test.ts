@@ -81,6 +81,16 @@ describe("cross-currency own transfers", () => {
     expect(pairs.map((p) => [Number(p.debit.amountMinor) / 100, Number(p.credit.amountMinor) / 100]).sort()).toEqual([[1000, 973000], [170, 163912.3], [860, 829040]]);
   });
 
+  it("pairs a single own-name foreign debit with the next-day naira credit", () => {
+    const d = cad(100, "2026-09-24");
+    d.category = "Own transfer";
+    d.counterparty = "Ada Eze";
+    const c = ngn(155000, "2026-09-25");
+    const pairs = findPairs([d, c], ["Ada Eze"]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].clue).toMatch(/own-name/);
+  });
+
   it("needs 3+ consistent conversions; an income label does not block, a spending label does", () => {
     expect(findPairs([cad(1000, "2026-09-24"), ngn(973000, "2026-09-24")], [])).toHaveLength(0);
     const salary = { ...ngn(973000, "2026-09-24"), category: "Income", classificationSource: "user" };

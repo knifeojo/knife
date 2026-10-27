@@ -15,6 +15,14 @@ void main() {
     expect(formatMinor('150', currency: 'USD'), r'$1.50');
   });
 
+  test('formats Ghana, Kenya and West African francs', () {
+    expect(formatMinor('250050', currency: 'GHS'), '₵2,500.50');
+    expect(formatMinor('10000', currency: 'KES'), 'KSh100.00');
+    expect(formatMinor('500000', currency: 'XOF'), 'CFA5,000.00');
+    expect(formatMinor('812', currency: 'CAD'), r'CA$8.12');
+    expect(formatMinor('435', currency: 'GBP'), '£4.35');
+  });
+
   test('reads typed naira amounts as minor units without floating point', () {
     expect(parseNairaToMinor('2.5m'), '250000000');
     expect(parseNairaToMinor('500k'), '50000000');

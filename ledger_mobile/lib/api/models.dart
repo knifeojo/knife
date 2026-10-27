@@ -102,6 +102,10 @@ class LedgerTransaction {
     this.subcategory,
     this.cadence,
     this.recurringBill = false,
+    this.destinationCountry,
+    this.destinationCurrency,
+    this.destinationLabel,
+    this.conversionNote,
   });
 
   static const cadences = ['recurring', 'one_off'];
@@ -126,6 +130,11 @@ class LedgerTransaction {
 
   /// A recurring payment Afford counts as a bill to keep paying.
   final bool recurringBill;
+
+  final String? destinationCountry;
+  final String? destinationCurrency;
+  final String? destinationLabel;
+  final String? conversionNote;
 
   /// Chip text for the cadence, matching the web app.
   String? get cadenceLabel {
@@ -161,6 +170,10 @@ class LedgerTransaction {
       // Older servers send no cadence; unknown values are dropped rather than failing the list.
       cadence: cadences.contains(json['cadence']) ? json['cadence'] as String : null,
       recurringBill: json['recurringBill'] == true,
+      destinationCountry: _optionalString(json, 'destinationCountry'),
+      destinationCurrency: _optionalString(json, 'destinationCurrency'),
+      destinationLabel: _optionalString(json, 'destinationLabel'),
+      conversionNote: _optionalString(json, 'conversionNote'),
     );
   }
 }
@@ -482,6 +495,11 @@ class HomeSummary {
     this.periodFrom,
     this.periodTo,
     this.recurring = const [],
+    this.savingsRate,
+    this.availableYears = const [],
+    this.incomeSources = const [],
+    this.monthlyTrend = const [],
+    this.span,
   });
 
   final String periodLabel;
@@ -504,6 +522,21 @@ class HomeSummary {
   /// Regular payments by matched payee, debits only. Empty on older servers.
   final List<RecurringGroup> recurring;
 
+  /// (income − expenses) / income. Null when there is no income or the server is older.
+  final double? savingsRate;
+
+  /// Calendar years that have transactions. Empty on older servers.
+  final List<int> availableYears;
+
+  /// Who paid the user in this period. Empty on older servers.
+  final List<IncomeSource> incomeSources;
+
+  /// Month-by-month income vs expenses across the span. Empty on older servers.
+  final List<MonthTrend> monthlyTrend;
+
+  /// "month", "3m", "ytd", "12m", "all" or "year". Null on older servers.
+  final String? span;
+
   factory HomeSummary.fromJson(Map<String, dynamic> json) {
     final period = _map(json, 'period');
     final split = json['spendingSplit'];
@@ -521,6 +554,45 @@ class HomeSummary {
       recent: _list(json, 'recent').map(LedgerTransaction.fromJson).toList(),
       split: split == null ? null : SpendingSplit.fromJson(_asMap(split)),
       recurring: _optionalList(json, 'recurring').map(RecurringGroup.fromJson).toList(),
+      savingsRate: json['savingsRate'] is num ? (json['savingsRate'] as num).toDouble() : null,
+      availableYears: _intList(json, 'availableYears'),
+      incomeSources: _optionalList(json, 'incomeSources').map(IncomeSource.fromJson).toList(),
+      monthlyTrend: _optionalList(json, 'monthlyTrend').map(MonthTrend.fromJson).toList(),
+      span: period['span'] is String ? period['span'] as String : null,
+    );
+  }
+}
+
+class IncomeSource {
+  const IncomeSource({required this.name, required this.kind, required this.totalMinor, required this.count});
+
+  final String name;
+  final String kind;
+  final String totalMinor;
+  final int count;
+
+  factory IncomeSource.fromJson(Map<String, dynamic> json) {
+    return IncomeSource(
+      name: _string(json, 'name'),
+      kind: _string(json, 'kind'),
+      totalMinor: _minor(json, 'totalMinor'),
+      count: _int(json, 'count'),
+    );
+  }
+}
+
+class MonthTrend {
+  const MonthTrend({required this.label, required this.incomeMinor, required this.expensesMinor});
+
+  final String label;
+  final String incomeMinor;
+  final String expensesMinor;
+
+  factory MonthTrend.fromJson(Map<String, dynamic> json) {
+    return MonthTrend(
+      label: _string(json, 'label'),
+      incomeMinor: _minor(json, 'incomeMinor'),
+      expensesMinor: _minor(json, 'expensesMinor'),
     );
   }
 }
@@ -905,6 +977,8 @@ class ReviewQuestion {
     this.person,
     this.aiRelationship,
     this.guess,
+    this.totalCurrency,
+    this.totalDetail,
   });
 
   final String kind;
@@ -934,6 +1008,10 @@ class ReviewQuestion {
   /// Ledger's own guess. Null on older servers or when it has none.
   final PeopleGuess? guess;
 
+  /// Currency of totalMinor when every row is the same; NGN when mixed.
+  final String? totalCurrency;
+  final String? totalDetail;
+
   bool get isPerson => person != null && options.any((o) => o.group == 'relationship');
 
   factory ReviewQuestion.fromJson(Map<String, dynamic> json) {
@@ -954,6 +1032,8 @@ class ReviewQuestion {
       person: json['person'] == null ? null : PersonStats.fromJson(_map(json, 'person')),
       aiRelationship: _optionalString(json, 'aiRelationship'),
       guess: json['guess'] == null ? null : PeopleGuess.fromJson(_map(json, 'guess')),
+      totalCurrency: _optionalString(json, 'totalCurrency'),
+      totalDetail: _optionalString(json, 'totalDetail'),
     );
   }
 }
@@ -1631,6 +1711,13 @@ List<Map<String, dynamic>> _list(Map<String, dynamic> json, String key) {
 }
 
 List<Map<String, dynamic>> _optionalList(Map<String, dynamic> json, String key) => json[key] == null ? const [] : _list(json, key);
+
+List<int> _intList(Map<String, dynamic> json, String key) {
+  final value = json[key];
+  if (value == null) return const [];
+  if (value is! List) throw FormatException('Expected $key to be a list');
+  return value.map((item) => item is num ? item.toInt() : int.tryParse('$item') ?? 0).where((y) => y > 0).toList();
+}
 
 List<String> _stringList(Map<String, dynamic> json, String key) {
   final value = json[key];

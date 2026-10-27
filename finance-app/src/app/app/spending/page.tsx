@@ -1,22 +1,21 @@
 import Link from "next/link";
-import { largest, monthPeriod, monthlyTrend, spendingByCategory, summary } from "@/core/analytics";
+import { largest, monthPeriod, monthlyTrendFor, spendingByCategory, summary } from "@/core/analytics";
 import { reviewQuestionsFor, loadCadence, spendingSplit } from "@/core/cadence";
 import { EverydayBreakdownView, PayeeList, ReviewCta, everydayHref, recurringKindLabel } from "@/components/everyday";
 import { requireUser } from "@/lib/auth";
 import { formatMoney } from "@/lib/money";
 import { CategoryBars, MonthlyBars } from "@/components/charts";
-import { MonthSwitcher, resolveOffset } from "@/components/month-switcher";
+import { PeriodSwitcher, resolveViewPeriod } from "@/components/period-switcher";
 import { Card, Empty, Money, PageHeader, Stat, lagosDateLabel } from "@/components/ui";
 
 export default async function Spending({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
-  const offset = await resolveOffset(user.id, (await searchParams).m);
   const now = new Date();
-  const p = monthPeriod(now, offset);
+  const { period: p, kind, offset, year, years } = await resolveViewPeriod(user.id, await searchParams, now);
   const prev = monthPeriod(now, offset - 1);
   const [s, sPrev, cats, big, trend, cadence] = await Promise.all([
     summary(user.id, p), summary(user.id, prev), spendingByCategory(user.id, p),
-    largest(user.id, p, "DEBIT", 8), monthlyTrend(user.id, now, 6), loadCadence(user.id, now),
+    largest(user.id, p, "DEBIT", 8), monthlyTrendFor(user.id, p), loadCadence(user.id, now),
   ]);
   const bills = cadence.streams.filter((b) => b.type === "DEBIT");
   const split = await spendingSplit(user.id, p, cadence);
@@ -33,10 +32,10 @@ export default async function Spending({ searchParams }: { searchParams: Promise
 
   return (
     <>
-      <PageHeader title="Spending" subtitle="Own-account transfers are excluded from spending." action={<MonthSwitcher offset={offset} basePath="/app/spending" />} />
+      <PageHeader title="Spending" subtitle="Own-account transfers are excluded from spending." action={<PeriodSwitcher kind={kind} offset={offset} year={year} years={years} basePath="/app/spending" />} />
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <Stat label={`Spent in ${p.label}`} minor={s.expenses} emphasis hint={`${s.expenseCount} debits`} />
-        <Stat label={`vs ${prev.label}`} minor={delta} hint={delta > 0n ? "More than previous month" : delta < 0n ? "Less than previous month" : "Same as previous month"} />
+        {kind === "month" && <Stat label={`vs ${prev.label}`} minor={delta} hint={delta > 0n ? "More than previous month" : delta < 0n ? "Less than previous month" : "Same as previous month"} />}
         <Stat label="Recurring per month" minor={monthlyBills} hint={`${bills.length} recurring payments`} />
       </div>
       <Card title="Recurring vs one-off" className="mt-4" action={<Link href="/app/afford" className="text-sm text-brand">Can I afford it?</Link>}>

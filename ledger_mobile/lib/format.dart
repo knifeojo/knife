@@ -13,6 +13,9 @@ String formatMinor(String? minor, {String currency = 'NGN'}) {
     'GBP' => '£',
     'EUR' => '€',
     'CAD' => r'CA$',
+    'GHS' => '₵',
+    'XOF' => 'CFA',
+    'KES' => 'KSh',
     _ => '$currency ',
   };
   return '${negative ? '-' : ''}$symbol${_groupThousands(whole)}.$fraction';

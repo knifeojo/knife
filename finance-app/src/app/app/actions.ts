@@ -28,6 +28,7 @@ import { applyNoteLabel, matchNotes, monthFromHeading, parseNotes, type NoteMatc
 import { specificMonth } from "@/core/analytics";
 import { affordabilityJson, checkAffordability, cleanDescription, parseAmountInput, parseHorizon, type AffordabilityJson } from "@/core/affordability";
 import { MAX_STATEMENT_FILES, StatementFormatError, importStatement, recordFailedImport, resolveIssueByAdding, resolveIssueByIgnoring, type StatementImportSummary } from "@/core/statement-import";
+import { FX_CURRENCIES, clearManualRate, importMarketRates, setManualRate } from "@/core/fx/provider";
 
 export type SyncState = { ok?: string; error?: string } | undefined;
 
@@ -549,4 +550,44 @@ export async function affordAction(_: AffordState, form: FormData): Promise<Affo
   }
   const result = await checkAffordability(user.id, { amountMinor, description: cleanDescription(form.get("description")), horizon, bufferMinor });
   return { result: affordabilityJson(result) };
+}
+
+export async function setFxPreferenceAction(form: FormData) {
+  const user = await requireUser();
+  if (user.isDemo) return;
+  const preference = String(form.get("preference"));
+  if (preference !== "official" && preference !== "street") return;
+  await db.user.update({ where: { id: user.id }, data: { fxNgnPreference: preference } });
+  revalidatePath("/app", "layout");
+}
+
+export async function setManualRateAction(form: FormData) {
+  const user = await requireUser();
+  if (user.isDemo) return;
+  const base = String(form.get("base"));
+  if (!(FX_CURRENCIES as readonly string[]).includes(base)) return;
+  const rate = Number(form.get("rate"));
+  await setManualRate(user.id, base, "NGN", rate);
+  revalidatePath("/app", "layout");
+}
+
+export async function clearManualRateAction(form: FormData) {
+  const user = await requireUser();
+  if (user.isDemo) return;
+  const base = String(form.get("base"));
+  if (!(FX_CURRENCIES as readonly string[]).includes(base)) return;
+  await clearManualRate(user.id, base, "NGN");
+  revalidatePath("/app", "layout");
+}
+
+export async function importMarketRatesAction(_: SyncState, _form: FormData): Promise<SyncState> {
+  const user = await requireUser();
+  if (user.isDemo) return { error: "Demo accounts cannot change FX settings." };
+  try {
+    const r = await importMarketRates();
+    revalidatePath("/app", "layout");
+    return { ok: `Stored ${r.stored} market rates for ${r.date}.` };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not fetch daily rates." };
+  }
 }

@@ -175,8 +175,18 @@ class LedgerApi {
     return _parse(_object(_uri('/api/v1/categorize'), (uri) => _post(uri, const {})), CategorizeResult.fromJson);
   }
 
-  Future<HomeSummary> summary({int offset = 0}) {
-    return _parse(_object(_uri('/api/v1/summary', {'offset': '$offset'}), _get), HomeSummary.fromJson);
+  Future<HomeSummary> summary({int offset = 0, String? span, int? year}) {
+    return _parse(
+      _object(
+        _uri('/api/v1/summary', {
+          if (span == null || span == 'month') 'offset': '$offset',
+          if (span != null) 'span': span,
+          if (year != null) 'year': '$year',
+        }),
+        _get,
+      ),
+      HomeSummary.fromJson,
+    );
   }
 
   /// `horizon` is "month_end" or a number of days from 1 to 120.

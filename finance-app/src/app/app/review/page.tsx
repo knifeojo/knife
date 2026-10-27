@@ -127,7 +127,8 @@ export default async function Review() {
                 </div>
                 {q.totalMinor > 0n && (
                   <div className="text-right shrink-0">
-                    <div className="num font-semibold">{formatMoney(q.totalMinor)}</div>
+                    <div className="num font-semibold">{formatMoney(q.totalMinor, q.totalCurrency ?? "NGN")}</div>
+                    {q.totalDetail && <div className="text-xs text-ink-3" title={q.totalDetail}>{q.totalDetail}</div>}
                     <div className="text-xs text-ink-3">{q.count} payment{q.count > 1 ? "s" : ""}{q.currentCategory ? ` · now "${q.currentCategory}"` : ""}</div>
                   </div>
                 )}

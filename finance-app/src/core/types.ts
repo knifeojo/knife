@@ -35,6 +35,8 @@ export interface ParsedTransaction {
    */
   fxQuoteCurrency?: string;
   fxQuoteMinor?: bigint;
+  destinationCountry?: string;
+  destinationCurrency?: string;
   /** 0..1, how many expected fields the parser found */
   confidence: number;
 }
@@ -54,6 +56,8 @@ export interface Classification {
   confidence: number;
   /** The known person on the other side, when the name matched one confidently. */
   personId?: string;
+  destinationCountry?: string;
+  destinationCurrency?: string;
 }
 
 export interface BankAlertParser {

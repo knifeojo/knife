@@ -54,8 +54,8 @@ describe("uploading Pesa and Deel statements", () => {
     const byDesc = (part: string) => rows.find((t) => t.description.includes(part))!;
     expect(byDesc("Payroll")).toMatchObject({ category: "Income", subcategory: "Salary", type: "CREDIT", amountMinor: 400_000n });
     expect(byDesc("DOE JANE ADA")).toMatchObject({ category: "Own transfer", type: "DEBIT", amountMinor: 50_000n });
-    expect(byDesc("fund GBP wallet")).toMatchObject({ category: "Own transfer", subcategory: "Between your wallets", amountMinor: 360n });
-    expect(byDesc("reversed")).toMatchObject({ category: "Income", subcategory: "Refund", type: "CREDIT", amountMinor: 5_000n });
+    expect(byDesc("fund GBP wallet")).toMatchObject({ category: "Own transfer", subcategory: "Between your wallets", amountMinor: 500n, currency: "CAD" });
+    expect(byDesc("reversed")).toMatchObject({ category: "Transfers", subcategory: "Reversal", type: "CREDIT", amountMinor: 5_000n });
     expect((await db.account.findFirstOrThrow({ where: { userId: user.id, institution: "Pesa" } })).holderName).toBe("JANE ADA DOE");
 
     await importStatement(user.id, { name: "gtb-usd.csv", bytes: Buffer.from(GT_USD) });
@@ -91,6 +91,9 @@ describe("uploading Pesa and Deel statements", () => {
     expect(s.unconverted).toEqual([]);
     // Only the client payment is income. The advance is a loan, the withdrawal is the user's own money.
     expect(Number(s.income)).toBe(Math.round(400_000 * rate));
+    // The $800 advance and its repayment cancel; only the $25 advance fee is spending.
+    expect(Number(s.expenses)).toBe(Math.round(2_500 * rate));
+    expect(byId("adv-1").transferPairId).toBe(byId("rep-1").id);
   });
 
   it("keeps FairMoney and Renmoney disbursements out of income and repayments in debt", async () => {

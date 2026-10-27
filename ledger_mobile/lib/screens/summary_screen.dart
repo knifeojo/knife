@@ -22,6 +22,8 @@ class _SummaryScreenState extends State<SummaryScreen> {
   String? _error;
   bool _loading = true;
   int _offset = 0;
+  String _span = 'month';
+  int? _year;
 
   @override
   void initState() {
@@ -35,7 +37,7 @@ class _SummaryScreenState extends State<SummaryScreen> {
       _error = null;
     });
     try {
-      final summary = await context.read<LedgerController>().summary(offset: _offset);
+      final summary = await context.read<LedgerController>().summary(offset: _offset, span: _span, year: _year);
       if (!mounted) return;
       setState(() {
         _summary = summary;
@@ -59,37 +61,93 @@ class _SummaryScreenState extends State<SummaryScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
-          Row(
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
             children: [
-              IconButton(
-                tooltip: 'Previous month',
-                onPressed: _loading
-                    ? null
-                    : () {
-                        setState(() => _offset -= 1);
-                        _load();
-                      },
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Expanded(
-                child: Text(
-                  summary?.periodLabel ?? 'This month',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium,
+              for (final item in const [
+                ('month', 'This month'),
+                ('3m', 'Last 3 months'),
+                ('ytd', 'Year to date'),
+                ('12m', 'Last 12 months'),
+                ('all', 'All time'),
+              ])
+                ChoiceChip(
+                  label: Text(item.$2),
+                  selected: _span == item.$1,
+                  onSelected: _loading
+                      ? null
+                      : (_) {
+                          setState(() {
+                            _span = item.$1;
+                            _year = null;
+                            if (item.$1 == 'month') {
+                              // keep offset
+                            } else {
+                              _offset = 0;
+                            }
+                          });
+                          _load();
+                        },
                 ),
-              ),
-              IconButton(
-                tooltip: 'Next month',
-                onPressed: _loading || _offset >= 0
-                    ? null
-                    : () {
-                        setState(() => _offset += 1);
-                        _load();
-                      },
-                icon: const Icon(Icons.chevron_right),
-              ),
+              for (final year in summary?.availableYears ?? const <int>[])
+                ChoiceChip(
+                  label: Text('$year'),
+                  selected: _span == 'year' && _year == year,
+                  onSelected: _loading
+                      ? null
+                      : (_) {
+                          setState(() {
+                            _span = 'year';
+                            _year = year;
+                            _offset = 0;
+                          });
+                          _load();
+                        },
+                ),
             ],
           ),
+          if (_span == 'month')
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Previous month',
+                  onPressed: _loading
+                      ? null
+                      : () {
+                          setState(() => _offset -= 1);
+                          _load();
+                        },
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                Expanded(
+                  child: Text(
+                    summary?.periodLabel ?? 'This month',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Next month',
+                  onPressed: _loading || _offset >= 0
+                      ? null
+                      : () {
+                          setState(() => _offset += 1);
+                          _load();
+                        },
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 4),
+              child: Text(
+                summary?.periodLabel ?? 'Period',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
           if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Loading…'))),
           if (_error != null) ErrorText(_error),
           if (summary != null && !_loading) SummaryBody(summary: summary, onChanged: _load),
@@ -127,9 +185,39 @@ class SummaryBody extends StatelessWidget {
             StatTile(label: 'Balance', minor: summary.balanceMinor, currency: currency),
             StatTile(label: 'Income', minor: summary.incomeMinor, currency: currency),
             StatTile(label: 'Expenses', minor: summary.expensesMinor, currency: currency),
-            StatTile(label: 'Net', minor: summary.netMinor, currency: currency, hint: '${summary.count} transactions'),
+            StatTile(
+              label: 'Net',
+              minor: summary.netMinor,
+              currency: currency,
+              hint: summary.savingsRate == null
+                  ? '${summary.count} transactions'
+                  : '${summary.count} transactions · saved ${(summary.savingsRate! * 100).toStringAsFixed(0)}%',
+            ),
           ],
         ),
+        if (summary.monthlyTrend.length > 1) ...[
+          const SizedBox(height: 16),
+          Text('Income vs expenses', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final row in summary.monthlyTrend)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(row.label),
+              subtitle: Text('In ${formatMinor(row.incomeMinor, currency: currency)} · out ${formatMinor(row.expensesMinor, currency: currency)}'),
+            ),
+        ],
+        if (summary.incomeSources.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('Income by source', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final row in summary.incomeSources)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(row.name),
+              subtitle: Text('${row.kind} · ${row.count} payment${row.count == 1 ? '' : 's'}'),
+              trailing: Text(formatMinor(row.totalMinor, currency: currency)),
+            ),
+        ],
         if (summary.split case final split?) ...[
           const SizedBox(height: 16),
           SpendingSplitSection(split: split, currency: currency, summary: summary, onChanged: onChanged),

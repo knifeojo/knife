@@ -15,7 +15,7 @@ export const TAXONOMY: Readonly<Record<string, readonly string[]>> = {
   Healthcare: ["Fitness"],
   Travel: [],
   Business: ["Business expense", "Tax & compliance", "Insurance"],
-  Transfers: ["Friends", "Gifts & lending", "Withdrawal"],
+  Transfers: ["Friends", "Gifts & lending", "Withdrawal", "Reversal"],
   Fees: ["Refund", "Advance fee"],
   Other: ["Cash", "Betting"],
   [INCOME_CATEGORY]: [...INCOME_SUBCATEGORIES, "Gifts received", "From family & friends"],

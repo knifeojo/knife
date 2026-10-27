@@ -16,6 +16,7 @@ export const NOISE: ReadonlySet<string> = new Set([
   "mall", "city", "branch", "outlet", "com", "www", "app",
   // titles
   "mr", "mrs", "ms", "miss", "dr", "chief", "alhaji", "alhaja", "hajia", "pastor", "engr", "prof", "barr", "sir", "madam",
+  "wife", "husband", "hubby", "spouse", "partner",
 ]);
 
 /** Name words that identify the payee, lowercase, with rails, legal forms, branches and titles removed. */

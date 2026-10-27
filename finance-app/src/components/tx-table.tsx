@@ -1,5 +1,7 @@
 import type { Account, Transaction } from "@prisma/client";
 import { cadenceLabel, type CadenceIndex } from "@/core/cadence";
+import { destinationLabelFor } from "@/core/destination";
+import { conversionLabel, convertToNgn, loadFxContext } from "@/core/fx/rates";
 import { Badge, Money, lagosDateLabel } from "./ui";
 import { CategorySelect } from "./category-select";
 
@@ -35,7 +37,8 @@ export function CadenceBadge({ tx, cadence }: { tx: Transaction; cadence: Cadenc
   return null;
 }
 
-export function TxTable({ rows, editable = true, showBalance = true, cadence }: { rows: (Transaction & { account?: Account; sources?: { source: string }[] })[]; editable?: boolean; showBalance?: boolean; cadence?: CadenceIndex }) {
+export async function TxTable({ rows, editable = true, showBalance = true, cadence }: { rows: (Transaction & { account?: Account; sources?: { source: string }[] })[]; editable?: boolean; showBalance?: boolean; cadence?: CadenceIndex }) {
+  const ctx = rows[0]?.userId ? await loadFxContext(rows[0].userId) : undefined;
   return (
     <div className="overflow-x-auto -mx-5">
       <table className="w-full text-sm min-w-[720px]">
@@ -56,6 +59,9 @@ export function TxTable({ rows, editable = true, showBalance = true, cadence }: 
               <td className="py-3 pr-4 max-w-[320px]">
                 <div className="font-medium truncate">{t.merchantName ?? t.counterparty ?? t.description}</div>
                 <div className="text-xs text-ink-3 truncate" title={t.description}>{t.description}</div>
+                {destinationLabelFor(t.destinationCountry, t.destinationCurrency) && (
+                  <div className="text-xs text-ink-3 mt-0.5">{destinationLabelFor(t.destinationCountry, t.destinationCurrency)}</div>
+                )}
               </td>
               <td className="py-3 pr-4">
                 {editable ? <CategorySelect id={t.id} value={t.category} /> : <Badge>{t.category}</Badge>}
@@ -68,6 +74,10 @@ export function TxTable({ rows, editable = true, showBalance = true, cadence }: 
               </td>
               <td className="py-3 text-right whitespace-nowrap font-medium">
                 <Money minor={t.amountMinor} currency={t.currency} signed type={t.type} />
+                {ctx && t.currency !== "NGN" && (() => {
+                  const conv = convertToNgn(ctx, t.amountMinor, t.currency, t.transactionDate);
+                  return conv ? <div className="text-xs text-ink-3 font-normal mt-0.5 max-w-[220px] ml-auto">{conversionLabel(conv, t.currency)}</div> : null;
+                })()}
               </td>
               {showBalance && (
                 <td className="py-3 text-right whitespace-nowrap text-ink-3">

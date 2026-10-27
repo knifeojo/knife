@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { balances, incomeSources, largest, monthPeriod, monthlyTrend, recurring, spendingByCategory, summary } from "@/core/analytics";
+import { balances, incomeSources, largest, monthlyTrendFor, recurring, spendingByCategory, summary } from "@/core/analytics";
 import { loadCadence } from "@/core/cadence";
 import { onboardingState } from "@/core/onboarding";
 import { buildQuestions } from "@/core/review";
@@ -8,7 +8,7 @@ import { formatMoney } from "@/lib/money";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { CategoryBars, MonthlyBars } from "@/components/charts";
-import { MonthSwitcher, resolveOffset } from "@/components/month-switcher";
+import { PeriodSwitcher, periodQuery, resolveViewPeriod } from "@/components/period-switcher";
 import { Card, Empty, Money, PageHeader, Stat, lagosDateLabel, relativeTime } from "@/components/ui";
 import { TxTable } from "@/components/tx-table";
 import { StatementUpload } from "@/components/statement-upload";
@@ -16,9 +16,10 @@ import { TopPeopleCard } from "./top-people";
 
 export default async function Overview({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
-  const offset = await resolveOffset(user.id, (await searchParams).m);
+  const search = await searchParams;
   const now = new Date();
-  const period = monthPeriod(now, offset);
+  const { period, kind, offset, year, years } = await resolveViewPeriod(user.id, search, now);
+  const q = periodQuery(kind, { offset, year });
 
   const [txCount, welcome] = await Promise.all([
     db.transaction.count({ where: { userId: user.id } }),
@@ -31,7 +32,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     summary(user.id, period),
     balances(user.id),
     spendingByCategory(user.id, period),
-    monthlyTrend(user.id, now, 6),
+    monthlyTrendFor(user.id, period),
     db.transaction.findMany({ where: { userId: user.id }, orderBy: { transactionDate: "desc" }, take: 6 }),
     recurring(user.id, now, "DEBIT"),
     largest(user.id, period, "DEBIT", 3),
@@ -49,7 +50,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
       <PageHeader
         title="Overview"
         subtitle={`Last synced ${relativeTime(lastConn?.lastSyncedAt)}`}
-        action={<MonthSwitcher offset={offset} basePath="/app" />}
+        action={<PeriodSwitcher kind={kind} offset={offset} year={year} years={years} basePath="/app" />}
       />
 
       {welcome.topPeople.show && <TopPeopleCard people={welcome.topPeople.people} />}
@@ -78,17 +79,21 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         <Stat
           label="Income"
           minor={s.income}
-          hint={`${s.incomeCount} credits${s.ratesUsed.length ? ` · includes ${s.ratesUsed.map((r) => `${r.currency} at your rate of ₦${r.rate.toFixed(0)}`).join(", ")}` : ""}${s.unconverted.length ? ` · ${s.unconverted.map((u) => u.currencyAndType.split(" ")[0]).join(", ")} not included yet` : ""}`}
+          hint={`${s.incomeCount} credits${s.ratesUsed.length ? ` · includes ${s.ratesUsed.map((r) => `${r.currency} at ₦${r.rate.toFixed(0)} (${r.source ?? "realised"})`).join(", ")}` : ""}${s.unconverted.length ? ` · ${s.unconverted.map((u) => u.currencyAndType.split(" ")[0]).join(", ")} not included yet` : ""}`}
         />
         <Stat label="Expenses" minor={s.expenses} hint={`${s.expenseCount} debits`} />
-        <Stat label="Net cash flow" minor={s.net} hint={`${s.count} transactions in ${period.label}`} />
+        <Stat
+          label="Net cash flow"
+          minor={s.net}
+          hint={`${s.count} transactions in ${period.label}${s.savingsRate != null ? ` · saved ${(s.savingsRate * 100).toFixed(0)}%` : ""}`}
+        />
       </div>
 
       <div className="grid lg:grid-cols-5 gap-4 mt-4">
         <Card title="Income vs expenses" className="lg:col-span-3">
           <MonthlyBars data={trend} />
         </Card>
-        <Card title={`Spending by category`} className="lg:col-span-2" action={<Link href={`/app/spending?m=${offset}`} className="text-sm text-accent">Details</Link>}>
+        <Card title={`Spending by category`} className="lg:col-span-2" action={<Link href={`/app/spending?${q}`} className="text-sm text-accent">Details</Link>}>
           {cats.length ? <CategoryBars data={cats.slice(0, 6).map((c) => ({ label: c.category, value: c.total, count: c.count }))} total={s.expenses} /> : <Empty>No spending in {period.label}.</Empty>}
         </Card>
       </div>
@@ -98,7 +103,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           <TxTable rows={recent} showBalance={false} cadence={cadence} />
         </Card>
         <div className="space-y-4">
-          <Card title="Income sources" action={<Link href={`/app/income?m=${offset}`} className="text-sm text-accent">Details</Link>}>
+          <Card title="Income sources" action={<Link href={`/app/income?${q}`} className="text-sm text-accent">Details</Link>}>
             {sources.length ? (
               <ul className="space-y-3">
                 {sources.map((x) => (

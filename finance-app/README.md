@@ -37,6 +37,7 @@ Ways to get data in:
 | `src/core/analytics.ts` | User-scoped aggregates, recurring detection, recategorize |
 | `src/core/ask/` | Intent parser → SQL facts → optional Claude phrasing with a number guard |
 | `src/core/affordability.ts` | "Can I really afford this?" Pure BigInt formula (`assessAffordability`) and the ledger reads behind it |
+| `src/core/fx/` | Realised / market / manual naira rates, pairing-derived conversions, public daily cache |
 | `src/core/statements.ts` | CSV parser, header detection, bank/currency/account detection, row normalization |
 | `src/core/pdf-statement.ts` | Rebuilds statement tables from PDF text positions (via `unpdf`), handles passwords, wrapped narrations, multi-page headers |
 | `src/core/statement-import.ts` | Statement upload into the ledger (xlsx via `read-excel-file`) |
@@ -46,7 +47,7 @@ Ways to get data in:
 | `tests/` | Vitest suites |
 | `../ledger_mobile/` | Flutter Android client |
 
-Docs: [implementation plan and MVP exclusions](docs/implementation-plan.md) · [architecture](docs/architecture.md) · [security](docs/security.md) · [Gmail OAuth setup](docs/gmail-oauth.md) · [alert ingestion (email, SMS, IMAP, forwarding)](docs/alert-ingestion.md)
+Docs: [implementation plan and MVP exclusions](docs/implementation-plan.md) · [architecture](docs/architecture.md) · [security](docs/security.md) · [Gmail OAuth setup](docs/gmail-oauth.md) · [alert ingestion (email, SMS, IMAP, forwarding)](docs/alert-ingestion.md) · [exchange rates](docs/fx.md)
 
 ## Mobile API
 

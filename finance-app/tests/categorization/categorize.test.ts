@@ -60,6 +60,24 @@ describe("categorize", () => {
     const c = categorize({ description: "UBER TRIP", type: "DEBIT" });
     expect(Object.keys(c).sort()).toEqual(["category", "confidence", "counterparty", "merchantName", "source", "subcategory"].sort());
   });
+
+  it("classifies employer trip and per-diem credits as reimbursements, not salary", () => {
+    expect(categorize({ description: "ACME INC / Team offsite trip", type: "CREDIT" })).toMatchObject({
+      category: "Income", subcategory: "Reimbursement",
+    });
+    expect(categorize({ description: "Per diem September", type: "CREDIT" })).toMatchObject({
+      category: "Income", subcategory: "Reimbursement",
+    });
+    expect(categorize({ description: "PESAPEER INC / Payroll for Sep 2026", type: "CREDIT" })).toMatchObject({
+      category: "Income", subcategory: "Salary",
+    });
+  });
+
+  it("classifies a reversed payout as a transfer reversal", () => {
+    expect(categorize({ description: "Payout of $40.00 was successfully reversed", type: "CREDIT" })).toMatchObject({
+      category: "Transfers", subcategory: "Reversal",
+    });
+  });
 });
 
 describe("wallet apps", () => {
@@ -170,8 +188,8 @@ describe("Deel and Pesa narrations", () => {
   it("classifies payroll, client payments, reversed payouts and Deel advances", () => {
     expect(categorize({ description: "ACME INC / Payroll for Oct 2025", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Salary" });
     expect(categorize({ description: "ACME INC / Deel client payment", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Consulting" });
-    expect(categorize({ description: "Payout of $50.00 was successfully reversed", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Refund" });
-    expect(categorize({ description: "ACME INC / Team offsite trip reimbursement", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Refund" });
+    expect(categorize({ description: "Payout of $50.00 was successfully reversed", type: "CREDIT" })).toMatchObject({ category: "Transfers", subcategory: "Reversal" });
+    expect(categorize({ description: "ACME INC / Team offsite trip reimbursement", type: "CREDIT" })).toMatchObject({ category: "Income", subcategory: "Reimbursement" });
     expect(categorize({ description: "Deel advance", type: "CREDIT" })).toMatchObject({ category: "Debt", subcategory: "Loan proceeds" });
     expect(categorize({ description: "Deel advance", type: "CREDIT" }).category).not.toBe("Income");
     expect(categorize({ description: "Deel advance fee", type: "DEBIT" })).toMatchObject({ category: "Fees", subcategory: "Advance fee" });
@@ -222,7 +240,7 @@ describe("statement narration quirks (from a real GTBank PDF audit)", () => {
       expect(c.subcategory).toBeUndefined();
       expect(c.merchantName).toBe("Bank charges");
     }
-    expect(categorize({ description: "Payout of $50.00 was successfully reversed", type: "CREDIT" }).category).toBe("Income");
+    expect(categorize({ description: "Payout of $50.00 was successfully reversed", type: "CREDIT" }).category).toBe("Transfers");
     expect(categorize({ description: "REVERSAL/POS PURCHASE SHOPRITE LEKKI", type: "CREDIT" }).category).toBe("Income");
   });
 

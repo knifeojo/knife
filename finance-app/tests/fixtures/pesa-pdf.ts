@@ -50,12 +50,12 @@ export async function makePesaPdf(): Promise<Buffer> {
     { y: 520, parts: [["Oct 28,", 40]] },
     { y: 502, parts: [["2025", 40]] },
     { y: 484, parts: [["Money transfer to 5.00 CAD debited from CAD wallet to fund GBP wallet (2.70", 40]] },
-    { y: 466, parts: [["GBP) (3.60)", 40], ["3,616.90", 480]] },
+    { y: 466, parts: [["GBP)", 40], ["(5.00)", 400], ["3,615.50", 480]] },
   ]);
   paint(page2, [
     { y: 800, parts: [["Date", 40, true], ["Transaction Details", 120, true], ["Amount", 400, true], ["Balance", 480, true]] },
     { y: 788, parts: [["($)", 400], ["($)", 480]] },
-    { y: 750, parts: [["Nov 3, 2025", 40], ["Payout of $50.00 was successfully reversed", 120], ["50.00", 400], ["3,666.90", 480]] },
+    { y: 750, parts: [["Nov 3, 2025", 40], ["Payout of $50.00 was successfully reversed", 120], ["50.00", 400], ["3,665.50", 480]] },
   ]);
   return Buffer.from(await doc.save());
 }

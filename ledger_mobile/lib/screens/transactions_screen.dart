@@ -298,6 +298,14 @@ class TransactionTile extends StatelessWidget {
                 Text(transaction.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
                 Text('${formatDay(transaction.transactionDate)}${masked == null ? '' : ' · $masked'}', style: theme.textTheme.bodySmall),
+                if (transaction.destinationLabel != null && transaction.destinationLabel!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(transaction.destinationLabel!, style: theme.textTheme.bodySmall),
+                ],
+                if (transaction.conversionNote != null && transaction.conversionNote!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(transaction.conversionNote!, style: theme.textTheme.bodySmall),
+                ],
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,

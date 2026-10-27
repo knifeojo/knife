@@ -94,7 +94,9 @@ class LedgerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<HomeSummary> summary({int offset = 0}) => _guard((api) => api.summary(offset: offset));
+  Future<HomeSummary> summary({int offset = 0, String? span, int? year}) {
+    return _guard((api) => api.summary(offset: offset, span: span, year: year));
+  }
 
   Future<AccountList> accounts() => _guard((api) => api.accounts());
 

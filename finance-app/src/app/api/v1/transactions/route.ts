@@ -2,6 +2,7 @@ import { ALL_CATEGORIES } from "@/core/categorize";
 import { listTransactions, type TransactionFilters } from "@/core/analytics";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
 import { cadenceWhere, loadCadence, parseCadenceView, payeeWhere } from "@/core/cadence";
+import { loadFxContext } from "@/core/fx/rates";
 import { minor, transactionJson } from "@/lib/mobile/serialize";
 
 export const runtime = "nodejs";
@@ -56,9 +57,12 @@ export async function GET(req: Request) {
     cadence: cadenceView ? await cadenceWhere(auth.user.id, cadence, cadenceView) : undefined,
     payee: payee ? await payeeWhere(auth.user.id, payee) : undefined,
   };
-  const data = await listTransactions(auth.user.id, filters, page, pageSize);
+  const [data, fx] = await Promise.all([
+    listTransactions(auth.user.id, filters, page, pageSize),
+    loadFxContext(auth.user.id),
+  ]);
   return apiJson({
-    transactions: data.rows.map((tx) => transactionJson(tx, cadence)),
+    transactions: data.rows.map((tx) => transactionJson(tx, cadence, fx)),
     total: data.total,
     page: data.page,
     pageSize: data.pageSize,
