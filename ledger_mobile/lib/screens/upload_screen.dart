@@ -69,7 +69,8 @@ class _UploadScreenState extends State<UploadScreen> {
       _error = null;
     });
     try {
-      final results = await context.read<LedgerController>().upload(filename: filename, bytes: bytes, password: _password.text);
+      final controller = context.read<LedgerController>();
+      final results = await controller.upload(filename: filename, bytes: bytes, password: _password.text);
       if (!mounted) return;
       setState(() {
         _results = results;
@@ -79,7 +80,7 @@ class _UploadScreenState extends State<UploadScreen> {
       final created = results.fold<int>(0, (n, r) => n + (r.ok?.created ?? 0));
       if (created > 0) {
         try {
-          final state = await context.read<LedgerController>().onboarding();
+          final state = await controller.onboarding();
           if (mounted && state.showTopPeople) {
             await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => TopPeopleScreen(initial: state)));
           }

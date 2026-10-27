@@ -40,14 +40,16 @@ class _TopPeopleScreenState extends State<TopPeopleScreen> {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await context.read<LedgerController>().answerReview(
+      final controller = context.read<LedgerController>();
+      await controller.answerReview(
         kind: 'person',
         key: p.key,
         value: a.value,
         vendorCategory: a.vendorCategory,
         vendorSubcategory: a.vendorSubcategory,
       );
-      final next = await context.read<LedgerController>().onboarding();
+      if (!mounted) return;
+      final next = await controller.onboarding();
       if (!mounted) return;
       setState(() {
         _state = next;

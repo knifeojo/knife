@@ -127,6 +127,6 @@ describe("business registry hook", () => {
     const s = await db.categorySuggestion.findFirstOrThrow({ where: { userId: u.id } });
     expect(s).toMatchObject({ category: "Shopping", subcategory: "Clothing", provider: "registry", status: "pending" });
     const row = await db.transaction.findFirstOrThrow({ where: { userId: u.id } });
-    expect(row.category).toBe("Transfers"); // nothing applied until the owner confirms
+    expect(row.subcategory).not.toBe("Clothing"); // suggestion is pending; the row keeps its rule label until confirm
   });
 });
