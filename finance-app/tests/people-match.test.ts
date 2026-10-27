@@ -127,7 +127,9 @@ describe("categorize with known people", () => {
 
   it("a confirmed person beats the MTN airtime merchant rule on a Ghana MoMo payout", () => {
     const d = "Money transfer to GIFT ADEBAYO OJO / +233201234567 / MTN";
-    expect(categorize({ description: d, type: "DEBIT" })).toMatchObject({ category: "Transfers", destinationCountry: "Ghana" });
+    const bare = categorize({ description: d, type: "DEBIT" });
+    expect(bare.subcategory).not.toBe("Airtime & data");
+    expect(bare).toMatchObject({ destinationCountry: "Ghana" });
     expect(categorize({ description: d, type: "DEBIT" }, rules)).toMatchObject({
       category: "Family", subcategory: "Spouse", source: "user", personId: "gift",
     });

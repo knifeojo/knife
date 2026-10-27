@@ -29,7 +29,7 @@ const DIAL: { code: string; country: string; countryCode: string; currency: stri
 function titleName(raw: string): string | undefined {
   const t = raw.replace(/[^A-Za-z .'-]/g, " ").replace(/\s+/g, " ").trim();
   if (t.length < 2) return undefined;
-  return t.replace(/\b[a-z]/g, (c) => c.toUpperCase()).slice(0, 48);
+  return t.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase()).slice(0, 48);
 }
 
 function labelFor(country: string, channel: DestinationChannel): string {

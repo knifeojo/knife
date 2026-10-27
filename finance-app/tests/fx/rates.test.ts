@@ -9,8 +9,11 @@ async function user(preference: "official" | "street" = "official") {
 }
 
 async function rate(data: { userId?: string; date: string; base: string; quote?: string; rate: number; source: string }) {
-  return db.fxRate.create({
-    data: { userId: data.userId ?? "", date: data.date, base: data.base, quote: data.quote ?? "NGN", rate: data.rate, source: data.source },
+  const row = { userId: data.userId ?? "", date: data.date, base: data.base, quote: data.quote ?? "NGN", rate: data.rate, source: data.source };
+  return db.fxRate.upsert({
+    where: { userId_date_base_quote_source: { userId: row.userId, date: row.date, base: row.base, quote: row.quote, source: row.source } },
+    create: row,
+    update: { rate: row.rate },
   });
 }
 

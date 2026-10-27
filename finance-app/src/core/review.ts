@@ -417,7 +417,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
     questions.push({
       kind: "person", key: g.key, title: `Who is ${g.display} to you?`,
       prompt: regular
-        ? `You pay them about ${groupMoney(g).display} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually family support, rent, an allowance, or someone you employ.`
+        ? `You pay them about ${formatMoney(regular.typicalMinor)} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually family support, rent, an allowance, or someone you employ.`
         : `${moneyBoth(g.stats)}. Your answer applies to every payment with them, past and future, and you can undo it.`,
       ...questionMoney(g), count: g.count, examples: g.examples.slice(0, 3), options: INDIVIDUAL_OPTIONS, currentCategory: topCategory(g.categories),
       hint: "The name looks like a person", narrationHints: narrationHints(g.descriptions), person: g.stats, impactMinor: g.impact,
@@ -472,7 +472,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
     questions.push({
       kind: "person", key: g.key, title: hint ? `Is ${g.display} ${/^[aeiou]/i.test(hint.label) ? "an" : "a"} ${hint.label.toLowerCase()}?` : `Who is ${g.display}?`,
       prompt: regular
-        ? `You pay them about ${groupMoney(g).display} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually rent, an allowance, or someone you employ.`
+        ? `You pay them about ${formatMoney(regular.typicalMinor)} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually rent, an allowance, or someone you employ.`
         : `You sent them ${g.count} payment${g.count > 1 ? "s" : ""}. Your answer applies to every payment to this name, past and future.`,
       ...questionMoney(g), count: g.count, examples: g.examples, options, currentCategory: topCategory(g.categories),
       hint: hint ? `The name suggests: ${hint.label.toLowerCase()}` : "The name looks like a person",
@@ -500,7 +500,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
       prompt: (() => {
         const regular = regularPattern(g.hits ?? []);
         const base = `${g.count} transfer${g.count > 1 ? "s" : ""} where your bank didn't record who received the money, only the note you typed.`;
-        return regular ? `${base} It looks regular: about ${groupMoney(g).display} around the ${ordinal(regular.day)} of each month.` : base;
+        return regular ? `${base} It looks regular: about ${formatMoney(regular.typicalMinor)} around the ${ordinal(regular.day)} of each month.` : base;
       })(),
       ...questionMoney(g), count: g.count, examples: g.examples, options: PERSON_OPTIONS,
     });

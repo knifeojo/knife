@@ -165,6 +165,9 @@ function ownNameFxOptions(debits: Leg[], credits: Leg[], owners: string[]): (Pai
       if (d.currency === "NGN" || c.currency !== "NGN") continue;
       if (blockedByLabel(d) || blockedByLabel(c)) continue;
       if (!sameOrNextDay(d.transactionDate, c.transactionDate)) continue;
+      // A send that names a different bank is not this naira credit, even if it is the owner's name.
+      const namesOtherBank = Object.keys(SHORT_CODES).some((inst) => inst !== c.institution && mentionsInstitution(d.description, inst));
+      if (namesOtherBank) continue;
       const own = d.category === OWN_TRANSFER
         || isSelf(d.counterparty ?? undefined, owners)
         || isSelf(c.counterparty ?? undefined, owners);

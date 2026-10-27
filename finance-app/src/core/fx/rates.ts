@@ -144,7 +144,9 @@ export function conversionLabel(c: Conversion, currency: string): string {
   if (currency === BASE) return "";
   const per = formatMoney(BigInt(Math.round(c.rate * 100)), BASE);
   const unit = currency === "USD" ? "$" : currency === "GBP" ? "£" : currency === "EUR" ? "€" : currency === "CAD" ? "CA$" : currency === "GHS" ? "₵" : `1 ${currency}`;
-  const when = new Date(`${c.rateDate}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const [y, m, d] = c.rateDate.split("-").map(Number);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const when = `${d} ${months[(m || 1) - 1]} ${y}`;
   return `converted at ${per} per ${unit} (${c.source}) on ${when}`;
 }
 
