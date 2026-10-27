@@ -18,11 +18,12 @@ export interface ImapClientLike {
   connect(): Promise<void>;
   logout(): Promise<void>;
   mailboxOpen(path: string): Promise<unknown>;
-  search(query: Record<string, unknown>): Promise<number[] | false | undefined>;
-  fetch(
-    range: number[] | string,
+  search(query: Record<string, unknown>, options?: { uid?: boolean }): Promise<number[] | false | undefined>;
+  fetchOne(
+    seq: string | number,
     query: Record<string, unknown>,
-  ): AsyncIterable<{ source?: Buffer; uid?: number; envelope?: { from?: { address?: string }[]; subject?: string; date?: Date } }>;
+    options?: { uid?: boolean },
+  ): Promise<{ source?: Buffer; uid?: number; envelope?: { from?: { address?: string }[]; subject?: string; date?: Date } } | false>;
 }
 
 export function defaultImapFactory(cfg: ImapConfig): ImapClientLike {
@@ -33,6 +34,11 @@ export function defaultImapFactory(cfg: ImapConfig): ImapClientLike {
     auth: { user: cfg.user, pass: cfg.password },
     logger: false,
   }) as unknown as ImapClientLike;
+}
+
+/** IMAP FROM clauses for known bank email domains (OR). */
+export function bankEmailFromQuery(): { from: string }[] {
+  return BANK_SENDERS.filter((s) => s.channel !== "sms").map((s) => ({ from: s.id }));
 }
 
 export class ImapEmailSource implements EmailSource {
@@ -67,33 +73,30 @@ export class ImapEmailSource implements EmailSource {
 
   async listMessageIds({ after, max = 500 }: { query: string; after?: Date; max?: number }): Promise<string[]> {
     return this.withClient(async (c) => {
-      const query: Record<string, unknown> = { seen: false };
+      const froms = bankEmailFromQuery();
+      const query: Record<string, unknown> = {};
       if (after) query.since = after;
-      // Broad search (SINCE), then filter by known bank From in fetch. Read-only: we never set flags.
-      const orFrom = BANK_SENDERS.filter((s) => s.channel !== "sms").map((s) => ({ from: s.id }));
-      if (orFrom.length) query.or = orFrom;
-      delete query.seen;
-      const uids = (await c.search(after ? { since: after } : {})) || [];
-      return uids.slice(0, max).map(String);
+      if (froms.length >= 2) query.or = froms;
+      else if (froms.length === 1) Object.assign(query, froms[0]);
+      // UID SEARCH — sequence numbers shift when mail is deleted and would break ProcessedAlert ids.
+      const uids = (await c.search(query, { uid: true })) || [];
+      return [...uids].sort((a, b) => b - a).slice(0, max).map(String);
     });
   }
 
   async getMessage(id: string): Promise<EmailMessage> {
     return this.withClient(async (c) => {
-      const uid = Number(id);
-      for await (const msg of c.fetch(uid, { source: true, envelope: true, uid: true })) {
-        if (!msg.source) throw new Error("IMAP message has no source");
-        const parsed = await simpleParser(msg.source);
-        return {
-          id,
-          from: parsed.from?.text ?? msg.envelope?.from?.[0]?.address ?? "",
-          subject: parsed.subject ?? msg.envelope?.subject ?? "",
-          date: parsed.date ?? msg.envelope?.date ?? new Date(),
-          text: parsed.text || undefined,
-          html: typeof parsed.html === "string" ? parsed.html : undefined,
-        };
-      }
-      throw new Error(`IMAP message ${id} not found`);
+      const msg = await c.fetchOne(id, { source: true, envelope: true }, { uid: true });
+      if (!msg || !msg.source) throw new Error(`IMAP message ${id} not found`);
+      const parsed = await simpleParser(msg.source);
+      return {
+        id,
+        from: parsed.from?.text ?? msg.envelope?.from?.[0]?.address ?? "",
+        subject: parsed.subject ?? msg.envelope?.subject ?? "",
+        date: parsed.date ?? msg.envelope?.date ?? new Date(),
+        text: parsed.text || undefined,
+        html: typeof parsed.html === "string" ? parsed.html : undefined,
+      };
     });
   }
 }
