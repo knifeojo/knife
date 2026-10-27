@@ -269,6 +269,30 @@ interface Draft {
   amount: bigint;
   balance: bigint;
   inferred: boolean;
+  currency?: string;
+  fxQuoteCurrency?: string;
+  fxQuoteMinor?: bigint;
+}
+
+const WALLET_FX = new RegExp(
+  `(\\d{1,3}(?:,\\d{3})*|\\d+)\\.(\\d{2})\\s*(${CCY})\\s+debited from \\w+ wallet to fund \\w+ wallet\\s*\\((\\d{1,3}(?:,\\d{3})*|\\d+)\\.(\\d{2})\\s*(${CCY})`,
+  "i",
+);
+
+/** "8.12 CAD debited from CAD wallet to fund GBP wallet (4.35GBP)" is CAD, not the statement $ column. */
+function applyWalletFx(draft: Draft): Draft {
+  const m = draft.description.match(WALLET_FX);
+  if (!m) return draft;
+  const amount = parseAmountToMinor(`${m[1].replace(/,/g, "")}.${m[2]}`);
+  const quote = parseAmountToMinor(`${m[4].replace(/,/g, "")}.${m[5]}`);
+  if (amount === null || quote === null) return draft;
+  return {
+    ...draft,
+    amount,
+    currency: m[3].toUpperCase(),
+    fxQuoteCurrency: m[6].toUpperCase(),
+    fxQuoteMinor: quote,
+  };
 }
 
 /** Assign debit/credit to rows whose balance was not printed, so the next printed balance still follows. */
@@ -445,14 +469,14 @@ export function parsePesaStatement(text: string): { result: StatementParseResult
     }
     if (tail.spill && pieces[i + 1]) pieces[i + 1].chunk = `${tail.spill} ${pieces[i + 1].chunk}`.trim();
     prevBalance = tail.balance;
-    drafts.push({
+    drafts.push(applyWalletFx({
       date,
       description: (tail.description || "Pesa transaction").slice(0, 280),
       type: tail.type,
       amount: tail.amount,
       balance: tail.balance,
       inferred: tail.inferred,
-    });
+    }));
   });
 
   reorderSameDay(drafts);
@@ -471,12 +495,14 @@ export function parsePesaStatement(text: string): { result: StatementParseResult
       sourceTransactionId,
       type: draft.type,
       amountMinor: draft.amount,
-      currency,
+      currency: draft.currency ?? currency,
       transactionDate: draft.date,
       description: draft.description,
       balanceAfterMinor: draft.balance,
       accountLast4,
       accountHolder: holder,
+      fxQuoteCurrency: draft.fxQuoteCurrency,
+      fxQuoteMinor: draft.fxQuoteMinor,
       confidence: 1,
     });
   }

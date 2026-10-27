@@ -119,7 +119,7 @@ describe("everyday spending from narration", () => {
     ["Instant Payment Outward 0016 DIESEL TO OPAY - MRS OIL LEKKI", "Transport", "Fuel"],
     ["Instant Payment Outward 0017 TITHE TO ZBN - RCCG CHAPEL OF GRACE", "Giving", "Church"],
     ["Instant Payment Outward 0018 SEED OFFERING TO GTB - ADA OBI", "Giving", undefined],
-    ["Instant Payment Outward 0019 WIFE UPKEEP TO KUDA - AMAKA DOE", "Family", "Partner"],
+    ["Instant Payment Outward 0019 WIFE UPKEEP TO KUDA - AMAKA DOE", "Family", "Spouse"],
     ["Instant Payment Outward 0020 DRIVER SALARY TO OPAY - SUNDAY OKON", "Housing", "Home services"],
     ["Instant Payment Outward 0021 GYM SUBSCRIPTION TO GTB - I-FITNESS", "Healthcare", "Fitness"],
     ["Instant Payment Outward 0022 DRUGS TO OPAY - BLESSING OKON", "Healthcare", undefined],

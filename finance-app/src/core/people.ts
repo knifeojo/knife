@@ -1,5 +1,7 @@
+import { formatMixedTotal, formatMoney } from "@/lib/money";
 import { db } from "@/lib/db";
 import { OWN_TRANSFER, categorize, type UserRule } from "./categorize";
+import { loadFxContext, nairaOf } from "./fx/rates";
 import { loadKnownPeople, loadOwners, loadUserRules } from "./ledger";
 import {
   aliasKey,
@@ -383,8 +385,12 @@ export interface PersonSummary {
   category: string | null;
   subcategory: string | null;
   count: number;
+  /** NGN-converted when more than one currency is present. */
   inMinor: bigint;
   outMinor: bigint;
+  /** Original currencies when the headline is a converted mixed total. */
+  inDetail?: string | null;
+  outDetail?: string | null;
   lastDate: string | null;
   months: PersonMonth[];
 }
@@ -405,26 +411,49 @@ function lastMonths(now: Date, n: number): string[] {
 }
 
 export async function listPeople(userId: string, now = new Date(), months = 6): Promise<PeopleOverview> {
-  const [people, rows, latest] = await Promise.all([
+  const [people, rows, latest, ctx] = await Promise.all([
     db.person.findMany({ where: { userId }, include: { aliases: { orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "asc" } }),
-    db.transaction.findMany({ where: { userId, personId: { not: null } }, select: { personId: true, type: true, amountMinor: true, transactionDate: true } }),
+    db.transaction.findMany({ where: { userId, personId: { not: null } }, select: { personId: true, type: true, amountMinor: true, currency: true, transactionDate: true } }),
     db.peopleBatch.findFirst({ where: { userId, undoneAt: null }, orderBy: { createdAt: "desc" } }),
+    loadFxContext(userId),
   ]);
+  const toNgn = (minor: bigint, currency: string, date: Date) => nairaOf(ctx, minor, currency, date) ?? (currency === "NGN" ? minor : 0n);
   const window = lastMonths(now, months);
   const list = people.map((p): PersonSummary => {
     const mine = rows.filter((r) => r.personId === p.id);
     const byMonth = new Map(window.map((m) => [m, { month: m, inMinor: 0n, outMinor: 0n }]));
     let inMinor = 0n, outMinor = 0n, last: Date | undefined;
+    const inBy = new Map<string, bigint>(), outBy = new Map<string, bigint>();
     for (const r of mine) {
-      if (r.type === "CREDIT") inMinor += r.amountMinor;
-      else outMinor += r.amountMinor;
+      const currency = r.currency || "NGN";
+      const ngn = toNgn(r.amountMinor, currency, r.transactionDate);
+      if (r.type === "CREDIT") {
+        inMinor += ngn;
+        inBy.set(currency, (inBy.get(currency) ?? 0n) + r.amountMinor);
+      } else {
+        outMinor += ngn;
+        outBy.set(currency, (outBy.get(currency) ?? 0n) + r.amountMinor);
+      }
       if (!last || r.transactionDate > last) last = r.transactionDate;
       const m = byMonth.get(lagosMonth(r.transactionDate));
       if (m) {
-        if (r.type === "CREDIT") m.inMinor += r.amountMinor;
-        else m.outMinor += r.amountMinor;
+        if (r.type === "CREDIT") m.inMinor += ngn;
+        else m.outMinor += ngn;
       }
     }
+    const originals = (by: Map<string, bigint>) => [...by.entries()].map(([currency, minor]) => ({ currency, minor }));
+    const inMixed = formatMixedTotal(originals(inBy), inMinor);
+    const outMixed = formatMixedTotal(originals(outBy), outMinor);
+    const foreignDetail = (by: Map<string, bigint>, mixed: { detail: string | null }) => {
+      if (mixed.detail) return mixed.detail;
+      if (by.size === 1) {
+        const [currency, minor] = [...by][0];
+        if (currency !== "NGN") return formatMoney(minor, currency);
+      }
+      return undefined;
+    };
+    const inDetail = foreignDetail(inBy, inMixed);
+    const outDetail = foreignDetail(outBy, outMixed);
     const label = labelFor(p, "DEBIT");
     const relationship = (isRelationship(p.relationship) ? p.relationship : "other") as Relationship;
     return {
@@ -432,7 +461,10 @@ export async function listPeople(userId: string, now = new Date(), months = 6): 
       vendorCategory: p.vendorCategory, vendorSubcategory: p.vendorSubcategory,
       aliases: p.aliases.map((a) => ({ name: a.name, rejected: a.rejected })),
       category: label?.category ?? null, subcategory: label?.subcategory ?? null,
-      count: mine.length, inMinor, outMinor, lastDate: last ? lagosMonth(last) + new Date(last.getTime() + 3600_000).toISOString().slice(7, 10) : null,
+      count: mine.length, inMinor, outMinor,
+      ...(inDetail && { inDetail }),
+      ...(outDetail && { outDetail }),
+      lastDate: last ? lagosMonth(last) + new Date(last.getTime() + 3600_000).toISOString().slice(7, 10) : null,
       months: [...byMonth.values()],
     };
   });

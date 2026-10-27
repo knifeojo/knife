@@ -1,3 +1,4 @@
+import { inferDestination, isPersonWalletTransfer } from "./destination";
 import { matchDirectory, namesOnlyBusiness } from "./merchants/directory";
 import { mappingFor, matchPeople, type KnownPerson } from "./people-match";
 import type { Classification, TransactionType } from "./types";
@@ -9,7 +10,7 @@ export const EXPENSE_CATEGORIES = [
 /** Giving used to be a subcategory of Other. Rows and rules labelled Other with one of these move to Giving. */
 export const LEGACY_GIVING_SUBCATEGORIES = ["Giving", "Tithe", "Offering", "Charity", "Donation", "Donations"];
 export const INCOME_CATEGORY = "Income";
-export const INCOME_SUBCATEGORIES = ["Salary", "Consulting", "Business income", "Transfer", "Refund", "Interest", "Other income"] as const;
+export const INCOME_SUBCATEGORIES = ["Salary", "Consulting", "Business income", "Transfer", "Refund", "Reimbursement", "Interest", "Other income"] as const;
 /** Moves between the user's own accounts. Excluded from both income and spending totals. */
 export const OWN_TRANSFER = "Own transfer";
 export const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, INCOME_CATEGORY, OWN_TRANSFER];
@@ -58,10 +59,11 @@ const BETTING = /bet9ja|sportybet|betking|1xbet|nairabet|merrybet|\bmsport\b|ban
 const RULES: Rule[] = [
   // Income
   { match: /salary|payroll|\bsal\b|paymentdeel/, category: INCOME_CATEGORY, subcategory: "Salary", only: "CREDIT" },
+  { match: /\bper ?diem\b|\breimburs/, category: INCOME_CATEGORY, subcategory: "Reimbursement", only: "CREDIT" },
   { match: /upwork/, merchant: "Upwork", category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /deel|remote\.com|payoneer|fiverr|toptal/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /invoice|consult/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
-  { match: /refund|reversal|reversed|reimburs|\brvsl\b|\brev\//, category: INCOME_CATEGORY, subcategory: "Refund", only: "CREDIT" },
+  { match: /refund|reversal|reversed|\brvsl\b|\brev\//, category: INCOME_CATEGORY, subcategory: "Refund", only: "CREDIT" },
   { match: /interest capitali[sz]ed|interest run|int\.? ?pd|interest paid|credit interest/, merchant: "Interest", category: INCOME_CATEGORY, subcategory: "Interest", only: "CREDIT" },
   { match: /\bpesa\b(?!peer)| pesa payments/, merchant: "Pesa", category: INCOME_CATEGORY, subcategory: "Transfer", only: "CREDIT" },
 
@@ -163,7 +165,7 @@ const RULES: Rule[] = [
   { match: /\b(cleaning|cleaner|laundry|dry ?clean|gardener|security|plumber|electrician|fumigation|generator|house ?help|nanny|maid|driver|gateman|steward|house ?boy|house ?girl)\b/, category: "Housing", subcategory: "Home services" },
   { match: /\b(tyres?|tires?|mechanic|vulcani[sz]er|car wash|car repair|spare parts?|autos?\b|panel beat)/, category: "Transport", subcategory: "Car" },
   { match: /\b(birthday|gift|wedding|condolence|baby shower|bday)\b/, category: "Family", subcategory: "Gifts" },
-  { match: /\b(wife|hubby|husband)\b/, category: "Family", subcategory: "Partner" },
+  { match: /\b(wife|hubby|husband|spouse|partner)\b/, category: "Family", subcategory: "Spouse" },
   { match: /\b(daddy|daddys|dad|father|mummy|mummys|mum|mom|mother|parents|upkeep|allowance|pocket money|feeding|aunty|auntie|uncle|grandma|granny|in ?laws?|kids|children)\b/, category: "Family", subcategory: "Family support" },
   { match: /\b(tithe|tithes|offering|church|mosque|zakat|sadaqah|donation|charity|seed|pledge)\b/, category: "Giving" },
   { match: /\b(drugs|medication|medicine|lab test|scan)\b/, category: "Healthcare" },
@@ -302,6 +304,8 @@ function senderFromDashes(d: string): string | undefined {
 /** Best effort counterparty from Nigerian transfer narrations, e.g. "TRF/RENT/FRM A TO B" or "NIP/ACME LTD/SALARY". */
 export function extractCounterparty(description: string, type: TransactionType): string | undefined {
   const d = description.replace(/\s+/g, " ");
+  const destName = inferDestination(d)?.personName;
+  if (destName && (type === "DEBIT" || isPersonWalletTransfer(d))) return destName;
   if (type === "DEBIT") {
     const r = recipientAfterTo(d);
     if (r) return r;
@@ -462,9 +466,9 @@ function withoutName(description: string, names: string[]): string {
  * Deterministic categorization. Only proposes merchant/category/subcategory; it never sees or
  * returns amount, date or reference, so it cannot alter them.
  *
- * Known people (rules with `person`) come after fees, own transfers, lenders and purpose words, and
- * before everything else: "TO OPAY - OJO GIFT A" is Family / Spouse once the owner said Gift is his wife,
- * but "SCHOOL FEES TO GIFT" is still Education. Only a confident, unambiguous name match applies.
+ * A confirmed Person always wins over merchant-directory and keyword rules (including MTN airtime
+ * on a MoMo payout). Fees, debt and own-wallet moves stay structural. Only an explicit
+ * per-transaction user edit (classificationSource = user on that row) outranks a person.
  */
 export function categorize(
   input: { description: string; type: TransactionType },
@@ -472,24 +476,34 @@ export function categorize(
   /** Account holder name(s), so transfers between the user's own accounts are not counted as income or spending. */
   owners: string[] = [],
 ): Classification {
+  const dest = inferDestination(input.description);
   const people = userRules.flatMap((r) => (r.person ? [r.person] : []));
-  if (!people.length) return categorizeRules(input, userRules, owners);
+  if (!people.length) return withDestination(categorizeRules(input, userRules, owners), dest);
   const rules = userRules.filter((r) => !r.person);
-  const full = categorizeRules(input, rules, owners);
+  const full = withDestination(categorizeRules(input, rules, owners), dest);
   const match = matchPeople(full.counterparty, people);
   if (match.status !== "match") return full;
   const person = people.find((p) => p.id === match.personId)!;
   const personId = person.id;
   if (full.source === "rule" && ["Fees", "Debt", OWN_TRANSFER].includes(full.category)) return { ...full, personId };
-  const names = [full.counterparty!, person.displayName, ...person.aliases.filter((a) => !a.rejected).map((a) => a.name)];
-  const purpose = categorizeRules({ description: withoutName(input.description, names), type: input.type }, rules.filter((r) => !isNamePattern(r.pattern)), owners);
-  const generic = purpose.category === "Transfers" || purpose.category === "Other" || (purpose.category === INCOME_CATEGORY && purpose.subcategory === "Transfer");
-  if (purpose.source === "user" || (purpose.source === "rule" && purpose.confidence >= 0.9 && !generic)) {
-    return { ...purpose, merchantName: purpose.merchantName ?? person.displayName, counterparty: full.counterparty, personId };
-  }
   const label = mappingFor(person.relationship, input.type, { category: person.vendorCategory, subcategory: person.vendorSubcategory });
   if (!label) return { ...full, personId };
-  return { category: label.category, subcategory: label.subcategory ?? undefined, merchantName: person.displayName, counterparty: full.counterparty, source: "user", confidence: 1, personId };
+  return {
+    category: label.category,
+    subcategory: label.subcategory ?? undefined,
+    merchantName: person.displayName,
+    counterparty: full.counterparty,
+    source: "user",
+    confidence: 1,
+    personId,
+    destinationCountry: full.destinationCountry,
+    destinationCurrency: full.destinationCurrency,
+  };
+}
+
+function withDestination(c: Classification, dest?: ReturnType<typeof inferDestination>): Classification {
+  if (!dest) return c;
+  return { ...c, destinationCountry: dest.country, destinationCurrency: dest.currency };
 }
 
 // Directory labels sit below Ledger's own rules (0.9) so a purpose word or a known person still wins,
@@ -558,8 +572,11 @@ function categorizeRules(
     && !lenderMerchant(desc.replace(bank!.toLowerCase(), " ")) && !/repay|disburs/.test(desc);
   const ignoreBank = !!bank && !!counterparty && !SAVINGS.test(bank.toLowerCase()) && (!bankLender || lenderIsOnlyTheirBank);
   // Text the merchant and category rules read: the narration without the recipient's bank.
-  const ruleDesc = ignoreBank ? desc.replace(bank!.toLowerCase(), " ") : desc;
-  const merchant = normalizeMerchant(ruleDesc);
+  // A person payout "NAME / +233… / MTN" is not airtime: drop the wallet brand so telco rules do not fire.
+  const personPayout = isPersonWalletTransfer(input.description);
+  const strippedWallet = personPayout ? desc.replace(new RegExp(`\\b(?:mtn|vodafone|airteltigo|airtel ?tigo|m-?pesa|orange(?:\\s+money)?)\\b`, "gi"), " ") : desc;
+  const ruleDesc = ignoreBank ? strippedWallet.replace(bank!.toLowerCase(), " ") : strippedWallet;
+  const merchant = personPayout ? undefined : normalizeMerchant(ruleDesc);
   const card = input.type === "DEBIT" ? cardMerchant(input.description) : undefined;
 
   // "REVERSED : Commission on NIP TransferCHARGES" is the bank giving a fee back. It stays in Fees
@@ -632,9 +649,14 @@ function categorizeRules(
     return { category: "Debt", subcategory: "Loan proceeds", merchantName: "Deel", counterparty, source: "rule", confidence: 0.95 };
   }
 
+  if (input.type === "CREDIT" && /payout of .+ was successfully reversed/i.test(collapsed)) {
+    return { category: "Transfers", subcategory: "Reversal", merchantName: merchant, counterparty, source: "rule", confidence: 0.95 };
+  }
+
   for (const rule of RULES) {
     if (rule.only && rule.only !== input.type) continue;
     if (!rule.match.test(ruleDesc)) continue;
+    if (personPayout && rule.subcategory === "Airtime & data") continue;
     // A debit to a person that mentions rent is housing; a credit mentioning rent is not.
     if (rule.category !== INCOME_CATEGORY && input.type === "CREDIT" && rule.category !== "Fees") continue;
     return {
@@ -649,6 +671,11 @@ function categorizeRules(
 
   const known = directoryLabel(input.type, ruleDesc, rawCounterparty, counterparty);
   if (known) return known;
+
+  // Employer trip / per-diem credits that did not already match the reimbursement keyword.
+  if (input.type === "CREDIT" && /\btrip\b/.test(collapsed) && !/payroll/.test(collapsed) && (COMPANY.test(counterparty ?? "") || COMPANY.test(collapsed))) {
+    return { category: INCOME_CATEGORY, subcategory: "Reimbursement", merchantName: merchant ?? counterparty, counterparty, source: "rule", confidence: 0.85 };
+  }
 
   // A card payment at a shop no rule knows: the shop's name may still say what it sells. If it does not,
   // it is still a purchase (not a transfer), filed under Shopping and flagged for review.

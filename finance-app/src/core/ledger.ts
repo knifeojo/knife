@@ -7,6 +7,7 @@ import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
 import { BANK_SOURCES, INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
 import type { KnownPerson } from "./people-match";
+import { storeQuotedRate } from "./fx/realised";
 import { pairOwnTransfers } from "./transfers";
 import type { CanonicalTransaction } from "./types";
 
@@ -121,6 +122,8 @@ async function enrich(userId: string, transactionId: string, tx: CanonicalTransa
       counterparty: c.counterparty ?? (c.category === "Fees" ? null : existing.counterparty),
       merchantName: c.merchantName ?? existing.merchantName,
       personId: c.personId ?? existing.personId,
+      destinationCountry: c.destinationCountry ?? existing.destinationCountry,
+      destinationCurrency: c.destinationCurrency ?? existing.destinationCurrency,
       ...(keepLabel ? {} : { category: c.category, subcategory: c.subcategory ?? null, classificationSource: c.source, classificationConfidence: c.confidence }),
     },
   });
@@ -197,6 +200,8 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
         classificationSource: c.source,
         classificationConfidence: c.confidence,
         personId: c.personId,
+        destinationCountry: c.destinationCountry ?? tx.destinationCountry,
+        destinationCurrency: c.destinationCurrency ?? tx.destinationCurrency,
         parseConfidence: tx.confidence,
         sources: {
           create: { userId, source: tx.source, sourceTransactionId: tx.sourceTransactionId, matchType: "created" },
@@ -209,6 +214,9 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
         where: { id: account.id },
         data: { balanceMinor: tx.balanceAfterMinor, balanceUpdatedAt: tx.transactionDate },
       });
+    }
+    if (tx.fxQuoteMinor && tx.fxQuoteCurrency) {
+      await storeQuotedRate(userId, tx);
     }
     return { status: "created", transactionId: created.id };
   } catch (e) {
@@ -370,6 +378,8 @@ export async function reapplyCategories(userId: string): Promise<{ checked: numb
       classificationSource: c.source,
       classificationConfidence: c.confidence,
       personId: c.personId ?? null,
+      destinationCountry: c.destinationCountry ?? t.destinationCountry,
+      destinationCurrency: c.destinationCurrency ?? t.destinationCurrency,
     };
     if (Object.entries(next).some(([k, v]) => (t as Record<string, unknown>)[k] !== v)) {
       await db.transaction.update({ where: { id: t.id }, data: next });

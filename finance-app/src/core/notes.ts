@@ -89,7 +89,7 @@ const hasWord = (desc: string, w: string) => new RegExp(`\\b${w.replace(/[^a-z0-
 function interpret(label: string, parent: string | undefined, aliases: { pattern: string; category: string | null; subcategory: string | null }[]) {
   const l = label.toLowerCase();
   const people = (re: RegExp) => aliases.filter((a) => a.pattern.includes(" ") && re.test(`${a.subcategory ?? ""} ${a.category ?? ""}`)).map((a) => a.pattern);
-  if (/^wife|^husband|^partner|^spouse/.test(l)) return { people: people(/partner|wife|husband|spouse/i), proposal: { category: "Family", subcategory: "Partner" }, how: "the person you labelled as your partner" };
+  if (/^wife|^husband|^partner|^spouse/.test(l)) return { people: people(/partner|wife|husband|spouse/i), proposal: { category: "Family", subcategory: "Spouse" }, how: "the person you labelled as your partner" };
   if (/^parents?$/.test(l)) return { people: people(/\b(dad|mum|mom|mother|father|parent|in ?law)/i), proposal: { category: "Family", subcategory: "Parents" }, how: "the people you labelled as parents and in-laws" };
   if (/^rm\b|renmoney/.test(l)) return { words: ["renmoney", "remb"], proposal: { category: "Debt", subcategory: "Renmoney loan" }, how: "Renmoney" };
   if (/^fm\b|fairmoney/.test(l)) return { words: ["fairmoney"], proposal: { category: "Debt", subcategory: "FairMoney loan" }, how: "FairMoney" };

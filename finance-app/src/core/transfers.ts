@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
 import { OWN_TRANSFER, categorize, isSelf } from "./categorize";
+import { lagosDay } from "./fx/rates";
+import { storeRealisedRates } from "./fx/realised";
 import { BANKS } from "./statements";
 
 // Pairs money moving between two of the user's own accounts, so it is neither spending (on the
@@ -89,6 +91,7 @@ export function findPairs(legs: Leg[], owners: string[]): PairCandidate[] {
     }
   }
   options.push(...crossCurrencyOptions(debits, credits, owners));
+  options.push(...ownNameFxOptions(debits, credits, owners));
   options.sort((a, b) => a.gap - b.gap);
   const used = new Set<string>();
   const pairs: PairCandidate[] = [];
@@ -143,32 +146,118 @@ function crossCurrencyOptions(debits: Leg[], credits: Leg[], owners: string[]): 
   return out;
 }
 
+function sameOrNextDay(a: Date, b: Date): boolean {
+  const da = lagosDay(a);
+  const db_ = lagosDay(b);
+  const gap = Math.abs(Date.parse(`${da}T00:00:00Z`) - Date.parse(`${db_}T00:00:00Z`)) / 86400_000;
+  return gap <= 1;
+}
+
+/**
+ * A single foreign debit to the owner's own name, paired with an NGN credit on a naira account
+ * the same or next day. Strong enough without a rate cluster: this is the owner's own conversion.
+ */
+function ownNameFxOptions(debits: Leg[], credits: Leg[], owners: string[]): (PairCandidate & { gap: number })[] {
+  const out: (PairCandidate & { gap: number })[] = [];
+  for (const d of debits) {
+    for (const c of credits) {
+      if (c.accountId === d.accountId || c.currency === d.currency) continue;
+      if (d.currency === "NGN" || c.currency !== "NGN") continue;
+      if (blockedByLabel(d) || blockedByLabel(c)) continue;
+      if (!sameOrNextDay(d.transactionDate, c.transactionDate)) continue;
+      const own = d.category === OWN_TRANSFER
+        || isSelf(d.counterparty ?? undefined, owners)
+        || isSelf(c.counterparty ?? undefined, owners);
+      if (!own) continue;
+      const gap = Math.abs(c.transactionDate.getTime() - d.transactionDate.getTime());
+      out.push({ debit: d, credit: c, clue: `own-name ${d.currency} to NGN`, gap });
+    }
+  }
+  return out;
+}
+
 /** Finds and links own-account transfer pairs for a user. Returns how many new pairs were made. */
 export async function pairOwnTransfers(userId: string): Promise<number> {
   const accounts = await db.account.findMany({ where: { userId } });
-  if (accounts.length < 2) return 0;
-  const owners = [...new Set(accounts.map((a) => a.holderName).filter((x): x is string => !!x))];
-  const inst = new Map(accounts.map((a) => [a.id, a.institution]));
-  const rows = await db.transaction.findMany({
-    where: { userId, transferPairId: null },
-    select: { id: true, accountId: true, type: true, amountMinor: true, currency: true, transactionDate: true, description: true, counterparty: true, category: true, classificationSource: true },
-  });
-  const legs: Leg[] = rows.map((r) => ({ ...r, institution: inst.get(r.accountId) ?? "" }));
-  const pairs = findPairs(legs, owners);
-  for (const p of pairs) {
-    // Link both legs. The user's own labels are kept (e.g. "Salary"): totals skip linked legs, so the
-    // label stays meaningful without double counting. Unlabelled legs show as an own transfer.
-    const data = (leg: Leg, other: string) =>
-      leg.classificationSource === "user"
-        ? { transferPairId: other }
-        : { transferPairId: other, category: OWN_TRANSFER, subcategory: p.debit.currency !== p.credit.currency ? "Currency conversion" : "Between own accounts", classificationSource: "pair", classificationConfidence: 0.95 };
-    await db.$transaction([
-      db.transaction.update({ where: { id: p.debit.id }, data: data(p.debit, p.credit.id) }),
-      db.transaction.update({ where: { id: p.credit.id }, data: data(p.credit, p.debit.id) }),
-    ]);
+  let paired = 0;
+  if (accounts.length >= 2) {
+    const owners = [...new Set(accounts.map((a) => a.holderName).filter((x): x is string => !!x))];
+    const inst = new Map(accounts.map((a) => [a.id, a.institution]));
+    const rows = await db.transaction.findMany({
+      where: { userId, transferPairId: null },
+      select: { id: true, accountId: true, type: true, amountMinor: true, currency: true, transactionDate: true, description: true, counterparty: true, category: true, classificationSource: true },
+    });
+    const legs: Leg[] = rows.map((r) => ({ ...r, institution: inst.get(r.accountId) ?? "" }));
+    const pairs = findPairs(legs, owners);
+    for (const p of pairs) {
+      // Link both legs. The user's own labels are kept (e.g. "Salary"): totals skip linked legs, so the
+      // label stays meaningful without double counting. Unlabelled legs show as an own transfer.
+      const data = (leg: Leg, other: string) =>
+        leg.classificationSource === "user"
+          ? { transferPairId: other }
+          : { transferPairId: other, category: OWN_TRANSFER, subcategory: p.debit.currency !== p.credit.currency ? "Currency conversion" : "Between own accounts", classificationSource: "pair", classificationConfidence: 0.95 };
+      await db.$transaction([
+        db.transaction.update({ where: { id: p.debit.id }, data: data(p.debit, p.credit.id) }),
+        db.transaction.update({ where: { id: p.credit.id }, data: data(p.credit, p.debit.id) }),
+      ]);
+    }
+    if (pairs.length) {
+      await storeRealisedRates(userId, pairs.map((p) => ({ debitId: p.debit.id, creditId: p.credit.id })));
+      log.info("transfers.paired", { userId, pairs: pairs.length });
+    }
+    paired = pairs.length;
   }
-  if (pairs.length) log.info("transfers.paired", { userId, pairs: pairs.length });
-  return pairs.length;
+  paired += await pairReversals(userId);
+  return paired;
+}
+
+const REVERSAL_WINDOW_MS = 14 * 86400_000;
+const PAYOUT_REVERSED = /payout of .+ was successfully reversed/i;
+
+/**
+ * Credits like "Payout of $40.00 was successfully reversed" pair with the matching earlier debit
+ * (same amount and currency, within 14 days) and net both out of spending and income.
+ */
+export async function pairReversals(userId: string): Promise<number> {
+  const credits = await db.transaction.findMany({
+    where: { userId, type: "CREDIT", transferPairId: null, description: { contains: "reversed" } },
+    select: { id: true, amountMinor: true, currency: true, transactionDate: true, description: true, classificationSource: true },
+  });
+  const hits = credits.filter((c) => PAYOUT_REVERSED.test(c.description));
+  if (!hits.length) return 0;
+  let paired = 0;
+  for (const credit of hits) {
+    const from = new Date(credit.transactionDate.getTime() - REVERSAL_WINDOW_MS);
+    const candidates = await db.transaction.findMany({
+      where: {
+        userId,
+        type: "DEBIT",
+        transferPairId: null,
+        amountMinor: credit.amountMinor,
+        currency: credit.currency,
+        transactionDate: { gte: from, lte: credit.transactionDate },
+        id: { not: credit.id },
+      },
+      orderBy: { transactionDate: "desc" },
+    });
+    const debit = candidates.find((d) => /payout/i.test(d.description)) ?? candidates[0];
+    if (!debit) continue;
+    const label = { category: "Transfers", subcategory: "Reversal", classificationSource: "pair" as const, classificationConfidence: 0.95 };
+    const keep = (source: string) => source === "user";
+    await db.$transaction([
+      db.transaction.update({
+        where: { id: debit.id },
+        data: { transferPairId: credit.id, ...(keep(debit.classificationSource) ? {} : label) },
+      }),
+      db.transaction.update({
+        where: { id: credit.id },
+        data: { transferPairId: debit.id, ...(keep(credit.classificationSource) ? {} : label) },
+      }),
+    ]);
+    paired++;
+  }
+  if (paired) log.info("transfers.reversals", { userId, pairs: paired });
+  return paired;
 }
 
 export interface ConversionEvidence {

@@ -1,6 +1,8 @@
 import type { Account, Transaction } from "@prisma/client";
 import { cadenceOf, type CadenceIndex } from "@/core/cadence";
 import type { SuggestionGroup } from "@/core/ai/suggestions";
+import { destinationLabelFor } from "@/core/destination";
+import { conversionLabel, convertToNgn, type FxContext } from "@/core/fx/rates";
 import type { PeopleOverview, PersonSummary } from "@/core/people";
 
 type TxWithAccount = Transaction & {
@@ -29,9 +31,11 @@ export function accountJson(account: Account) {
 /** With a cadence index, adds `cadence` ("recurring" | "one_off" | null) and `recurringBill`. Older clients ignore both. */
 type TxWithSources = TxWithAccount & { sources?: { source: string }[]; feeOfId?: string | null };
 
-export function transactionJson(tx: TxWithSources, cadence?: CadenceIndex) {
+export function transactionJson(tx: TxWithSources, cadence?: CadenceIndex, fx?: FxContext) {
   const kind = cadence ? cadenceOf(tx, cadence) : undefined;
   const sources = tx.sources?.length ? [...new Set(tx.sources.map((s) => s.source))] : [tx.source];
+  const dest = destinationLabelFor(tx.destinationCountry, tx.destinationCurrency);
+  const conv = fx && tx.currency !== "NGN" ? convertToNgn(fx, tx.amountMinor, tx.currency, tx.transactionDate) : null;
   return {
     id: tx.id,
     accountId: tx.accountId,
@@ -50,6 +54,10 @@ export function transactionJson(tx: TxWithSources, cadence?: CadenceIndex) {
     source: tx.source,
     sources,
     feeOfId: tx.feeOfId ?? null,
+    destinationCountry: tx.destinationCountry ?? null,
+    destinationCurrency: tx.destinationCurrency ?? null,
+    destinationLabel: dest ?? null,
+    conversionNote: conv ? conversionLabel(conv, tx.currency) : null,
     ...(cadence && { cadence: kind ?? null, recurringBill: kind === "recurring" && !!cadence.recurring.get(tx.id)?.bill }),
   };
 }
@@ -89,6 +97,8 @@ export function personJson(p: PersonSummary) {
     count: p.count,
     inMinor: minor(p.inMinor),
     outMinor: minor(p.outMinor),
+    inDetail: p.inDetail ?? null,
+    outDetail: p.outDetail ?? null,
     lastDate: p.lastDate,
     months: p.months.map((m) => ({ month: m.month, inMinor: minor(m.inMinor), outMinor: minor(m.outMinor) })),
   };

@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
-import { formatMoney } from "@/lib/money";
+import { formatMixedTotal, formatMoney, type CurrencyAmount } from "@/lib/money";
+import { nairaAt } from "./analytics";
 import { ALL_CATEGORIES, INCOME_CATEGORY, OWN_TRANSFER, categorize, isSelf, nameHint, nameTokens, sameName } from "./categorize";
+import { loadFxContext, type FxContext } from "./fx/rates";
 import { looksLikePerson } from "./ai/redact";
 import { loadKnownPeople } from "./ledger";
 import { createPerson, updatePerson } from "./people";
@@ -39,6 +41,8 @@ export interface PersonStats {
   lastDate: string;
   /** Every spelling the bank used, saved as the person's aliases when the owner answers. */
   variants: string[];
+  /** Original amounts by currency. Totals above are NGN-converted when more than one currency is present. */
+  currencies?: { currency: string; inMinor: bigint; outMinor: bigint }[];
 }
 
 export interface Question {
@@ -63,6 +67,11 @@ export interface Question {
   impactMinor?: bigint;
   /** Ledger's own guess about who an unknown individual is, with one-tap answers. Changes nothing until tapped. */
   guess?: PeopleGuess;
+  /** Currency of totalMinor when every row is the same; NGN when mixed or converted. */
+  totalCurrency?: string;
+  currencies?: CurrencyAmount[];
+  /** Original currencies when the headline is an NGN-converted mixed total. */
+  totalDetail?: string;
 }
 
 export interface NarrationHint {
@@ -105,7 +114,7 @@ function addExample(examples: string[], description: string) {
 
 export const PERSON_OPTIONS: Option[] = [
   { value: "family", label: "Family", category: "Family", subcategory: "Family support" },
-  { value: "partner", label: "Partner or spouse", category: "Family", subcategory: "Partner" },
+  { value: "partner", label: "Partner or spouse", category: "Family", subcategory: "Spouse" },
   { value: "friend", label: "Friend", category: "Transfers", subcategory: "Friends" },
   { value: "landlord", label: "Landlord or rent", category: "Housing", subcategory: "Rent" },
   { value: "staff", label: "Someone I employ (driver, cleaner, nanny)", category: "Housing", subcategory: "Home services" },
@@ -164,7 +173,7 @@ export async function askAgain(userId: string, pattern: string): Promise<void> {
   await db.merchantAlias.deleteMany({ where: { userId, pattern, category: null } });
 }
 
-const QUESTION_MIN_MINOR = 2_000_000n; // ₦20,000: below this an answer moves too little money to be worth asking
+export const QUESTION_MIN_MINOR = 2_000_000n; // ₦20,000: compared to NGN-converted totals
 
 /** "Instant Payment Outward 0901... MONTHLY TO" -> "monthly". The words the user typed before TO. */
 export function memoOf(description: string): string | undefined {
@@ -177,7 +186,17 @@ export function memoOf(description: string): string | undefined {
   return memo.length >= 3 && memo.split(" ").length <= 4 ? memo : undefined;
 }
 
-interface Group { key: string; display: string; total: bigint; count: number; examples: string[]; descriptions: string[]; categories: Map<string, number>; hits?: { minor: bigint; date: Date }[] }
+interface Group {
+  key: string;
+  display: string;
+  total: bigint;
+  count: number;
+  examples: string[];
+  descriptions: string[];
+  categories: Map<string, number>;
+  hits?: { minor: bigint; date: Date }[];
+  byCurrency: Map<string, bigint>;
+}
 
 /** Same payee in 2+ months with amounts within 25% of the median: a regular commitment. */
 export function regularPattern(hits: { minor: bigint; date: Date }[]): { typicalMinor: bigint; day: number; months: number } | undefined {
@@ -196,16 +215,33 @@ export function regularPattern(hits: { minor: bigint; date: Date }[]): { typical
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
 
 /** Groups rows by person, treating names with the same words (any order, one a subset of the other) as one person. */
-function groupByName(rows: { counterparty: string | null; amountMinor: bigint; description: string; category: string; transactionDate?: Date }[]): Group[] {
+function addCurrency(g: Group, currency: string, minor: bigint) {
+  g.byCurrency.set(currency, (g.byCurrency.get(currency) ?? 0n) + minor);
+}
+
+function groupMoney(g: Group): { display: string; detail: string | null; currency: string } {
+  return formatMixedTotal([...g.byCurrency.entries()].map(([currency, minor]) => ({ currency, minor })), g.total);
+}
+
+function toNgn(ctx: FxContext, minor: bigint, currency: string, date: Date): bigint {
+  return nairaAt(ctx, minor, currency, date)?.naira ?? (currency === "NGN" ? minor : 0n);
+}
+
+function groupByName(
+  rows: { counterparty: string | null; amountMinor: bigint; currency?: string; description: string; category: string; transactionDate?: Date }[],
+  ctx: FxContext,
+): Group[] {
   const groups: Group[] = [];
   for (const r of rows) {
     if (!r.counterparty || nameTokens(r.counterparty).length < 2) continue;
     let g = groups.find((x) => sameName(x.display, r.counterparty!));
-    if (!g) groups.push((g = { key: r.counterparty, display: r.counterparty, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map() }));
+    if (!g) groups.push((g = { key: r.counterparty, display: r.counterparty, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map(), byCurrency: new Map() }));
     if (r.counterparty.length > g.display.length) g.display = r.counterparty;
-    g.total += r.amountMinor;
+    const currency = r.currency ?? "NGN";
+    g.total += toNgn(ctx, r.amountMinor, currency, r.transactionDate ?? new Date());
+    addCurrency(g, currency, r.amountMinor);
     g.count++;
-    if (r.transactionDate) (g.hits ??= []).push({ minor: r.amountMinor, date: r.transactionDate });
+    if (r.transactionDate) (g.hits ??= []).push({ minor: toNgn(ctx, r.amountMinor, currency, r.transactionDate), date: r.transactionDate });
     addExample(g.examples, r.description);
     g.descriptions.push(r.description);
     g.categories.set(r.category, (g.categories.get(r.category) ?? 0) + 1);
@@ -227,6 +263,7 @@ interface TxRow {
   type: string;
   counterparty: string | null;
   amountMinor: bigint;
+  currency: string;
   description: string;
   category: string;
   subcategory: string | null;
@@ -243,7 +280,15 @@ interface PersonGroup extends Group {
 }
 
 /** Individuals (not businesses, not the owner) the owner has not told Ledger about, money both ways. */
-function individuals(tx: TxRow[], owners: string[], people: KnownPerson[]): { unknown: PersonGroup[]; ambiguous: PersonGroup[] } {
+function bumpStatCurrency(s: PersonStats, currency: string, type: string, minor: bigint) {
+  const list = s.currencies ?? (s.currencies = []);
+  let row = list.find((x) => x.currency === currency);
+  if (!row) { row = { currency, inMinor: 0n, outMinor: 0n }; list.push(row); }
+  if (type === "CREDIT") row.inMinor += minor;
+  else row.outMinor += minor;
+}
+
+function individuals(tx: TxRow[], owners: string[], people: KnownPerson[], ctx: FxContext): { unknown: PersonGroup[]; ambiguous: PersonGroup[] } {
   const unknown: PersonGroup[] = [], ambiguous: PersonGroup[] = [];
   for (const t of tx) {
     const name = t.counterparty;
@@ -253,23 +298,26 @@ function individuals(tx: TxRow[], owners: string[], people: KnownPerson[]): { un
     const list = match.status === "ambiguous" ? ambiguous : unknown;
     let g = list.find((x) => x.stats.variants.some((v) => v === name || sameName(v, name) || sameIndividual(v, name)));
     if (!g) {
-      g = { key: name, display: name, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map(), impact: 0n, last: t.transactionDate,
+      g = { key: name, display: name, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map(), byCurrency: new Map(), impact: 0n, last: t.transactionDate,
         stats: { inCount: 0, inMinor: 0n, outCount: 0, outMinor: 0n, lastDate: "", variants: [] } };
       list.push(g);
     }
     if (!g.stats.variants.includes(name)) g.stats.variants.push(name);
     if (name.length > g.display.length) g.display = name;
-    g.total += t.amountMinor;
+    const ngn = toNgn(ctx, t.amountMinor, t.currency, t.transactionDate);
+    g.total += ngn;
+    addCurrency(g, t.currency, t.amountMinor);
     g.count++;
     if (t.type === "CREDIT") {
       g.stats.inCount++;
-      g.stats.inMinor += t.amountMinor;
+      g.stats.inMinor += ngn;
     } else {
       g.stats.outCount++;
-      g.stats.outMinor += t.amountMinor;
-      (g.hits ??= []).push({ minor: t.amountMinor, date: t.transactionDate });
+      g.stats.outMinor += ngn;
+      (g.hits ??= []).push({ minor: ngn, date: t.transactionDate });
     }
-    if (unlabelled(t)) g.impact += t.amountMinor;
+    bumpStatCurrency(g.stats, t.currency, t.type, t.amountMinor);
+    if (unlabelled(t)) g.impact += ngn;
     if (t.transactionDate > g.last) g.last = t.transactionDate;
     addExample(g.examples, t.description);
     g.descriptions.push(t.description);
@@ -282,10 +330,15 @@ function individuals(tx: TxRow[], owners: string[], people: KnownPerson[]): { un
   return { unknown, ambiguous };
 }
 
+function statMoney(minor: bigint, currencies: { currency: string; inMinor: bigint; outMinor: bigint }[] | undefined, side: "in" | "out"): string {
+  const parts = (currencies ?? []).map((c) => ({ currency: c.currency, minor: side === "in" ? c.inMinor : c.outMinor })).filter((c) => c.minor !== 0n);
+  return formatMixedTotal(parts, minor).display;
+}
+
 function moneyBoth(s: PersonStats): string {
   const parts = [
-    s.outCount && `you sent ${s.outCount} payment${s.outCount > 1 ? "s" : ""} (${formatMoney(s.outMinor)})`,
-    s.inCount && `they sent you ${s.inCount} (${formatMoney(s.inMinor)})`,
+    s.outCount && `you sent ${s.outCount} payment${s.outCount > 1 ? "s" : ""} (${statMoney(s.outMinor, s.currencies, "out")})`,
+    s.inCount && `they sent you ${s.inCount} (${statMoney(s.inMinor, s.currencies, "in")})`,
   ].filter(Boolean);
   return parts.join(" and ").replace(/^./, (c) => c.toUpperCase());
 }
@@ -295,23 +348,34 @@ export const MAX_PEOPLE_QUESTIONS = 5;
 
 const personRank = (g: PersonGroup) => g.impact * 4n + g.total;
 
+function questionMoney(g: Group): Pick<Question, "totalMinor" | "totalCurrency" | "currencies" | "totalDetail"> {
+  const money = groupMoney(g);
+  return {
+    totalMinor: g.total,
+    totalCurrency: money.currency,
+    currencies: [...g.byCurrency.entries()].map(([currency, minor]) => ({ currency, minor })),
+    ...(money.detail && { totalDetail: money.detail }),
+  };
+}
+
 async function reviewData(userId: string) {
-  const [aliases, accounts, tx, people, user] = await Promise.all([
+  const [aliases, accounts, tx, people, user, ctx] = await Promise.all([
     db.merchantAlias.findMany({ where: { userId }, select: { pattern: true } }),
     db.account.findMany({ where: { userId }, select: { holderName: true } }),
     db.transaction.findMany({
       where: { userId, classificationSource: { not: "user" } },
       select: {
-        type: true, counterparty: true, amountMinor: true, description: true, category: true, subcategory: true, classificationSource: true,
+        type: true, counterparty: true, amountMinor: true, currency: true, description: true, category: true, subcategory: true, classificationSource: true,
         classificationConfidence: true, transactionDate: true, personId: true,
       },
     }),
     loadKnownPeople(userId),
     db.user.findUnique({ where: { id: userId }, select: { name: true } }),
+    loadFxContext(userId),
   ]);
   const answered = (key: string) => aliases.some((a) => a.pattern === key || sameName(a.pattern, key));
   const owners = accounts.map((a) => a.holderName).filter((h): h is string => !!h);
-  return { answered, accounts, tx, people, owners, found: individuals(tx, owners, people), surnames: familySurnames(user?.name, owners, people) };
+  return { answered, accounts, tx, people, owners, found: individuals(tx, owners, people, ctx), surnames: familySurnames(user?.name, owners, people), ctx };
 }
 
 export interface TopPerson {
@@ -336,7 +400,7 @@ function guessOf(g: PersonGroup, surnames: string[]): PeopleGuess | undefined {
 }
 
 export async function buildQuestions(userId: string, limit = 12): Promise<Question[]> {
-  const { answered, accounts, tx, people, found, surnames } = await reviewData(userId);
+  const { answered, accounts, tx, people, found, surnames, ctx } = await reviewData(userId);
   const questions: Question[] = [];
 
   // People first: one answer labels every payment to and from them. Only the few that move the most
@@ -353,9 +417,9 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
     questions.push({
       kind: "person", key: g.key, title: `Who is ${g.display} to you?`,
       prompt: regular
-        ? `You pay them about ${formatMoney(regular.typicalMinor)} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually family support, rent, an allowance, or someone you employ.`
+        ? `You pay them about ${groupMoney(g).display} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually family support, rent, an allowance, or someone you employ.`
         : `${moneyBoth(g.stats)}. Your answer applies to every payment with them, past and future, and you can undo it.`,
-      totalMinor: g.total, count: g.count, examples: g.examples.slice(0, 3), options: INDIVIDUAL_OPTIONS, currentCategory: topCategory(g.categories),
+      ...questionMoney(g), count: g.count, examples: g.examples.slice(0, 3), options: INDIVIDUAL_OPTIONS, currentCategory: topCategory(g.categories),
       hint: "The name looks like a person", narrationHints: narrationHints(g.descriptions), person: g.stats, impactMinor: g.impact,
       ...(guess && { guess }),
     });
@@ -367,7 +431,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
       kind: "match", key: g.key,
       title: candidates.length === 1 ? `Is ${g.display} ${candidates[0].displayName}?` : `Which of your people is ${g.display}?`,
       prompt: `The name is close to ${candidates.map((p) => `${p.displayName} (${relationshipInfo(p.relationship).short})`).join(" and ")}, but not close enough to be sure. ${moneyBoth(g.stats)}.`,
-      totalMinor: g.total, count: g.count, examples: g.examples.slice(0, 3),
+      ...questionMoney(g), count: g.count, examples: g.examples.slice(0, 3),
       options: [
         ...candidates.map((p) => ({ value: `person:${p.id}`, label: `Yes, ${p.displayName}`, category: labelFor(p, "DEBIT")?.category ?? "", group: "relationship" as const })),
         { value: "no", label: candidates.length === 1 ? "No, someone else" : "None of them", category: "", group: "relationship" },
@@ -389,18 +453,18 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   }
 
   // 2. Where income comes from (biggest first).
-  const credits = groupByName(tx.filter((t) => t.type === "CREDIT" && t.category !== OWN_TRANSFER && t.category !== "Debt" && !individual(t.counterparty) && !t.personId));
+  const credits = groupByName(tx.filter((t) => t.type === "CREDIT" && t.category !== OWN_TRANSFER && t.category !== "Debt" && !individual(t.counterparty) && !t.personId), ctx);
   for (const g of credits.filter((g) => g.total >= QUESTION_MIN_MINOR && !answered(g.key)).slice(0, 4)) {
     questions.push({
       kind: "income", key: g.key, title: `What is the money from ${g.display}?`,
       prompt: `${g.count} payment${g.count > 1 ? "s" : ""} in. Tell us once and we'll label every payment from them.`,
-      totalMinor: g.total, count: g.count, examples: g.examples, options: INCOME_OPTIONS, currentCategory: topCategory(g.categories),
+      ...questionMoney(g), count: g.count, examples: g.examples, options: INCOME_OPTIONS, currentCategory: topCategory(g.categories),
     });
   }
 
   // 3. People and businesses you pay (biggest first), skipping ones already confidently categorized by a merchant rule.
   // Skip payments a specific rule already labelled with high confidence (e.g. "RENT", Squad, Netflix).
-  const debits = groupByName(tx.filter((t) => t.type === "DEBIT" && t.category !== OWN_TRANSFER && t.category !== "Fees" && t.classificationConfidence < 0.9 && !individual(t.counterparty) && !t.personId));
+  const debits = groupByName(tx.filter((t) => t.type === "DEBIT" && t.category !== OWN_TRANSFER && t.category !== "Fees" && t.classificationConfidence < 0.9 && !individual(t.counterparty) && !t.personId), ctx);
   for (const g of debits.filter((g) => g.total >= QUESTION_MIN_MINOR && !answered(g.key)).slice(0, 8)) {
     const hint = nameHint(g.display);
     const options = hint ? [{ value: "hint", label: `${hint.label} (suggested)`, category: hint.category, subcategory: hint.subcategory }, ...PERSON_OPTIONS] : PERSON_OPTIONS;
@@ -408,9 +472,9 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
     questions.push({
       kind: "person", key: g.key, title: hint ? `Is ${g.display} ${/^[aeiou]/i.test(hint.label) ? "an" : "a"} ${hint.label.toLowerCase()}?` : `Who is ${g.display}?`,
       prompt: regular
-        ? `You pay them about ${formatMoney(regular.typicalMinor)} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually rent, an allowance, or someone you employ.`
+        ? `You pay them about ${groupMoney(g).display} around the ${ordinal(regular.day)} of the month (${regular.months} months so far). Regular payments are usually rent, an allowance, or someone you employ.`
         : `You sent them ${g.count} payment${g.count > 1 ? "s" : ""}. Your answer applies to every payment to this name, past and future.`,
-      totalMinor: g.total, count: g.count, examples: g.examples, options, currentCategory: topCategory(g.categories),
+      ...questionMoney(g), count: g.count, examples: g.examples, options, currentCategory: topCategory(g.categories),
       hint: hint ? `The name suggests: ${hint.label.toLowerCase()}` : "The name looks like a person",
       narrationHints: narrationHints(g.descriptions),
     });
@@ -421,10 +485,12 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   for (const t of tx.filter((t) => t.type === "DEBIT" && !t.counterparty && t.category === "Transfers")) {
     const memo = memoOf(t.description);
     if (!memo || answered(memo)) continue;
-    const g: Group = memos.get(memo) ?? { key: memo, display: memo, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map() };
-    g.total += t.amountMinor;
+    const g: Group = memos.get(memo) ?? { key: memo, display: memo, total: 0n, count: 0, examples: [], descriptions: [], categories: new Map(), byCurrency: new Map() };
+    const ngn = toNgn(ctx, t.amountMinor, t.currency, t.transactionDate);
+    g.total += ngn;
+    addCurrency(g, t.currency, t.amountMinor);
     g.count++;
-    (g.hits ??= []).push({ minor: t.amountMinor, date: t.transactionDate });
+    (g.hits ??= []).push({ minor: ngn, date: t.transactionDate });
     addExample(g.examples, t.description);
     memos.set(memo, g);
   }
@@ -434,9 +500,9 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
       prompt: (() => {
         const regular = regularPattern(g.hits ?? []);
         const base = `${g.count} transfer${g.count > 1 ? "s" : ""} where your bank didn't record who received the money, only the note you typed.`;
-        return regular ? `${base} It looks regular: about ${formatMoney(regular.typicalMinor)} around the ${ordinal(regular.day)} of each month.` : base;
+        return regular ? `${base} It looks regular: about ${groupMoney(g).display} around the ${ordinal(regular.day)} of each month.` : base;
       })(),
-      totalMinor: g.total, count: g.count, examples: g.examples, options: PERSON_OPTIONS,
+      ...questionMoney(g), count: g.count, examples: g.examples, options: PERSON_OPTIONS,
     });
   }
 

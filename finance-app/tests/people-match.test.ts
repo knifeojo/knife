@@ -124,6 +124,14 @@ describe("categorize with known people", () => {
   it("money from family is income from family, and fees stay fees", () => {
     expect(categorize({ description: "NIP TRANSFER FROM GIFT ADEBAYO OJO", type: "CREDIT" }, rules)).toMatchObject({ category: "Income", subcategory: "From family & friends" });
   });
+
+  it("a confirmed person beats the MTN airtime merchant rule on a Ghana MoMo payout", () => {
+    const d = "Money transfer to GIFT ADEBAYO OJO / +233201234567 / MTN";
+    expect(categorize({ description: d, type: "DEBIT" })).toMatchObject({ category: "Transfers", destinationCountry: "Ghana" });
+    expect(categorize({ description: d, type: "DEBIT" }, rules)).toMatchObject({
+      category: "Family", subcategory: "Spouse", source: "user", personId: "gift",
+    });
+  });
 });
 
 describe("'My wife is …'", () => {

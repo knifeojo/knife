@@ -3,10 +3,12 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { logout } from "../../(auth)/actions";
-import { askAgainAction, deleteMyData, dismissForwardingNotice, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction, setAiRoutesAction } from "../actions";
+import { askAgainAction, clearManualRateAction, deleteMyData, dismissForwardingNotice, importMarketRatesAction, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction, setAiRoutesAction, setFxPreferenceAction, setManualRateAction } from "../actions";
 import { ensureUserTokens, inboundAddress } from "@/core/alerts/tokens";
 import { defaultSyncMinutes } from "@/core/alerts/secrets";
 import { relativeTime } from "@/components/ui";
+import { FX_CURRENCIES, listFxForSettings } from "@/core/fx/provider";
+import { formatMoney } from "@/lib/money";
 import { AI_FEATURES, type AiRoute } from "@/core/ai/client";
 import { aiSettingsStatus } from "@/core/ai/status";
 import { scoreHistory } from "@/core/eval";
@@ -19,13 +21,14 @@ export default async function Settings() {
   const user = await requireUser();
   const tokens = await ensureUserTokens(user.id);
   const inbound = inboundAddress(tokens.inboundEmailToken);
-  const [txCount, learned, history, status, connections, notices] = await Promise.all([
+  const [txCount, learned, history, status, connections, notices, fx] = await Promise.all([
     db.transaction.count({ where: { userId: user.id } }),
     db.merchantAlias.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 20 }),
     scoreHistory(user.id, 8),
     aiSettingsStatus(user.id),
     db.financialConnection.findMany({ where: { userId: user.id, status: { not: "revoked" } } }),
     db.forwardingNotice.findMany({ where: { userId: user.id, status: "new" }, orderBy: { receivedAt: "desc" }, take: 5 }),
+    listFxForSettings(user.id),
   ]);
   const lastSync = connections.reduce<Date | null>((acc, c) => (!c.lastSyncedAt ? acc : !acc || c.lastSyncedAt > acc ? c.lastSyncedAt : acc), null);
   const ready = status.reachable && status.modelInstalled;
@@ -73,6 +76,71 @@ export default async function Settings() {
                 </form>
               </div>
             ))}
+          </div>
+        )}
+      </Card>
+      <Card title="Exchange rates">
+        <p className="text-sm text-ink-2">
+          Official (interbank) and street naira rates differ. Ledger uses a <strong>realised</strong> rate
+          from your own wallet-to-bank conversions when one is within 7 days of the transaction.
+          Otherwise it uses the daily public market feed, or your street override if you choose that.
+          A realised rate for its own pair always wins over a manual override.
+        </p>
+        <form action={setFxPreferenceAction} className="mt-3 flex flex-wrap items-end gap-2">
+          <div>
+            <label className="label" htmlFor="fx-preference">Naira rate to prefer</label>
+            <select id="fx-preference" name="preference" defaultValue={fx.preference} className="input mt-1" disabled={user.isDemo}>
+              <option value="official">Official / market feed</option>
+              <option value="street">Street (my manual override)</option>
+            </select>
+          </div>
+          <button className="btn btn-secondary" disabled={user.isDemo}>Save preference</button>
+        </form>
+        <p className="mt-3 text-xs text-ink-3">
+          Market source: {fx.sourceLabel}. {fx.latestMarketDate ? `Latest cached day: ${fx.latestMarketDate}.` : "No daily rates cached yet — refresh below or enter a street rate."}
+        </p>
+        <div className="mt-3">
+          <SyncButton action={importMarketRatesAction} label="Refresh daily market rates" />
+        </div>
+        <form action={setManualRateAction} className="mt-4 grid grid-cols-2 gap-2 items-end">
+          <div>
+            <label className="label" htmlFor="fx-base">Street override</label>
+            <select id="fx-base" name="base" className="input mt-1" disabled={user.isDemo}>
+              {FX_CURRENCIES.map((c) => <option key={c} value={c}>{c} → NGN</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="fx-rate">Naira per 1 unit</label>
+            <input id="fx-rate" name="rate" inputMode="decimal" placeholder="1550" className="input mt-1" disabled={user.isDemo} />
+          </div>
+          <div className="col-span-2">
+            <button className="btn btn-secondary" disabled={user.isDemo}>Save street rate</button>
+          </div>
+        </form>
+        {fx.manual.length > 0 && (
+          <ul className="mt-3 text-sm divide-y divide-border">
+            {fx.manual.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="num">{r.base}/{r.quote} · {r.rate.toFixed(2)} · {r.date}</span>
+                <form action={clearManualRateAction}>
+                  <input type="hidden" name="base" value={r.base} />
+                  <button className="btn btn-secondary h-7 px-2 text-xs" disabled={user.isDemo}>Clear</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+        {fx.realised.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs text-ink-3">From your own conversions (realised)</p>
+            <ul className="mt-1 text-sm divide-y divide-border">
+              {fx.realised.map((r) => (
+                <li key={r.id} className="flex justify-between gap-3 py-1.5 num">
+                  <span>{r.base} → NGN</span>
+                  <span>{formatMoney(BigInt(Math.round(r.rate * 100)))} per 1 {r.base} · {r.date}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </Card>

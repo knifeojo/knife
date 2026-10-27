@@ -102,6 +102,10 @@ class LedgerTransaction {
     this.subcategory,
     this.cadence,
     this.recurringBill = false,
+    this.destinationCountry,
+    this.destinationCurrency,
+    this.destinationLabel,
+    this.conversionNote,
   });
 
   static const cadences = ['recurring', 'one_off'];
@@ -126,6 +130,11 @@ class LedgerTransaction {
 
   /// A recurring payment Afford counts as a bill to keep paying.
   final bool recurringBill;
+
+  final String? destinationCountry;
+  final String? destinationCurrency;
+  final String? destinationLabel;
+  final String? conversionNote;
 
   /// Chip text for the cadence, matching the web app.
   String? get cadenceLabel {
@@ -161,6 +170,10 @@ class LedgerTransaction {
       // Older servers send no cadence; unknown values are dropped rather than failing the list.
       cadence: cadences.contains(json['cadence']) ? json['cadence'] as String : null,
       recurringBill: json['recurringBill'] == true,
+      destinationCountry: _optionalString(json, 'destinationCountry'),
+      destinationCurrency: _optionalString(json, 'destinationCurrency'),
+      destinationLabel: _optionalString(json, 'destinationLabel'),
+      conversionNote: _optionalString(json, 'conversionNote'),
     );
   }
 }
@@ -905,6 +918,8 @@ class ReviewQuestion {
     this.person,
     this.aiRelationship,
     this.guess,
+    this.totalCurrency,
+    this.totalDetail,
   });
 
   final String kind;
@@ -934,6 +949,10 @@ class ReviewQuestion {
   /// Ledger's own guess. Null on older servers or when it has none.
   final PeopleGuess? guess;
 
+  /// Currency of totalMinor when every row is the same; NGN when mixed.
+  final String? totalCurrency;
+  final String? totalDetail;
+
   bool get isPerson => person != null && options.any((o) => o.group == 'relationship');
 
   factory ReviewQuestion.fromJson(Map<String, dynamic> json) {
@@ -954,6 +973,8 @@ class ReviewQuestion {
       person: json['person'] == null ? null : PersonStats.fromJson(_map(json, 'person')),
       aiRelationship: _optionalString(json, 'aiRelationship'),
       guess: json['guess'] == null ? null : PeopleGuess.fromJson(_map(json, 'guess')),
+      totalCurrency: _optionalString(json, 'totalCurrency'),
+      totalDetail: _optionalString(json, 'totalDetail'),
     );
   }
 }

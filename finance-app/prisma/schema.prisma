@@ -33,6 +33,9 @@ model User {
   relationshipStatus String?
   // Set when the owner finished or closed "You send money to these people most" after the first upload.
   topPeopleDoneAt DateTime?
+  // official = public daily market rates; street = the user's manual NGN override (street and official naira rates differ).
+  // Realised rates from the owner's own wallet-to-bank conversions always win for that pair.
+  fxNgnPreference String @default("official") // official | street
 
   sessions     Session[]
   evalRuns     EvalRun[]
@@ -149,6 +152,9 @@ model Transaction {
   // Feeds FX learning before the matching bank credit is imported.
   fxQuoteCurrency          String?
   fxQuoteMinor             BigInt?
+  // Inferred from the narration (Ghana MoMo, a Nigerian bank payout). Low confidence; never a received amount.
+  destinationCountry       String?
+  destinationCurrency      String?
   // The known person on the other side, when the name matched one confidently (see core/people).
   personId                 String?
   person                   Person?  @relation(fields: [personId], references: [id], onDelete: SetNull)
@@ -334,6 +340,25 @@ model CategorySuggestion {
   decidedAt            DateTime?
 
   @@index([userId, status])
+}
+
+// Cached FX: 1 unit of `base` = `rate` units of `quote` (both in major units).
+// source: realised (owner's own paired conversion) | market (public daily feed) | manual (Settings) | seed.
+// userId is empty for shared market/seed rows; set for per-user realised and manual rates.
+model FxRate {
+  id        String   @id @default(cuid())
+  date      String // YYYY-MM-DD, Lagos calendar day
+  base      String
+  quote     String
+  rate      Float
+  source    String
+  userId    String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date, base, quote, source])
+  @@index([base, quote, date])
+  @@index([userId, base, quote])
 }
 
 // Rows a statement contained but Ledger could not read. Nothing is silently dropped: the user can add

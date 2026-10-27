@@ -21,7 +21,7 @@ export default async function Income({ searchParams }: { searchParams: Promise<R
           label={`Received in ${p.label}`}
           minor={s.income}
           emphasis
-          hint={`${s.incomeCount} credits${s.ratesUsed.length ? ` · ${s.ratesUsed.map((r) => `${r.currency} converted at your own rate (₦${r.rate.toFixed(0)}, from ${r.conversions} of your conversions)`).join(", ")}` : ""}`}
+          hint={`${s.incomeCount} credits${s.ratesUsed.length ? ` · ${s.ratesUsed.map((r) => `${r.currency} converted at ₦${r.rate.toFixed(0)} (${r.source ?? "realised"})`).join(", ")}` : ""}`}
         />
         {subs.slice(0, 2).map((x) => <Stat key={x.subcategory} label={x.subcategory} minor={x.total} hint={`${x.count} payments`} />)}
       </div>

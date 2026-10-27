@@ -1,6 +1,7 @@
 import { balances, listTransactions, monthPeriod, spendingByCategory, specificMonth, summary, type Period } from "@/core/analytics";
 import { reviewQuestionsFor, loadCadence, spendingSplit, type EverydayGroup } from "@/core/cadence";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
+import { loadFxContext } from "@/core/fx/rates";
 import { minor, transactionJson } from "@/lib/mobile/serialize";
 
 export const runtime = "nodejs";
@@ -30,12 +31,13 @@ export async function GET(req: Request) {
   if ("error" in resolved) return apiError(400, resolved.error);
   const { period } = resolved;
 
-  const [figures, bal, categories, recent, cadence] = await Promise.all([
+  const [figures, bal, categories, recent, cadence, fx] = await Promise.all([
     summary(auth.user.id, period),
     balances(auth.user.id),
     spendingByCategory(auth.user.id, period),
     listTransactions(auth.user.id, {}, 1, 8),
     loadCadence(auth.user.id),
+    loadFxContext(auth.user.id),
   ]);
   const split = await spendingSplit(auth.user.id, period, cadence);
   const reviewQuestions = await reviewQuestionsFor(auth.user.id, split.unlabelled);
@@ -84,8 +86,8 @@ export async function GET(req: Request) {
       averageMinor: minor(st.averageMinor), occurrences: st.occurrences, months: st.months,
       lastDate: st.lastDate.toISOString(), nextExpected: st.nextExpected.toISOString(), aliases: st.aliases,
     })),
-    ratesUsed: figures.ratesUsed.map((rate) => ({ currency: rate.currency, rate: rate.rate, conversions: rate.conversions })),
+    ratesUsed: figures.ratesUsed.map((rate) => ({ currency: rate.currency, rate: rate.rate, conversions: rate.conversions, source: rate.source ?? null })),
     unconverted: figures.unconverted.map((row) => ({ currencyAndType: row.currencyAndType, totalMinor: minor(row.totalMinor) })),
-    recent: recent.rows.map((tx) => transactionJson(tx, cadence)),
+    recent: recent.rows.map((tx) => transactionJson(tx, cadence, fx)),
   });
 }

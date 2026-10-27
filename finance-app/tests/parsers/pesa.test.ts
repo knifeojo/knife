@@ -83,7 +83,7 @@ describe("Pesa wallet text", () => {
       ["2025-10-25", "CREDIT", 400_000n, 412_050n],
       ["2025-10-26", "DEBIT", 50_000n, 362_050n],
       ["2025-10-27", "DEBIT", 120_000n, 242_050n],
-      ["2025-10-28", "DEBIT", 360n, 241_690n],
+      ["2025-10-28", "DEBIT", 500n, 241_690n],
       ["2025-11-03", "CREDIT", 5_000n, 246_690n],
       ["2025-11-04", "DEBIT", 4_000n, 242_690n],
       ["2026-02-02", "CREDIT", 30_000n, 30_000n],
@@ -92,6 +92,10 @@ describe("Pesa wallet text", () => {
     expect(fx.description).toContain("debited from CAD wallet to fund GBP wallet");
     expect(fx.description).toContain("2.70 GBP");
     expect(fx.description).not.toContain("2,416.90");
+    expect(fx.currency).toBe("CAD");
+    expect(fx.amountMinor).toBe(500n);
+    expect(fx.fxQuoteCurrency).toBe("GBP");
+    expect(fx.fxQuoteMinor).toBe(270n);
     expect(parsed!.result.transactions[0].description).toBe("ACME INC / Payroll for Oct 2025");
     expect(parsed!.result.transactions[1].description).toBe("Money transfer to DOE JANE ADA");
     expect(parsed!.result.transactions[4].description).toContain("reversed");
@@ -145,11 +149,14 @@ describe("Pesa wallet PDF", () => {
     expect(parsed!.result.transactions.map((t) => [t.type, t.amountMinor])).toEqual([
       ["CREDIT", 400_000n],
       ["DEBIT", 50_000n],
-      ["DEBIT", 360n],
+      ["DEBIT", 500n],
       ["CREDIT", 5_000n],
     ]);
     expect(parsed!.result.transactions[2].description).toContain("fund GBP wallet");
     expect(parsed!.result.transactions[2].description).toContain("GBP");
+    expect(parsed!.result.transactions[2].currency).toBe("CAD");
+    expect(parsed!.result.transactions[2].fxQuoteCurrency).toBe("GBP");
+    expect(parsed!.result.transactions[2].fxQuoteMinor).toBe(270n);
   });
 
   it("reads a row that starts on one page and finishes after the next page's header", async () => {

@@ -60,6 +60,24 @@ describe("categorize", () => {
     const c = categorize({ description: "UBER TRIP", type: "DEBIT" });
     expect(Object.keys(c).sort()).toEqual(["category", "confidence", "counterparty", "merchantName", "source", "subcategory"].sort());
   });
+
+  it("classifies employer trip and per-diem credits as reimbursements, not salary", () => {
+    expect(categorize({ description: "ACME INC / Team offsite trip", type: "CREDIT" })).toMatchObject({
+      category: "Income", subcategory: "Reimbursement",
+    });
+    expect(categorize({ description: "Per diem September", type: "CREDIT" })).toMatchObject({
+      category: "Income", subcategory: "Reimbursement",
+    });
+    expect(categorize({ description: "PESAPEER INC / Payroll for Sep 2026", type: "CREDIT" })).toMatchObject({
+      category: "Income", subcategory: "Salary",
+    });
+  });
+
+  it("classifies a reversed payout as a transfer reversal", () => {
+    expect(categorize({ description: "Payout of $40.00 was successfully reversed", type: "CREDIT" })).toMatchObject({
+      category: "Transfers", subcategory: "Reversal",
+    });
+  });
 });
 
 describe("wallet apps", () => {

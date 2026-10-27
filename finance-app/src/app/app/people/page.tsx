@@ -34,8 +34,9 @@ function PersonCard({ p, others }: { p: PersonSummary; others: PersonSummary[] }
           </div>
         </div>
         <div className="text-right shrink-0 num">
-          {p.outMinor > 0n && <div className="font-semibold">−{formatMoney(p.outMinor)}</div>}
-          {p.inMinor > 0n && <div className="text-credit">+{formatMoney(p.inMinor)}</div>}
+          {p.outMinor > 0n && <div className="font-semibold" title={p.outDetail ?? undefined}>−{formatMoney(p.outMinor)}</div>}
+          {p.inMinor > 0n && <div className="text-credit" title={p.inDetail ?? undefined}>+{formatMoney(p.inMinor)}</div>}
+          {(p.outDetail || p.inDetail) && <div className="text-xs text-ink-3">{[p.outDetail && `sent ${p.outDetail}`, p.inDetail && `received ${p.inDetail}`].filter(Boolean).join(" · ")}</div>}
           <div className="text-xs text-ink-3">{p.count} payment{p.count === 1 ? "" : "s"}{p.lastDate ? ` · last ${p.lastDate}` : ""}</div>
         </div>
       </div>

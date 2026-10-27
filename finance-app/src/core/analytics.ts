@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { INCOME_CATEGORY, OWN_TRANSFER, learningKey } from "./categorize";
+import { convertToNgn, loadFxContext, type Conversion, type FxContext } from "./fx/rates";
 
 // All figures come from the ledger. Every query is scoped by the userId passed in by the
 // server (derived from the session), never by anything the client sends.
@@ -44,7 +45,7 @@ const notOwn = { not: OWN_TRANSFER };
  */
 const countable = { category: notOwn, transferPairId: null };
 
-export interface FxRate { currency: string; rate: number; conversions: number }
+export interface FxRate { currency: string; rate: number; conversions: number; source?: string }
 
 /**
  * Exchange rates learned from the user's own conversions: naira per foreign unit, median.
@@ -93,25 +94,37 @@ export async function fxRates(userId: string): Promise<Map<string, FxRate>> {
 
 interface Countable { type: string; currency: string; amountMinor: bigint; category: string; subcategory: string | null; merchantName: string | null; counterparty: string | null }
 
-/** Countable rows in a period with amounts in naira; foreign-currency rows convert at the user's own rate. */
+export function nairaAt(ctx: FxContext, minor: bigint, currency: string, date: Date): { naira: bigint; conversion: Conversion | null } | null {
+  if (currency === BASE_CURRENCY) return { naira: minor, conversion: null };
+  const conversion = convertToNgn(ctx, minor, currency, date);
+  if (!conversion) return null;
+  return { naira: conversion.nairaMinor, conversion };
+}
+
+/** Countable rows in a period with amounts in naira at the transaction-date rate. */
 async function countableInNaira(userId: string, p: Period, where: object = {}) {
-  const [rows, rates] = await Promise.all([
+  const [rows, ctx, learned] = await Promise.all([
     db.transaction.findMany({
       where: { userId, ...countable, transactionDate: range(p), ...where },
-      select: { type: true, currency: true, amountMinor: true, category: true, subcategory: true, merchantName: true, counterparty: true },
+      select: { type: true, currency: true, amountMinor: true, category: true, subcategory: true, merchantName: true, counterparty: true, transactionDate: true },
     }),
+    loadFxContext(userId),
     fxRates(userId),
   ]);
-  const converted: (Countable & { naira: bigint; converted: boolean })[] = [];
+  const converted: (Countable & { naira: bigint; converted: boolean; conversion: Conversion | null })[] = [];
   const unconverted = new Map<string, bigint>();
+  const used = new Map<string, FxRate>();
   for (const r of rows) {
-    if (r.currency === BASE_CURRENCY) converted.push({ ...r, naira: r.amountMinor, converted: false });
+    if (r.currency === BASE_CURRENCY) converted.push({ ...r, naira: r.amountMinor, converted: false, conversion: null });
     else {
-      const fx = rates.get(r.currency);
-      if (fx) converted.push({ ...r, naira: BigInt(Math.round(Number(r.amountMinor) * fx.rate)), converted: true });
-      else unconverted.set(`${r.currency} ${r.type}`, (unconverted.get(`${r.currency} ${r.type}`) ?? 0n) + r.amountMinor);
+      const hit = nairaAt(ctx, r.amountMinor, r.currency, r.transactionDate);
+      if (hit) {
+        converted.push({ ...r, naira: hit.naira, converted: true, conversion: hit.conversion });
+        if (hit.conversion) used.set(r.currency, { currency: r.currency, rate: hit.conversion.rate, conversions: (used.get(r.currency)?.conversions ?? 0) + 1, source: hit.conversion.source });
+      } else unconverted.set(`${r.currency} ${r.type}`, (unconverted.get(`${r.currency} ${r.type}`) ?? 0n) + r.amountMinor);
     }
   }
+  const rates = used.size ? used : learned;
   return { rows: converted, rates, unconverted };
 }
 
@@ -123,8 +136,8 @@ export async function summary(userId: string, p: Period) {
   // Loan proceeds (FairMoney, Renmoney, a Deel advance) are credits in Debt, not income.
   // A reversed bank charge is a credit in Fees: it is not income, and it reduces what fees cost.
   const feeCredit = (r: { type: string; category: string }) => r.type === "CREDIT" && r.category === "Fees";
-  const inc = rows.filter((r) => r.type === "CREDIT" && r.category !== "Debt" && r.category !== "Fees");
-  const exp = rows.filter((r) => r.type === "DEBIT");
+  const inc = rows.filter((r) => r.type === "CREDIT" && r.category !== "Debt" && r.category !== "Fees" && r.subcategory !== "Reversal");
+  const exp = rows.filter((r) => r.type === "DEBIT" && r.subcategory !== "Reversal");
   const refunds = rows.filter(feeCredit);
   const income = inc.reduce((s, r) => s + r.naira, 0n);
   const expenses = exp.reduce((s, r) => s + r.naira, 0n) - refunds.reduce((s, r) => s + r.naira, 0n);
@@ -137,10 +150,23 @@ export async function summary(userId: string, p: Period) {
   };
 }
 
-export async function balances(userId: string) {
-  const accounts = await db.account.findMany({ where: { userId }, orderBy: { createdAt: "asc" } });
-  const total = accounts.filter((a) => a.currency === BASE_CURRENCY).reduce((s, a) => s + (a.balanceMinor ?? 0n), 0n);
-  return { accounts, totalBase: total };
+export async function balances(userId: string, now = new Date()) {
+  const [accounts, ctx] = await Promise.all([
+    db.account.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    loadFxContext(userId),
+  ]);
+  let total = 0n;
+  const unconverted: string[] = [];
+  for (const a of accounts) {
+    if (a.balanceMinor === null) continue;
+    if (a.currency === BASE_CURRENCY) total += a.balanceMinor;
+    else {
+      const hit = nairaAt(ctx, a.balanceMinor, a.currency, now);
+      if (hit) total += hit.naira;
+      else unconverted.push(a.currency);
+    }
+  }
+  return { accounts, totalBase: total, unconvertedCurrencies: [...new Set(unconverted)] };
 }
 
 function groupSum<T extends { naira: bigint }>(rows: T[], key: (r: T) => string) {
@@ -267,15 +293,25 @@ export async function recurring(
   const from = monthPeriod(now, -(lookbackMonths - 1)).from;
   const [rows, aliases] = await Promise.all([
     db.transaction.findMany({
-      where: { userId, type, currency: BASE_CURRENCY, ...countable, transactionDate: { gte: from } },
+      where: { userId, type, ...countable, transactionDate: { gte: from } },
       orderBy: { transactionDate: "asc" },
-      select: { id: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, classificationSource: true, amountMinor: true, transactionDate: true },
+      select: { id: true, description: true, merchantName: true, counterparty: true, category: true, subcategory: true, classificationSource: true, amountMinor: true, transactionDate: true, currency: true },
     }),
     db.merchantAlias.findMany({ where: { userId, category: { not: null } }, select: { pattern: true, canonicalName: true, category: true, subcategory: true } }),
   ]);
 
-  type Row = (typeof rows)[number];
-  const eligible = rows.filter((r) => r.category !== "Fees" && !(type === "CREDIT" && r.category === "Debt"));
+  const ctx = await loadFxContext(userId);
+  type Raw = (typeof rows)[number];
+  type Row = Raw & { amountMinor: bigint };
+  const eligible: Row[] = [];
+  for (const r of rows) {
+    if (r.category === "Fees" || (type === "CREDIT" && r.category === "Debt")) continue;
+    if (type === "CREDIT" && r.subcategory === "Reimbursement") continue;
+    if (r.subcategory === "Reversal") continue;
+    if (r.currency === BASE_CURRENCY) { eligible.push(r); continue; }
+    const hit = nairaAt(ctx, r.amountMinor, r.currency, r.transactionDate);
+    if (hit) eligible.push({ ...r, amountMinor: hit.naira });
+  }
   const { clusters, unnamed } = clusterPayees(eligible, payeeName, aliases);
   const groups: { key: string; display: string; variants: string[]; alias: { category: string | null; subcategory: string | null } | null; rows: Row[] }[] =
     clusters.map((c) => ({ key: payeeKey(c.name), display: c.name, variants: c.variants, alias: c.alias, rows: c.items }));

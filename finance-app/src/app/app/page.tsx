@@ -78,7 +78,7 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         <Stat
           label="Income"
           minor={s.income}
-          hint={`${s.incomeCount} credits${s.ratesUsed.length ? ` · includes ${s.ratesUsed.map((r) => `${r.currency} at your rate of ₦${r.rate.toFixed(0)}`).join(", ")}` : ""}${s.unconverted.length ? ` · ${s.unconverted.map((u) => u.currencyAndType.split(" ")[0]).join(", ")} not included yet` : ""}`}
+          hint={`${s.incomeCount} credits${s.ratesUsed.length ? ` · includes ${s.ratesUsed.map((r) => `${r.currency} at ₦${r.rate.toFixed(0)} (${r.source ?? "realised"})`).join(", ")}` : ""}${s.unconverted.length ? ` · ${s.unconverted.map((u) => u.currencyAndType.split(" ")[0]).join(", ")} not included yet` : ""}`}
         />
         <Stat label="Expenses" minor={s.expenses} hint={`${s.expenseCount} debits`} />
         <Stat label="Net cash flow" minor={s.net} hint={`${s.count} transactions in ${period.label}`} />

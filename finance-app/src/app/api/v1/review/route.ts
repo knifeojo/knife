@@ -21,6 +21,8 @@ export async function GET(req: Request) {
       title: q.title,
       prompt: q.prompt,
       totalMinor: minor(q.totalMinor),
+      totalCurrency: q.totalCurrency ?? "NGN",
+      totalDetail: q.totalDetail ?? null,
       count: q.count,
       examples: q.examples,
       /** group: "relationship" (one-tap answers about a person), "more" (behind Someone else), "control" (Skip, Not a person), or null. */
@@ -36,6 +38,7 @@ export async function GET(req: Request) {
         ? {
             inCount: q.person.inCount, inMinor: minor(q.person.inMinor), outCount: q.person.outCount, outMinor: minor(q.person.outMinor),
             lastDate: q.person.lastDate, variants: q.person.variants,
+            currencies: q.person.currencies?.map((c) => ({ currency: c.currency, inMinor: minor(c.inMinor), outMinor: minor(c.outMinor) })) ?? null,
           }
         : null,
       /** Unlabelled money the answer would fix. People questions come first, sorted by this. */

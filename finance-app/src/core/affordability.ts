@@ -1,7 +1,8 @@
 import { db } from "@/lib/db";
 import { formatMoney, parseAmountToMinor } from "@/lib/money";
-import { BASE_CURRENCY, monthPeriod, recurring, summary } from "./analytics";
+import { BASE_CURRENCY, monthPeriod, nairaAt, recurring, summary } from "./analytics";
 import { INCOME_CATEGORY, OWN_TRANSFER } from "./categorize";
+import { loadFxContext } from "./fx/rates";
 import {
   addMonths, endOfDay, finishedOn, instalmentsCovered, instalmentsLeft, isFinished, payoffDate, repaymentsSince, sameLender, toManualLoan,
   type ManualLoan,
@@ -863,8 +864,17 @@ export async function loadAffordabilityData(userId: string, now = new Date()): P
     db.loan.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
   ]);
   const reported = accounts.filter((a) => a.balanceMinor !== null);
-  const naira = reported.filter((a) => a.currency === BASE_CURRENCY);
-  const asOf = naira.reduce<Date | null>((d, a) => (a.balanceUpdatedAt && (!d || a.balanceUpdatedAt > d) ? a.balanceUpdatedAt : d), null);
+  const ctx = await loadFxContext(userId);
+  let cashMinor = 0n;
+  let cashAccounts = 0;
+  const leftover = new Set<string>();
+  const asOf = reported.reduce<Date | null>((d, a) => (a.balanceUpdatedAt && (!d || a.balanceUpdatedAt > d) ? a.balanceUpdatedAt : d), null);
+  for (const a of reported) {
+    if (a.currency === BASE_CURRENCY) { cashMinor += a.balanceMinor!; cashAccounts++; continue; }
+    const hit = nairaAt(ctx, a.balanceMinor!, a.currency, now);
+    if (hit) { cashMinor += hit.naira; cashAccounts++; }
+    else leftover.add(a.currency);
+  }
 
   const { months, since } = await loadMonths(userId, now, first?.transactionDate ?? null);
 
@@ -874,8 +884,8 @@ export async function loadAffordabilityData(userId: string, now = new Date()): P
     name: r.name, category: r.category, label: r.label, amountMinor: r.averageMinor, lastDate: r.lastDate, nextExpected: r.nextExpected,
   });
   return {
-    cash: naira.length ? { minor: sum(naira.map((a) => a.balanceMinor!)), asOf, accounts: naira.length } : null,
-    otherCurrencies: [...new Set(reported.filter((a) => a.currency !== BASE_CURRENCY).map((a) => a.currency))],
+    cash: cashAccounts ? { minor: cashMinor, asOf, accounts: cashAccounts } : null,
+    otherCurrencies: [...leftover],
     months,
     obligations: obligations.map(item),
     income: income.map(item),

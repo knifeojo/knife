@@ -321,7 +321,7 @@ class ReviewQuestionCard extends StatelessWidget {
             if (q.totalMinor != '0') ...[
               const SizedBox(height: 6),
               Text(
-                '${formatMinor(q.totalMinor)} · ${q.count} payment${q.count == 1 ? '' : 's'}${q.currentCategory == null ? '' : ' · now "${q.currentCategory}"'}',
+                '${formatMinor(q.totalMinor, currency: q.totalCurrency ?? 'NGN')}${q.totalDetail == null || q.totalDetail!.isEmpty ? '' : ' (${q.totalDetail})'} · ${q.count} payment${q.count == 1 ? '' : 's'}${q.currentCategory == null ? '' : ' · now "${q.currentCategory}"'}',
                 style: theme.textTheme.bodySmall,
               ),
             ],
