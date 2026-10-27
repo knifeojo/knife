@@ -2,7 +2,7 @@ import { parseMoney } from "./money";
 import type { AlertMessage, AlertParser, ParsedAlert } from "./types";
 
 // Providus (sender "PROVIDUS"). Only a truncated sample is known:
-//   Debit Alert: NGN17,000.00 MOB: To MONIEPOINT MICROFINANCE BANK|...
+//   Debit Alert: NGN22,500.00 MOB: To MONIEPOINT MICROFINANCE BANK|...
 // Low confidence: amount + direction + counterparty bank. Routes to Review.
 
 const LINE = /^(Debit|Credit)\s+Alert:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+(?:MOB:\s*)?(?:To|From)?\s*(.+)$/i;

@@ -7,16 +7,16 @@ import { linkAdjacentFee } from "@/core/alerts/fees";
 import { reconcileAlertsVsStatement } from "@/core/alerts/reconcile";
 
 const TRANSFER = `Acct:******1234
-Amt:NGN2,800.00 DR
+Amt:NGN3,450.00 DR
 Desc:OUTWARD TRANSFER TO MONIEMFB - JOHN DOE
-Bal:NGN354,145.94
-Date:2026-10-03 4:29PM`;
+Bal:NGN412,890.50
+Date:2026-10-07 3:17PM`;
 
 const FEE = `Acct:******1234
-Amt:NGN10.00 DR
+Amt:NGN25.00 DR
 Desc:Commission on NIP Transfer
-Bal:NGN354,135.94
-Date:2026-10-03 4:29PM`;
+Bal:NGN412,865.50
+Date:2026-10-07 3:17PM`;
 
 describe("SMS / email / statement merge, fees and balances", () => {
   let userId: string;
@@ -27,7 +27,7 @@ describe("SMS / email / statement merge, fees and balances", () => {
   });
 
   it("merges the same transfer from SMS, email and statement into one row", async () => {
-    const sms = await ingestSmsPayload(userId, { sender: "GTBank", body: TRANSFER, receivedAt: "2026-10-03T15:29:00.000Z", sourceId: "sms-1" });
+    const sms = await ingestSmsPayload(userId, { sender: "GTBank", body: TRANSFER, receivedAt: "2026-10-07T14:17:00.000Z", sourceId: "sms-1" });
     expect(sms.status).toBe("created");
     if (sms.status !== "created") return;
 
@@ -36,12 +36,12 @@ describe("SMS / email / statement merge, fees and balances", () => {
       source: "gmail",
       sourceTransactionId: "gmail-1",
       type: "DEBIT",
-      amountMinor: 280_000n,
+      amountMinor: 345_000n,
       currency: "NGN",
-      transactionDate: new Date("2026-10-03T15:29:00Z"),
+      transactionDate: new Date("2026-10-07T14:17:00Z"),
       description: "OUTWARD TRANSFER TO MONIEMFB - JOHN DOE",
       accountLast4: "1234",
-      balanceAfterMinor: 35_414_594n,
+      balanceAfterMinor: 41_289_050n,
       confidence: 1,
     });
     expect(email.status).toBe("duplicate");
@@ -52,12 +52,12 @@ describe("SMS / email / statement merge, fees and balances", () => {
       source: "statement",
       sourceTransactionId: "stmt-row-1",
       type: "DEBIT",
-      amountMinor: 280_000n,
+      amountMinor: 345_000n,
       currency: "NGN",
-      transactionDate: new Date("2026-10-03T00:00:00Z"),
+      transactionDate: new Date("2026-10-07T00:00:00Z"),
       description: "NIP TRANSFER TO MONIEMFB JOHN DOE",
       accountLast4: "1234",
-      balanceAfterMinor: 35_414_594n,
+      balanceAfterMinor: 41_289_050n,
       confidence: 1,
     });
     expect(stmt.status).toBe("duplicate");
@@ -70,15 +70,15 @@ describe("SMS / email / statement merge, fees and balances", () => {
   });
 
   it("links Commission on NIP Transfer as a fee of the adjacent transfer", async () => {
-    const fee = await ingestSmsPayload(userId, { sender: "GTBank", body: FEE, receivedAt: "2026-10-03T15:29:00.000Z", sourceId: "sms-fee" });
+    const fee = await ingestSmsPayload(userId, { sender: "GTBank", body: FEE, receivedAt: "2026-10-07T14:17:00.000Z", sourceId: "sms-fee" });
     expect(fee.status).toBe("created");
     if (fee.status !== "created") return;
     const linked = await db.transaction.findUniqueOrThrow({ where: { id: fee.transactionId } });
     expect(linked.category).toBe("Fees");
     expect(linked.feeOfId).toBeTruthy();
     const parent = await db.transaction.findUniqueOrThrow({ where: { id: linked.feeOfId! } });
-    expect(parent.amountMinor).toBe(280_000n);
-    expect(parent.amountMinor + linked.amountMinor).toBe(281_000n);
+    expect(parent.amountMinor).toBe(345_000n);
+    expect(parent.amountMinor + linked.amountMinor).toBe(347_500n);
     await linkAdjacentFee(userId, linked.id);
   });
 
@@ -137,7 +137,7 @@ describe("SMS / email / statement merge, fees and balances", () => {
   });
 
   it("is idempotent on a repeated SMS", async () => {
-    const again = await ingestSmsPayload(userId, { sender: "GTBank", body: TRANSFER, receivedAt: "2026-10-03T15:29:00.000Z", sourceId: "sms-1" });
+    const again = await ingestSmsPayload(userId, { sender: "GTBank", body: TRANSFER, receivedAt: "2026-10-07T14:17:00.000Z", sourceId: "sms-1" });
     expect(again.status).toBe("duplicate");
   });
 
@@ -146,11 +146,11 @@ describe("SMS / email / statement merge, fees and balances", () => {
     const sms = await ingestSmsPayload(user.id, {
       sender: "GTBank",
       body: `Acct:******1234
-Amt:NGN645,242.76 CR
+Amt:NGN518,390.25 CR
 Desc:- - PAYMENTDEEL INC-WRAMFB-GRP .
-Bal:NGN672,045.70
-Date:2026-10-03 1:23PM`,
-      receivedAt: "2026-10-03T12:23:00.000Z",
+Bal:NGN540,120.80
+Date:2026-10-07 11:08AM`,
+      receivedAt: "2026-10-07T10:08:00.000Z",
       sourceId: "gt-deel-sms",
     });
     expect(sms.status).toBe("created");
@@ -164,9 +164,9 @@ Date:2026-10-03 1:23PM`,
       source: "statement",
       sourceTransactionId: "stmt-deel-1",
       type: "CREDIT",
-      amountMinor: 64_524_276n,
+      amountMinor: 51_839_025n,
       currency: "NGN",
-      transactionDate: new Date("2026-10-03T00:00:00Z"),
+      transactionDate: new Date("2026-10-07T00:00:00Z"),
       description: "W5WM-MONIE MFB-DEEL INC",
       accountLast4: "1234",
       confidence: 1,
@@ -179,8 +179,8 @@ Date:2026-10-03 1:23PM`,
     const user = await db.user.create({ data: { email: "sterling-own@test.dev", name: "John Samuel Doe" } });
     const inn = await ingestSmsPayload(user.id, {
       sender: "STERLING",
-      body: "Money In! NGN250,000.00 has arrived from DOE JOHN SAMUEL into ******8537 at 2026-09-30 18:24:12. You have NGN256,176.61",
-      receivedAt: "2026-09-30T17:24:12.000Z",
+      body: "Money In! NGN180,000.00 has arrived from DOE JOHN SAMUEL into ******4321 at 2026-10-11 17:36:41. You have NGN195,640.88",
+      receivedAt: "2026-10-11T16:36:41.000Z",
       sourceId: "st-own",
     });
     expect(inn.status).toBe("created");

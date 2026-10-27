@@ -3,38 +3,38 @@ import { parseAlert, parserRegistryJson, ALERT_PARSERS } from "@/core/alerts/reg
 import { isAllowedSmsSender, isPhoneSender } from "@/core/alerts/senders";
 import type { AlertMessage } from "@/core/alerts/types";
 
-function sms(sender: string, body: string, receivedAt = new Date("2026-10-03T15:29:00Z")): AlertMessage {
+function sms(sender: string, body: string, receivedAt = new Date("2026-10-07T14:17:00Z")): AlertMessage {
   return { channel: "sms", sender, body, receivedAt };
 }
 
 const GT_DR = `Acct:******1234
-Amt:NGN2,800.00 DR
+Amt:NGN3,450.00 DR
 Desc:OUTWARD TRANSFER TO MONIEMFB - JOHN DOE
-Bal:NGN354,145.94
-Date:2026-10-03 4:29PM`;
+Bal:NGN412,890.50
+Date:2026-10-07 3:17PM`;
 
 const GT_FEE = `Acct:******1234
-Amt:NGN10.00 DR
+Amt:NGN25.00 DR
 Desc:Commission on NIP Transfer
-Bal:NGN354,135.94
-Date:2026-10-03 4:29PM`;
+Bal:NGN412,865.50
+Date:2026-10-07 3:17PM`;
 
 const GT_CR = `Acct:******1234
-Amt:NGN645,242.76 CR
+Amt:NGN518,390.25 CR
 Desc:- - PAYMENTDEEL INC-WRAMFB-GRP .
-Bal:NGN672,045.70
-Date:2026-10-03 1:23PM`;
+Bal:NGN540,120.80
+Date:2026-10-07 11:08AM`;
 
-const FB_DR = "Debit: 309XXXX867 Amt: NGN10,000.00 Date: 29-SEP-2026 19:50:38 Desc: FIP:MB:MMB/The Fresh Place / THE FRESH . Bal: NGN30,159.33CR. Dial *894*11# to get loan";
-const FB_DR2 = "Debit: 309XXXX867 Amt: NGN15,000.00 Date: 28-SEP-2026 23:14:51 Desc: FIP:MB:OPY/JOHN DOE SMITH/JOHN DOE. Bal: NGN40,336.21CR. Dial *894*11# to get loan";
-const FB_CR = "Credit: 309XXXX867 Amt: NGN485,750.00 Date: 26-SEP-2026 04:18:32 Desc: FIP:FCM/JOHN SAMUEL/APIJOHN. Bal: NGN1,249,349.61CR Pay with FirstOnline";
-const FB_CR2 = "Credit: 309XXXX867 Amt: NGN922,925.00 Date: 25-SEP-2026 18:57:30 Desc: ISW:MMB/Acme Payroll Limite/JOHN SAMU. Bal: NGN924,367.87CR Pay with FirstOnline";
+const FB_DR = "Debit: 301XXXX123 Amt: NGN12,500.00 Date: 22-OCT-2026 18:41:09 Desc: FIP:MB:MMB/The Fresh Place / THE FRESH . Bal: NGN41,280.44CR. Dial *894*11# to get loan";
+const FB_DR2 = "Debit: 301XXXX123 Amt: NGN18,750.00 Date: 21-OCT-2026 21:03:27 Desc: FIP:MB:OPY/JOHN DOE SMITH/JOHN DOE. Bal: NGN53,780.44CR. Dial *894*11# to get loan";
+const FB_CR = "Credit: 301XXXX123 Amt: NGN372,400.00 Date: 20-OCT-2026 06:22:14 Desc: FIP:FCM/JOHN SAMUEL/APIJOHN. Bal: NGN892,610.18CR Pay with FirstOnline";
+const FB_CR2 = "Credit: 301XXXX123 Amt: NGN614,880.00 Date: 19-OCT-2026 16:11:05 Desc: ISW:MMB/Acme Payroll Limite/JOHN SAMU. Bal: NGN618,210.18CR Pay with FirstOnline";
 
-const ST_OUT = "Money Out! You have spent, NGN6,969.00 at APPLE.COM/BILL CORK         IE from ******8537 at 2026-09-25 13:48:14. You have NGN8,790.31";
-const ST_IN = "Money In! NGN250,000.00 has arrived from DOE JOHN SAMUEL into ******8537 at 2026-09-30 18:24:12. You have NGN256,176.61";
+const ST_OUT = "Money Out! You have spent, NGN4,812.00 at APPLE.COM/BILL CORK         IE from ******4321 at 2026-10-08 10:15:33. You have NGN15,640.88";
+const ST_IN = "Money In! NGN180,000.00 has arrived from DOE JOHN SAMUEL into ******4321 at 2026-10-11 17:36:41. You have NGN195,640.88";
 const ST_MARKETING = "STERLING: keep transacting to stay eligible for AlwaysOn Overdraft. T&Cs apply.";
 const FB_MARKETING = "Congratulations! You have a loan offer up to N300,000. Dial *894*11# to get started.";
-const PROVIDUS = "Debit Alert: NGN17,000.00 MOB: To MONIEPOINT MICROFINANCE BANK|truncated";
+const PROVIDUS = "Debit Alert: NGN22,500.00 MOB: To MONIEPOINT MICROFINANCE BANK|truncated";
 
 describe("GTBank SMS", () => {
   it("parses a debit transfer at high confidence", () => {
@@ -43,11 +43,11 @@ describe("GTBank SMS", () => {
     if (r.status !== "parsed") return;
     expect(r.parser).toBe("GTBankSmsParser");
     expect(r.transaction.type).toBe("DEBIT");
-    expect(r.transaction.amountMinor).toBe(280_000n);
-    expect(r.transaction.balanceAfterMinor).toBe(35_414_594n);
+    expect(r.transaction.amountMinor).toBe(345_000n);
+    expect(r.transaction.balanceAfterMinor).toBe(41_289_050n);
     expect(r.transaction.accountLast4).toBe("1234");
     expect(r.transaction.description).toContain("OUTWARD TRANSFER");
-    expect(r.transaction.transactionDate.toISOString()).toBe("2026-10-03T15:29:00.000Z");
+    expect(r.transaction.transactionDate.toISOString()).toBe("2026-10-07T14:17:00.000Z");
     expect(r.transaction.autoPost).toBe(true);
     expect(r.transaction.confidence).toBeGreaterThanOrEqual(0.8);
   });
@@ -56,7 +56,7 @@ describe("GTBank SMS", () => {
     const r = parseAlert(sms("GTBank", GT_FEE));
     expect(r.status).toBe("parsed");
     if (r.status !== "parsed") return;
-    expect(r.transaction.amountMinor).toBe(1_000n);
+    expect(r.transaction.amountMinor).toBe(2_500n);
     expect(r.transaction.description).toMatch(/Commission on NIP Transfer/i);
   });
 
@@ -65,9 +65,9 @@ describe("GTBank SMS", () => {
     expect(r.status).toBe("parsed");
     if (r.status !== "parsed") return;
     expect(r.transaction.type).toBe("CREDIT");
-    expect(r.transaction.amountMinor).toBe(64_524_276n);
+    expect(r.transaction.amountMinor).toBe(51_839_025n);
     expect(r.transaction.description).toBe("PAYMENTDEEL INC-WRAMFB-GRP");
-    expect(r.transaction.transactionDate.toISOString()).toBe("2026-10-03T12:23:00.000Z");
+    expect(r.transaction.transactionDate.toISOString()).toBe("2026-10-07T10:08:00.000Z");
   });
 });
 
@@ -76,11 +76,11 @@ describe("FirstBank SMS", () => {
     const r = parseAlert(sms("FirstBank", FB_DR));
     expect(r.status).toBe("parsed");
     if (r.status !== "parsed") return;
-    expect(r.transaction.amountMinor).toBe(1_000_000n);
+    expect(r.transaction.amountMinor).toBe(1_250_000n);
     expect(r.transaction.description).toMatch(/Fresh Place/i);
     expect(r.transaction.description).not.toMatch(/Dial/);
-    expect(r.transaction.balanceAfterMinor).toBe(3_015_933n);
-    expect(r.transaction.accountLast4).toBe("9867");
+    expect(r.transaction.balanceAfterMinor).toBe(4_128_044n);
+    expect(r.transaction.accountLast4).toBe("1123");
     expect(r.transaction.confidence).toBeGreaterThanOrEqual(0.9);
   });
 
@@ -88,7 +88,7 @@ describe("FirstBank SMS", () => {
     const r = parseAlert(sms("FirstBank", FB_DR2));
     expect(r.status).toBe("parsed");
     if (r.status !== "parsed") return;
-    expect(r.transaction.amountMinor).toBe(1_500_000n);
+    expect(r.transaction.amountMinor).toBe(1_875_000n);
     expect(r.transaction.description).toMatch(/JOHN DOE SMITH/i);
   });
 
@@ -99,8 +99,8 @@ describe("FirstBank SMS", () => {
     expect(b.status).toBe("parsed");
     if (a.status !== "parsed" || b.status !== "parsed") return;
     expect(a.transaction.type).toBe("CREDIT");
-    expect(a.transaction.amountMinor).toBe(48_575_000n);
-    expect(b.transaction.amountMinor).toBe(92_292_500n);
+    expect(a.transaction.amountMinor).toBe(37_240_000n);
+    expect(b.transaction.amountMinor).toBe(61_488_000n);
     expect(b.transaction.description).toMatch(/Acme Payroll/i);
     expect(a.transaction.autoPost).toBe(true);
   });
@@ -116,10 +116,10 @@ describe("Sterling SMS", () => {
     expect(r.status).toBe("parsed");
     if (r.status !== "parsed") return;
     expect(r.transaction.type).toBe("DEBIT");
-    expect(r.transaction.amountMinor).toBe(696_900n);
+    expect(r.transaction.amountMinor).toBe(481_200n);
     expect(r.transaction.description).toMatch(/APPLE\.COM\/BILL/);
-    expect(r.transaction.accountLast4).toBe("8537");
-    expect(r.transaction.balanceAfterMinor).toBe(879_031n);
+    expect(r.transaction.accountLast4).toBe("4321");
+    expect(r.transaction.balanceAfterMinor).toBe(1_564_088n);
   });
 
   it("parses Money In", () => {
@@ -127,7 +127,7 @@ describe("Sterling SMS", () => {
     expect(r.status).toBe("parsed");
     if (r.status !== "parsed") return;
     expect(r.transaction.type).toBe("CREDIT");
-    expect(r.transaction.amountMinor).toBe(25_000_000n);
+    expect(r.transaction.amountMinor).toBe(18_000_000n);
     expect(r.transaction.description).toBe("DOE JOHN SAMUEL");
   });
 
@@ -141,7 +141,7 @@ describe("Providus stub + generic fallback", () => {
     const r = parseAlert(sms("PROVIDUS", PROVIDUS));
     expect(r.status).toBe("review");
     if (r.status !== "review") return;
-    expect(r.transaction.amountMinor).toBe(1_700_000n);
+    expect(r.transaction.amountMinor).toBe(2_250_000n);
     expect(r.transaction.type).toBe("DEBIT");
     expect(r.transaction.description).toMatch(/MONIEPOINT/i);
     expect(r.transaction.autoPost).toBe(false);

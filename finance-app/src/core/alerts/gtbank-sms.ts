@@ -4,10 +4,10 @@ import type { AlertMessage, AlertParser, ParsedAlert } from "./types";
 // Exact GTBank SMS layout (sender ID "GTBank"). Lines are newline-separated; Desc can wrap.
 //
 //   Acct:******1234
-//   Amt:NGN2,800.00 DR
+//   Amt:NGN3,450.00 DR
 //   Desc:OUTWARD TRANSFER TO MONIEMFB - JOHN DOE
-//   Bal:NGN354,145.94
-//   Date:2026-10-03 4:29PM
+//   Bal:NGN412,890.50
+//   Date:2026-10-07 3:17PM
 
 const ACCT = /Acct:\s*([*\dX]+)/i;
 const AMT = /Amt:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s*(DR|CR)/i;

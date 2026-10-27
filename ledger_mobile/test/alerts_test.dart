@@ -21,44 +21,44 @@ void main() {
     expect(isAllowedSmsSender('+2348012345678'), isFalse);
     expect(isPhoneSender('08012345678'), isTrue);
     expect(isBankMarketing('Congratulations! You have a loan offer up to N300,000'), isTrue);
-    expect(isBankMarketing('Debit: 309XXXX867 Amt: NGN10,000.00'), isFalse);
+    expect(isBankMarketing('Debit: 301XXXX123 Amt: NGN12,500.00'), isFalse);
   });
 
   test('parses GTBank DR and CR on device', () {
     final dr = parseBankSms(
       sender: 'GTBank',
-      body: 'Acct:******1234\nAmt:NGN2,800.00 DR\nDesc:OUTWARD TRANSFER TO MONIEMFB - JOHN DOE\nBal:NGN354,145.94\nDate:2026-10-03 4:29PM',
-      receivedAt: DateTime.utc(2026, 10, 3, 15, 29),
+      body: 'Acct:******1234\nAmt:NGN3,450.00 DR\nDesc:OUTWARD TRANSFER TO MONIEMFB - JOHN DOE\nBal:NGN412,890.50\nDate:2026-10-07 3:17PM',
+      receivedAt: DateTime.utc(2026, 10, 7, 14, 17),
     )!;
     expect(dr.type, 'DEBIT');
-    expect(dr.amountMinor, '280000');
+    expect(dr.amountMinor, '345000');
     expect(dr.accountLast4, '1234');
     expect(dr.autoPost, isTrue);
 
     final cr = parseBankSms(
       sender: 'GTBank',
-      body: 'Acct:******1234\nAmt:NGN645,242.76 CR\nDesc:- - PAYMENTDEEL INC-WRAMFB-GRP .\nBal:NGN672,045.70\nDate:2026-10-03 1:23PM',
+      body: 'Acct:******1234\nAmt:NGN518,390.25 CR\nDesc:- - PAYMENTDEEL INC-WRAMFB-GRP .\nBal:NGN540,120.80\nDate:2026-10-07 11:08AM',
     )!;
     expect(cr.type, 'CREDIT');
-    expect(cr.amountMinor, '64524276');
+    expect(cr.amountMinor, '51839025');
     expect(cr.description, 'PAYMENTDEEL INC-WRAMFB-GRP');
   });
 
   test('parses FirstBank debit and credit and ignores marketing', () {
     final dr = parseBankSms(
       sender: 'FirstBank',
-      body: 'Debit: 309XXXX867 Amt: NGN10,000.00 Date: 29-SEP-2026 19:50:38 Desc: FIP:MB:MMB/The Fresh Place / THE FRESH . Bal: NGN30,159.33CR. Dial *894*11# to get loan',
+      body: 'Debit: 301XXXX123 Amt: NGN12,500.00 Date: 22-OCT-2026 18:41:09 Desc: FIP:MB:MMB/The Fresh Place / THE FRESH . Bal: NGN41,280.44CR. Dial *894*11# to get loan',
     )!;
-    expect(dr.amountMinor, '1000000');
+    expect(dr.amountMinor, '1250000');
     expect(dr.description, contains('Fresh Place'));
-    expect(dr.balanceAfterMinor, '3015933');
+    expect(dr.balanceAfterMinor, '4128044');
 
     final cr = parseBankSms(
       sender: 'FirstBank',
-      body: 'Credit: 309XXXX867 Amt: NGN485,750.00 Date: 26-SEP-2026 04:18:32 Desc: FIP:FCM/JOHN SAMUEL/APIJOHN. Bal: NGN1,249,349.61CR Pay with FirstOnline',
+      body: 'Credit: 301XXXX123 Amt: NGN372,400.00 Date: 20-OCT-2026 06:22:14 Desc: FIP:FCM/JOHN SAMUEL/APIJOHN. Bal: NGN892,610.18CR Pay with FirstOnline',
     )!;
     expect(cr.type, 'CREDIT');
-    expect(cr.amountMinor, '48575000');
+    expect(cr.amountMinor, '37240000');
 
     expect(parseBankSms(sender: 'FirstBank', body: 'Congratulations! You have a loan offer up to N300,000. Dial *894*11#'), isNull);
   });
@@ -66,19 +66,19 @@ void main() {
   test('parses Sterling Money In/Out', () {
     final out = parseBankSms(
       sender: 'STERLING',
-      body: 'Money Out! You have spent, NGN6,969.00 at APPLE.COM/BILL CORK         IE from ******8537 at 2026-09-25 13:48:14. You have NGN8,790.31',
+      body: 'Money Out! You have spent, NGN4,812.00 at APPLE.COM/BILL CORK         IE from ******4321 at 2026-10-08 10:15:33. You have NGN15,640.88',
     )!;
     expect(out.type, 'DEBIT');
-    expect(out.amountMinor, '696900');
+    expect(out.amountMinor, '481200');
     expect(out.description, contains('APPLE.COM/BILL'));
-    expect(out.balanceAfterMinor, '879031');
+    expect(out.balanceAfterMinor, '1564088');
 
     final inn = parseBankSms(
       sender: 'Sterling',
-      body: 'Money In! NGN250,000.00 has arrived from DOE JOHN SAMUEL into ******8537 at 2026-09-30 18:24:12. You have NGN256,176.61',
+      body: 'Money In! NGN180,000.00 has arrived from DOE JOHN SAMUEL into ******4321 at 2026-10-11 17:36:41. You have NGN195,640.88',
     )!;
     expect(inn.type, 'CREDIT');
-    expect(inn.amountMinor, '25000000');
+    expect(inn.amountMinor, '18000000');
 
     expect(
       parseBankSms(sender: 'STERLING', body: 'STERLING: keep transacting to stay eligible for AlwaysOn Overdraft. T&Cs apply.'),
@@ -89,10 +89,10 @@ void main() {
   test('Providus stub extracts amount and counterparty bank at low confidence', () {
     final r = parseBankSms(
       sender: 'PROVIDUS',
-      body: 'Debit Alert: NGN17,000.00 MOB: To MONIEPOINT MICROFINANCE BANK|truncated',
+      body: 'Debit Alert: NGN22,500.00 MOB: To MONIEPOINT MICROFINANCE BANK|truncated',
     )!;
     expect(r.type, 'DEBIT');
-    expect(r.amountMinor, '1700000');
+    expect(r.amountMinor, '2250000');
     expect(r.description, contains('MONIEPOINT'));
     expect(r.description, isNot(contains('truncated')));
     expect(r.autoPost, isFalse);

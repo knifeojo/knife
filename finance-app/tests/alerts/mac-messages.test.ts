@@ -9,7 +9,7 @@ describe("macOS Messages importer", () => {
   });
 
   it("reads attributedBody when text is null and ignores non-bank senders", () => {
-    const blob = Buffer.from(`xxxxNSString+++Acct:******1234 Amt:NGN2,800.00 DR Desc:OUTWARD TRANSFER Bal:NGN1.00 Date:2026-10-03 4:29PM+++NSDictionary`, "utf8");
+    const blob = Buffer.from(`xxxxNSString+++Acct:******1234 Amt:NGN3,450.00 DR Desc:OUTWARD TRANSFER Bal:NGN2.00 Date:2026-10-07 3:17PM+++NSDictionary`, "utf8");
     expect(attributedBodyText(blob)).toMatch(/Acct:\*{6}1234/);
     const rows = bankMessagesFromChatRows([
       { id: 1, sender: "GTBank", text: null, attributedBody: blob, date: 0 },

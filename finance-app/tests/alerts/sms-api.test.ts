@@ -6,10 +6,10 @@ import { GET as parsers } from "@/app/api/v1/alerts/parsers/route";
 import { resetRateLimits } from "@/lib/rate-limit";
 
 const BODY = `Acct:******1234
-Amt:NGN2,800.00 DR
+Amt:NGN3,450.00 DR
 Desc:OUTWARD TRANSFER TO MONIEMFB - JANE DOE
-Bal:NGN354,145.94
-Date:2026-10-03 4:29PM`;
+Bal:NGN412,890.50
+Date:2026-10-07 3:17PM`;
 
 function post(path: string, body: unknown, headers: Record<string, string>) {
   return new Request(`http://localhost${path}`, {
@@ -31,12 +31,12 @@ describe("SMS ingest API", () => {
   });
 
   it("accepts a session bearer and an iOS Shortcuts token", async () => {
-    const a = await sms(post("/api/v1/alerts/sms", { sender: "GTBank", body: BODY, receivedAt: "2026-10-03T15:29:00.000Z", sourceId: "s1" }, { authorization: `Bearer ${token}` }));
+    const a = await sms(post("/api/v1/alerts/sms", { sender: "GTBank", body: BODY, receivedAt: "2026-10-07T14:17:00.000Z", sourceId: "s1" }, { authorization: `Bearer ${token}` }));
     expect(a.status).toBe(200);
     const bodyA = await a.json();
     expect(bodyA.results[0].status).toBe("created");
 
-    const b = await sms(post("/api/v1/alerts/sms", { sender: "GTBank", body: BODY, receivedAt: "2026-10-03T15:29:00.000Z", sourceId: "s1" }, { "x-ledger-sms-token": smsToken }));
+    const b = await sms(post("/api/v1/alerts/sms", { sender: "GTBank", body: BODY, receivedAt: "2026-10-07T14:17:00.000Z", sourceId: "s1" }, { "x-ledger-sms-token": smsToken }));
     expect(b.status).toBe(200);
     expect((await b.json()).results[0].status).toBe("duplicate");
   });

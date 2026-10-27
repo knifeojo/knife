@@ -2,8 +2,8 @@ import { lastDigits, normalizeMerchant, parseAlertDate, parseMoney, trimDesc } f
 import type { AlertMessage, AlertParser, ParsedAlert } from "./types";
 
 // Sterling Bank SMS (sender "STERLING" / "Sterling"). Natural language.
-//   Money Out! You have spent, NGN6,969.00 at APPLE.COM/BILL CORK         IE from ******8537 at 2026-09-25 13:48:14. You have NGN8,790.31
-//   Money In! NGN250,000.00 has arrived from DOE JOHN SAMUEL into ******8537 at 2026-09-30 18:24:12. You have NGN256,176.61
+//   Money Out! You have spent, NGN4,812.00 at APPLE.COM/BILL CORK         IE from ******4321 at 2026-10-08 10:15:33. You have NGN15,640.88
+//   Money In! NGN180,000.00 has arrived from DOE JOHN SAMUEL into ******4321 at 2026-10-11 17:36:41. You have NGN195,640.88
 
 const OUT =
   /Money Out!\s*You have spent,\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+from\s+([*\dX]+)\s+at\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\.\s*You have\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)/i;

@@ -2,8 +2,8 @@ import { lastDigits, parseAlertDate, parseMoney, trimDesc } from "./money";
 import type { AlertMessage, AlertParser, ParsedAlert } from "./types";
 
 // FirstBank SMS (sender "FirstBank"). One physical line; wraps on screen.
-// Debit:  309XXXX867 Amt: NGN10,000.00 Date: 29-SEP-2026 19:50:38 Desc: FIP:MB:MMB/The Fresh Place / THE FRESH . Bal: NGN30,159.33CR. Dial *894*11# to get loan
-// Credit: 309XXXX867 Amt: NGN485,750.00 Date: 26-SEP-2026 04:18:32 Desc: FIP:FCM/JOHN SAMUEL/APIJOHN. Bal: NGN1,249,349.61CR Pay with FirstOnline
+// Debit:  301XXXX123 Amt: NGN12,500.00 Date: 22-OCT-2026 18:41:09 Desc: FIP:MB:MMB/The Fresh Place / THE FRESH . Bal: NGN41,280.44CR. Dial *894*11# to get loan
+// Credit: 301XXXX123 Amt: NGN372,400.00 Date: 20-OCT-2026 06:22:14 Desc: FIP:FCM/JOHN SAMUEL/APIJOHN. Bal: NGN892,610.18CR Pay with FirstOnline
 //
 // Trailing marketing after the balance is stripped. Desc prefixes: FIP:MB:<code>/, FIP:FCM/, ISW:MMB/.
 

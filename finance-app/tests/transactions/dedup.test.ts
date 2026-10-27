@@ -91,17 +91,17 @@ describe("fuzzy cross-source matching", () => {
       ...base,
       source: "sms",
       type: "CREDIT",
-      amountMinor: 64_524_276n,
+      amountMinor: 51_839_025n,
       reference: undefined,
       description: "PAYMENTDEEL INC-WRAMFB-GRP",
-      transactionDate: new Date("2026-10-03T12:23:00Z"),
+      transactionDate: new Date("2026-10-07T10:08:00Z"),
     };
     const statement = asCandidate({
       ...sms,
       source: "statement",
       sourceTransactionId: "stmt-deel",
       description: "W5WM-MONIE MFB-DEEL INC",
-      transactionDate: new Date("2026-10-03T00:00:00Z"),
+      transactionDate: new Date("2026-10-07T00:00:00Z"),
     });
     expect(isFuzzyMatch(sms, statement)).toBe(true);
   });
