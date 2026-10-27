@@ -51,6 +51,7 @@ void main() {
     )!;
     expect(dr.amountMinor, '1000000');
     expect(dr.description, contains('Fresh Place'));
+    expect(dr.balanceAfterMinor, '3015933');
 
     final cr = parseBankSms(
       sender: 'FirstBank',
@@ -70,6 +71,7 @@ void main() {
     expect(out.type, 'DEBIT');
     expect(out.amountMinor, '696900');
     expect(out.description, contains('APPLE.COM/BILL'));
+    expect(out.balanceAfterMinor, '879031');
 
     final inn = parseBankSms(
       sender: 'Sterling',
@@ -77,6 +79,24 @@ void main() {
     )!;
     expect(inn.type, 'CREDIT');
     expect(inn.amountMinor, '25000000');
+
+    expect(
+      parseBankSms(sender: 'STERLING', body: 'STERLING: keep transacting to stay eligible for AlwaysOn Overdraft. T&Cs apply.'),
+      isNull,
+    );
+  });
+
+  test('Providus stub extracts amount and counterparty bank at low confidence', () {
+    final r = parseBankSms(
+      sender: 'PROVIDUS',
+      body: 'Debit Alert: NGN17,000.00 MOB: To MONIEPOINT MICROFINANCE BANK|truncated',
+    )!;
+    expect(r.type, 'DEBIT');
+    expect(r.amountMinor, '1700000');
+    expect(r.description, contains('MONIEPOINT'));
+    expect(r.description, isNot(contains('truncated')));
+    expect(r.autoPost, isFalse);
+    expect(r.confidence, lessThan(0.5));
   });
 
   test('offline queue persists and the API posts sender+body', () async {

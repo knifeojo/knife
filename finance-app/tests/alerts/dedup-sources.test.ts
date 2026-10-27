@@ -140,4 +140,53 @@ describe("SMS / email / statement merge, fees and balances", () => {
     const again = await ingestSmsPayload(userId, { sender: "GTBank", body: TRANSFER, receivedAt: "2026-10-03T15:29:00.000Z", sourceId: "sms-1" });
     expect(again.status).toBe("duplicate");
   });
+
+  it("links a PAYMENTDEEL SMS credit to an existing Deel statement credit", async () => {
+    const user = await db.user.create({ data: { email: "deel-sms@test.dev" } });
+    const sms = await ingestSmsPayload(user.id, {
+      sender: "GTBank",
+      body: `Acct:******1234
+Amt:NGN645,242.76 CR
+Desc:- - PAYMENTDEEL INC-WRAMFB-GRP .
+Bal:NGN672,045.70
+Date:2026-10-03 1:23PM`,
+      receivedAt: "2026-10-03T12:23:00.000Z",
+      sourceId: "gt-deel-sms",
+    });
+    expect(sms.status).toBe("created");
+    if (sms.status !== "created") return;
+    const posted = await db.transaction.findUniqueOrThrow({ where: { id: sms.transactionId } });
+    expect(posted.category).toBe("Income");
+    expect(posted.subcategory).toBe("Salary");
+
+    const stmt = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "statement",
+      sourceTransactionId: "stmt-deel-1",
+      type: "CREDIT",
+      amountMinor: 64_524_276n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-03T00:00:00Z"),
+      description: "W5WM-MONIE MFB-DEEL INC",
+      accountLast4: "1234",
+      confidence: 1,
+    });
+    expect(stmt.status).toBe("duplicate");
+    expect(stmt.transactionId).toBe(sms.transactionId);
+  });
+
+  it("treats a Sterling inflow from the owner's profile name as an own transfer", async () => {
+    const user = await db.user.create({ data: { email: "sterling-own@test.dev", name: "John Samuel Doe" } });
+    const inn = await ingestSmsPayload(user.id, {
+      sender: "STERLING",
+      body: "Money In! NGN250,000.00 has arrived from DOE JOHN SAMUEL into ******8537 at 2026-09-30 18:24:12. You have NGN256,176.61",
+      receivedAt: "2026-09-30T17:24:12.000Z",
+      sourceId: "st-own",
+    });
+    expect(inn.status).toBe("created");
+    if (inn.status !== "created") return;
+    const row = await db.transaction.findUniqueOrThrow({ where: { id: inn.transactionId } });
+    expect(row.category).toBe("Own transfer");
+    expect(row.subcategory).toBe("Between own accounts");
+  });
 });

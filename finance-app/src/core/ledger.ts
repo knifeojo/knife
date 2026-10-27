@@ -14,10 +14,22 @@ export type IngestResult =
   | { status: "created"; transactionId: string }
   | { status: "duplicate"; transactionId: string; matchType: "source" | "exact" | "fuzzy" };
 
-/** Names of the user's account holders, for spotting transfers between their own accounts. */
+/** Names of the user, for spotting transfers between their own accounts (reordered names included). */
 export async function loadOwners(userId: string): Promise<string[]> {
-  const accts = await db.account.findMany({ where: { userId, holderName: { not: null } }, select: { holderName: true } });
-  return [...new Set(accts.map((a) => a.holderName!))];
+  const [accts, user, mes] = await Promise.all([
+    db.account.findMany({ where: { userId, holderName: { not: null } }, select: { holderName: true } }),
+    db.user.findUnique({ where: { id: userId }, select: { name: true } }),
+    db.person.findMany({
+      where: { userId, relationship: "me" },
+      select: { displayName: true, aliases: { where: { rejected: false }, select: { name: true } } },
+    }),
+  ]);
+  const names = [
+    ...accts.map((a) => a.holderName!),
+    ...(user?.name ? [user.name] : []),
+    ...mes.flatMap((p) => [p.displayName, ...p.aliases.map((a) => a.name)]),
+  ];
+  return [...new Set(names.filter(Boolean))];
 }
 
 /** The owner's learned rules (MerchantAlias) plus the people they told Ledger about. */

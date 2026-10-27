@@ -121,7 +121,7 @@ ParsedSms? _gtbank(String body, DateTime receivedAt) {
 ParsedSms? _firstbank(String body, DateTime receivedAt) {
   final line = body.replaceAll(RegExp(r'\s+'), ' ').trim();
   final m = RegExp(
-    r'^(Debit|Credit):\s*(\S+)\s+Amt:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+Date:\s*(\d{2})-([A-Za-z]{3})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\s+Desc:\s*(.+?)\s+Bal:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)',
+    r'^(Debit|Credit):\s*(\S+)\s+Amt:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+Date:\s*(\d{2})-([A-Za-z]{3})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\s+Desc:\s*(.+?)\s+Bal:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)(CR|DR)?',
     caseSensitive: false,
   ).firstMatch(line);
   if (m == null) return null;
@@ -131,6 +131,8 @@ ParsedSms? _firstbank(String body, DateTime receivedAt) {
   desc = _trimDesc(desc.split('/').first);
   final mo = _months[m.group(6)!.substring(0, 3).toLowerCase()] ?? 1;
   final when = _lagos(receivedAt, int.parse(m.group(7)!), mo, int.parse(m.group(5)!), int.parse(m.group(8)!), int.parse(m.group(9)!), int.parse(m.group(10)!)) ?? receivedAt;
+  final bal = _kobo(m.group(13));
+  final overdrawn = (m.group(14) ?? '').toUpperCase() == 'DR';
   return ParsedSms(
     institution: 'First Bank',
     type: m.group(1)!.toLowerCase() == 'credit' ? 'CREDIT' : 'DEBIT',
@@ -138,7 +140,7 @@ ParsedSms? _firstbank(String body, DateTime receivedAt) {
     currency: 'NGN',
     transactionDate: when,
     description: desc,
-    balanceAfterMinor: _kobo(m.group(13)),
+    balanceAfterMinor: bal == null ? null : overdrawn ? '-$bal' : bal,
     accountLast4: _last4(m.group(2)),
     confidence: 0.95,
     autoPost: true,
@@ -149,13 +151,13 @@ ParsedSms? _firstbank(String body, DateTime receivedAt) {
 ParsedSms? _sterling(String body, DateTime receivedAt) {
   final line = body.replaceAll(RegExp(r'\s+'), ' ');
   final out = RegExp(
-    r'Money Out!\s*You have spent,\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+from\s+([*\dX]+)\s+at\s+(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})',
+    r'Money Out!\s*You have spent,\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+from\s+([*\dX]+)\s+at\s+(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\.\s*You have\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)',
     caseSensitive: false,
   ).firstMatch(line);
   final inn = out != null
       ? null
       : RegExp(
-          r'Money In!\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+has arrived from\s+(.+?)\s+into\s+([*\dX]+)\s+at\s+(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})',
+          r'Money In!\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+has arrived from\s+(.+?)\s+into\s+([*\dX]+)\s+at\s+(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\.\s*You have\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)',
           caseSensitive: false,
         ).firstMatch(line);
   final m = out ?? inn;
@@ -170,6 +172,7 @@ ParsedSms? _sterling(String body, DateTime receivedAt) {
     currency: 'NGN',
     transactionDate: when,
     description: _trimDesc(m.group(3)!),
+    balanceAfterMinor: _kobo(m.group(12)),
     accountLast4: _last4(m.group(4)),
     confidence: 0.92,
     autoPost: true,
@@ -178,17 +181,21 @@ ParsedSms? _sterling(String body, DateTime receivedAt) {
 }
 
 ParsedSms? _providus(String body, DateTime receivedAt) {
-  final m = RegExp(r'^(Debit|Credit)\s+Alert:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)', caseSensitive: false).firstMatch(body.replaceAll(RegExp(r'\s+'), ' ').trim());
+  final m = RegExp(
+    r'^(Debit|Credit)\s+Alert:\s*(NGN|₦)?\s*([\d,]+(?:\.\d{1,2})?)\s+(?:MOB:\s*)?(?:To|From)?\s*(.+)$',
+    caseSensitive: false,
+  ).firstMatch(body.replaceAll(RegExp(r'\s+'), ' ').trim());
   if (m == null) return null;
   final kobo = _kobo(m.group(3));
   if (kobo == null) return null;
+  final party = (m.group(4) ?? '').replaceFirst(RegExp(r'\|.*$'), '').trim();
   return ParsedSms(
     institution: 'Providus Bank',
     type: m.group(1)!.toLowerCase() == 'credit' ? 'CREDIT' : 'DEBIT',
     amountMinor: kobo,
     currency: 'NGN',
     transactionDate: receivedAt,
-    description: body,
+    description: party.isEmpty ? body : party,
     confidence: 0.4,
     autoPost: false,
     parser: 'ProvidusSmsParser',

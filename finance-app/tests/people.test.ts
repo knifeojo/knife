@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { importStatement } from "@/core/statement-import";
-import { ingestTransaction } from "@/core/ledger";
+import { ingestTransaction, loadOwners } from "@/core/ledger";
 import { answerQuestion, buildQuestions } from "@/core/review";
 import { assessAffordability, loadAffordabilityData } from "@/core/affordability";
 import { addPeopleFromText, createPerson, deletePerson, listPeople, mergePeople, undoPeopleBatch, updatePerson } from "@/core/people";
@@ -249,5 +249,14 @@ describe("ambiguous names go to Review", () => {
     const qs = await buildQuestions(userId);
     expect(qs.some((x) => x.kind === "match")).toBe(false);
     expect(qs.find((x) => x.key === "tunde ojo")).toMatchObject({ kind: "person", title: "Who is Tunde Ojo to you?" });
+  });
+});
+
+describe("loadOwners", () => {
+  it("includes the profile name and me-aliases so reordered own-name inflows match", async () => {
+    const u = await db.user.create({ data: { email: `owners${++n}@test.dev`, name: "John Samuel Doe" } });
+    await createPerson(u.id, { displayName: "John Doe", relationship: "me", aliases: ["Samuel Doe"] });
+    const names = await loadOwners(u.id);
+    expect(names).toEqual(expect.arrayContaining(["John Samuel Doe", "John Doe", "Samuel Doe"]));
   });
 });
