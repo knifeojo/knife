@@ -1,21 +1,20 @@
-import { incomeBySubcategory, incomeSources, largest, monthPeriod, recurring, summary } from "@/core/analytics";
+import { incomeBySubcategory, incomeSources, largest, recurring, summary } from "@/core/analytics";
 import { requireUser } from "@/lib/auth";
 import { CategoryBars } from "@/components/charts";
-import { MonthSwitcher, resolveOffset } from "@/components/month-switcher";
+import { PeriodSwitcher, resolveViewPeriod } from "@/components/period-switcher";
 import { Card, Empty, Money, PageHeader, Stat, lagosDateLabel } from "@/components/ui";
 import { TxTable } from "@/components/tx-table";
 
 export default async function Income({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
-  const offset = await resolveOffset(user.id, (await searchParams).m);
   const now = new Date();
-  const p = monthPeriod(now, offset);
+  const { period: p, kind, offset, year, years } = await resolveViewPeriod(user.id, await searchParams, now);
   const [s, subs, credits, rec, sources] = await Promise.all([
     summary(user.id, p), incomeBySubcategory(user.id, p), largest(user.id, p, "CREDIT", 20), recurring(user.id, now, "CREDIT"), incomeSources(user.id, p, 10),
   ]);
   return (
     <>
-      <PageHeader title="Income" subtitle="Change a category on any credit to correct how it is classified." action={<MonthSwitcher offset={offset} basePath="/app/income" />} />
+      <PageHeader title="Income" subtitle="Change a category on any credit to correct how it is classified." action={<PeriodSwitcher kind={kind} offset={offset} year={year} years={years} basePath="/app/income" />} />
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <Stat
           label={`Received in ${p.label}`}

@@ -1,4 +1,4 @@
-import { balances, listTransactions, monthPeriod, spendingByCategory, specificMonth, summary, type Period } from "@/core/analytics";
+import { allTimePeriod, availableYears, balances, calendarYearPeriod, incomeSources, lastNMonthsPeriod, listTransactions, monthPeriod, monthlyTrendFor, spendingByCategory, specificMonth, summary, ytdPeriod, type Period } from "@/core/analytics";
 import { reviewQuestionsFor, loadCadence, spendingSplit, type EverydayGroup } from "@/core/cadence";
 import { apiError, apiJson, requireApiUser } from "@/lib/mobile/http";
 import { loadFxContext } from "@/core/fx/rates";
@@ -7,7 +7,19 @@ import { minor, transactionJson } from "@/lib/mobile/serialize";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function resolvePeriod(url: URL): { period: Period } | { error: string } {
+async function resolvePeriod(userId: string, url: URL): Promise<{ period: Period; span: string } | { error: string }> {
+  const span = url.searchParams.get("span") ?? (url.searchParams.get("month") ? "month" : url.searchParams.get("year") ? "year" : "month");
+  if (span === "3m") return { period: lastNMonthsPeriod(new Date(), 3), span };
+  if (span === "ytd") return { period: ytdPeriod(new Date()), span };
+  if (span === "12m") return { period: lastNMonthsPeriod(new Date(), 12), span };
+  if (span === "all") return { period: await allTimePeriod(userId), span };
+  if (span === "year") {
+    const raw = url.searchParams.get("year");
+    if (!raw || !/^\d{4}$/.test(raw)) return { error: "year must be YYYY" as const };
+    const year = Number(raw);
+    if (year < 2000 || year > 2100) return { error: "year must be YYYY" as const };
+    return { period: calendarYearPeriod(year), span };
+  }
   const month = url.searchParams.get("month");
   if (month) {
     const match = /^(\d{4})-(\d{2})$/.exec(month);
@@ -15,29 +27,32 @@ function resolvePeriod(url: URL): { period: Period } | { error: string } {
     const year = Number(match[1]);
     const monthIndex = Number(match[2]) - 1;
     if (monthIndex < 0 || monthIndex > 11 || year < 2000 || year > 2100) return { error: "month must be YYYY-MM" as const };
-    return { period: specificMonth(year, monthIndex) };
+    return { period: specificMonth(year, monthIndex), span: "month" };
   }
   const raw = url.searchParams.get("offset") ?? "0";
   if (!/^-?\d+$/.test(raw)) return { error: "offset must be an integer from -36 to 0" as const };
   const offset = Number(raw);
   if (offset > 0 || offset < -36) return { error: "offset must be an integer from -36 to 0" as const };
-  return { period: monthPeriod(new Date(), offset) };
+  return { period: monthPeriod(new Date(), offset), span: "month" };
 }
 
 export async function GET(req: Request) {
   const auth = await requireApiUser(req);
   if ("response" in auth) return auth.response;
-  const resolved = resolvePeriod(new URL(req.url));
+  const resolved = await resolvePeriod(auth.user.id, new URL(req.url));
   if ("error" in resolved) return apiError(400, resolved.error);
-  const { period } = resolved;
+  const { period, span } = resolved;
 
-  const [figures, bal, categories, recent, cadence, fx] = await Promise.all([
+  const [figures, bal, categories, recent, cadence, fx, sources, trend, years] = await Promise.all([
     summary(auth.user.id, period),
     balances(auth.user.id),
     spendingByCategory(auth.user.id, period),
     listTransactions(auth.user.id, {}, 1, 8),
     loadCadence(auth.user.id),
     loadFxContext(auth.user.id),
+    incomeSources(auth.user.id, period, 8),
+    monthlyTrendFor(auth.user.id, period),
+    availableYears(auth.user.id),
   ]);
   const split = await spendingSplit(auth.user.id, period, cadence);
   const reviewQuestions = await reviewQuestionsFor(auth.user.id, split.unlabelled);
@@ -45,10 +60,14 @@ export async function GET(req: Request) {
   const debitStreams = cadence.streams.filter((st) => st.type === "DEBIT");
 
   return apiJson({
-    period: { label: period.label, from: period.from.toISOString(), to: period.to.toISOString() },
+    period: { label: period.label, from: period.from.toISOString(), to: period.to.toISOString(), span },
     incomeMinor: minor(figures.income),
     expensesMinor: minor(figures.expenses),
     netMinor: minor(figures.net),
+    savingsRate: figures.savingsRate,
+    availableYears: years,
+    incomeSources: sources.map((row) => ({ name: row.name, kind: row.kind, totalMinor: minor(row.total), count: row.count })),
+    monthlyTrend: trend.map((row) => ({ label: row.label, incomeMinor: minor(row.income), expensesMinor: minor(row.expenses) })),
     count: figures.count,
     incomeCount: figures.incomeCount,
     expenseCount: figures.expenseCount,

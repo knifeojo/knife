@@ -91,6 +91,9 @@ describe("uploading Pesa and Deel statements", () => {
     expect(s.unconverted).toEqual([]);
     // Only the client payment is income. The advance is a loan, the withdrawal is the user's own money.
     expect(Number(s.income)).toBe(Math.round(400_000 * rate));
+    // The $800 advance and its repayment cancel; only the $25 advance fee is spending.
+    expect(Number(s.expenses)).toBe(Math.round(2_500 * rate));
+    expect(byId("adv-1").transferPairId).toBe(byId("rep-1").id);
   });
 
   it("keeps FairMoney and Renmoney disbursements out of income and repayments in debt", async () => {

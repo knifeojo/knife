@@ -24,6 +24,35 @@ void main() {
     expect(summary.spending.single.category, 'Food');
     expect(summary.recent.single.title, 'Shoprite');
     expect(summary.recent.single.category, 'Food');
+    expect(summary.savingsRate, isNull);
+    expect(summary.monthlyTrend, isEmpty);
+  });
+
+  test('reads savings rate, income sources and a monthly trend', () {
+    final summary = HomeSummary.fromJson({
+      'period': {'label': 'Year to date 2026', 'span': 'ytd', 'from': '2025-12-31T23:00:00.000Z', 'to': '2026-10-31T23:00:00.000Z'},
+      'incomeMinor': '100000',
+      'expensesMinor': '40000',
+      'netMinor': '60000',
+      'balanceMinor': '1',
+      'balanceCurrency': 'NGN',
+      'count': 2,
+      'savingsRate': 0.6,
+      'availableYears': [2026],
+      'incomeSources': [
+        {'name': 'Acme Inc', 'kind': 'Salary', 'totalMinor': '100000', 'count': 1},
+      ],
+      'monthlyTrend': [
+        {'label': 'Sep', 'incomeMinor': '100000', 'expensesMinor': '40000'},
+      ],
+      'spendingByCategory': [],
+      'recent': [],
+    });
+    expect(summary.span, 'ytd');
+    expect(summary.savingsRate, 0.6);
+    expect(summary.availableYears, [2026]);
+    expect(summary.incomeSources.single.name, 'Acme Inc');
+    expect(summary.monthlyTrend.single.label, 'Sep');
   });
 
   test('reads recurring vs one-off labels and the spending split', () {

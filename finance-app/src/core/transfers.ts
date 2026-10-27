@@ -211,6 +211,7 @@ export async function pairOwnTransfers(userId: string): Promise<number> {
     paired = pairs.length;
   }
   paired += await pairReversals(userId);
+  paired += await pairAdvances(userId);
   return paired;
 }
 
@@ -260,6 +261,51 @@ export async function pairReversals(userId: string): Promise<number> {
     paired++;
   }
   if (paired) log.info("transfers.reversals", { userId, pairs: paired });
+  return paired;
+}
+
+const ADVANCE_WINDOW_MS = 35 * 86400_000;
+
+/**
+ * A lender advance and its repayment of the same amount on the same account (same or next
+ * ~35 days) cancel out: they are neither income nor spending. Greedy oldest-first.
+ * Unmatched repayments stay as debt. Advance fees are left as real Fees expenses.
+ */
+export async function pairAdvances(userId: string): Promise<number> {
+  const [credits, debits] = await Promise.all([
+    db.transaction.findMany({
+      where: { userId, type: "CREDIT", transferPairId: null, category: "Debt", subcategory: "Loan proceeds" },
+      select: { id: true, accountId: true, amountMinor: true, currency: true, transactionDate: true },
+      orderBy: { transactionDate: "asc" },
+    }),
+    db.transaction.findMany({
+      where: { userId, type: "DEBIT", transferPairId: null, category: "Debt", subcategory: "Loan repayment" },
+      select: { id: true, accountId: true, amountMinor: true, currency: true, transactionDate: true },
+      orderBy: { transactionDate: "asc" },
+    }),
+  ]);
+  if (!credits.length || !debits.length) return 0;
+  const used = new Set<string>();
+  let paired = 0;
+  for (const credit of credits) {
+    const until = credit.transactionDate.getTime() + ADVANCE_WINDOW_MS;
+    const debit = debits.find((d) =>
+      !used.has(d.id)
+      && d.accountId === credit.accountId
+      && d.currency === credit.currency
+      && d.amountMinor === credit.amountMinor
+      && d.transactionDate.getTime() >= credit.transactionDate.getTime()
+      && d.transactionDate.getTime() <= until
+    );
+    if (!debit) continue;
+    used.add(debit.id);
+    await db.$transaction([
+      db.transaction.update({ where: { id: credit.id }, data: { transferPairId: debit.id } }),
+      db.transaction.update({ where: { id: debit.id }, data: { transferPairId: credit.id } }),
+    ]);
+    paired++;
+  }
+  if (paired) log.info("transfers.advances", { userId, pairs: paired });
   return paired;
 }
 

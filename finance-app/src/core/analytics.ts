@@ -36,6 +36,66 @@ export function specificMonth(year: number, monthIndex: number): Period {
   };
 }
 
+/** Inclusive span of `months` Lagos calendar months ending in the month that contains `now`. */
+export function lastNMonthsPeriod(now: Date, months: number): Period {
+  const start = monthPeriod(now, -(months - 1));
+  const end = monthPeriod(now, 0);
+  return { from: start.from, to: end.to, label: months === 3 ? "Last 3 months" : `Last ${months} months` };
+}
+
+export function ytdPeriod(now: Date): Period {
+  const local = new Date(now.getTime() + LAGOS_MS);
+  const y = local.getUTCFullYear();
+  return { from: new Date(Date.UTC(y, 0, 1) - LAGOS_MS), to: monthPeriod(now, 0).to, label: `Year to date ${y}` };
+}
+
+export function calendarYearPeriod(year: number): Period {
+  return { from: new Date(Date.UTC(year, 0, 1) - LAGOS_MS), to: new Date(Date.UTC(year + 1, 0, 1) - LAGOS_MS), label: String(year) };
+}
+
+export async function allTimePeriod(userId: string, now = new Date()): Promise<Period> {
+  const first = await db.transaction.findFirst({ where: { userId }, orderBy: { transactionDate: "asc" }, select: { transactionDate: true } });
+  const end = monthPeriod(now, 0);
+  if (!first) return { ...end, label: "All time" };
+  return { from: first.transactionDate, to: end.to, label: "All time" };
+}
+
+/** Each Lagos calendar month that overlaps `p` (to is exclusive). */
+export function monthsInPeriod(p: Period): Period[] {
+  const start = new Date(p.from.getTime() + LAGOS_MS);
+  const end = new Date(p.to.getTime() + LAGOS_MS);
+  const out: Period[] = [];
+  let y = start.getUTCFullYear();
+  let m = start.getUTCMonth();
+  const endY = end.getUTCFullYear();
+  const endM = end.getUTCMonth();
+  while (y < endY || (y === endY && m < endM)) {
+    out.push(specificMonth(y, m));
+    m += 1;
+    if (m > 11) { m = 0; y += 1; }
+  }
+  return out;
+}
+
+export async function availableYears(userId: string): Promise<number[]> {
+  const [first, last] = await Promise.all([
+    db.transaction.findFirst({ where: { userId }, orderBy: { transactionDate: "asc" }, select: { transactionDate: true } }),
+    db.transaction.findFirst({ where: { userId }, orderBy: { transactionDate: "desc" }, select: { transactionDate: true } }),
+  ]);
+  if (!first || !last) return [new Date(Date.now() + LAGOS_MS).getUTCFullYear()];
+  const a = new Date(first.transactionDate.getTime() + LAGOS_MS).getUTCFullYear();
+  const b = new Date(last.transactionDate.getTime() + LAGOS_MS).getUTCFullYear();
+  const years: number[] = [];
+  for (let y = b; y >= a; y--) years.push(y);
+  return years;
+}
+
+/** (income − expenses) / income, or null when there is no income. */
+export function savingsRate(income: bigint, expenses: bigint): number | null {
+  if (income <= 0n) return null;
+  return Number(income - expenses) / Number(income);
+}
+
 const range = (p: Period) => ({ gte: p.from, lt: p.to });
 const notOwn = { not: OWN_TRANSFER };
 
@@ -142,7 +202,7 @@ export async function summary(userId: string, p: Period) {
   const income = inc.reduce((s, r) => s + r.naira, 0n);
   const expenses = exp.reduce((s, r) => s + r.naira, 0n) - refunds.reduce((s, r) => s + r.naira, 0n);
   return {
-    income, expenses, net: income - expenses, count, incomeCount: inc.length, expenseCount: exp.length,
+    income, expenses, net: income - expenses, savingsRate: savingsRate(income, expenses), count, incomeCount: inc.length, expenseCount: exp.length,
     /** Foreign-currency rates used, so the UI can say "CAD at your rate of ₦964". */
     ratesUsed: [...rates.values()].filter((fx) => rows.some((r) => r.converted && r.currency === fx.currency)),
     /** Foreign-currency amounts with no learned rate yet (not in the naira totals). */
@@ -236,11 +296,16 @@ export async function topMerchants(userId: string, p: Period, take = 8) {
 
 /** Income and expenses per month for the last `months` months including the current one. */
 export async function monthlyTrend(userId: string, now: Date, months = 6) {
-  const periods = Array.from({ length: months }, (_, i) => monthPeriod(now, i - (months - 1)));
+  return monthlyTrendFor(userId, lastNMonthsPeriod(now, months));
+}
+
+/** Income and expenses for each calendar month in `p`. */
+export async function monthlyTrendFor(userId: string, p: Period) {
+  const periods = monthsInPeriod(p);
   return Promise.all(
-    periods.map(async (p) => {
-      const s = await summary(userId, p);
-      return { label: p.label.slice(0, 3), period: p, income: s.income, expenses: s.expenses };
+    periods.map(async (m) => {
+      const s = await summary(userId, m);
+      return { label: m.label.replace(/ \d{4}$/, "").slice(0, 3), period: m, income: s.income, expenses: s.expenses };
     }),
   );
 }
