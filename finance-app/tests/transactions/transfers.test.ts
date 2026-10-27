@@ -91,6 +91,32 @@ describe("cross-currency own transfers", () => {
     expect(pairs[0].clue).toMatch(/own-name/);
   });
 
+  it("pairs a Deel withdrawal with the next-day DEEL INC credit", () => {
+    const d = leg({
+      id: "deel-d",
+      accountId: "usd",
+      institution: "Deel",
+      currency: "USD",
+      amountMinor: 100_00n,
+      transactionDate: new Date("2026-10-05T12:00:00Z"),
+      description: "Money transfer to Ada Eze / Deel withdrawal",
+    });
+    const c = leg({
+      id: "deel-c",
+      accountId: "gtb",
+      institution: "GTBank",
+      type: "CREDIT",
+      currency: "NGN",
+      amountMinor: 154_000_00n,
+      transactionDate: new Date("2026-10-06T09:00:00Z"),
+      description: "NIP CREDIT DEEL INC",
+      counterparty: "DEEL INC",
+    });
+    const pairs = findPairs([d, c], []);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].clue).toMatch(/payout landing/);
+  });
+
   it("needs 3+ consistent conversions; an income label does not block, a spending label does", () => {
     expect(findPairs([cad(1000, "2026-09-24"), ngn(973000, "2026-09-24")], [])).toHaveLength(0);
     const salary = { ...ngn(973000, "2026-09-24"), category: "Income", classificationSource: "user" };

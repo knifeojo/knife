@@ -2,7 +2,9 @@ import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
 import { categorize } from "../categorize";
+import { aggregateUnmatchedLandings, matchPayoutLandings, type LandingLeg } from "./landings";
 import { backfillMarketDates } from "./provider";
+import { extractPayoutQuote } from "./quotes";
 import { lagosDay } from "./rates";
 
 const BASE = "NGN";
@@ -40,6 +42,7 @@ interface FxLeg {
   currency: string;
   transactionDate: Date;
   description: string;
+  counterparty: string | null;
   classificationSource: string;
   transferPairId: string | null;
   fxQuoteCurrency: string | null;
@@ -136,7 +139,7 @@ async function loadFxLegs(userId: string): Promise<FxLeg[]> {
     where: { userId },
     select: {
       id: true, type: true, amountMinor: true, currency: true, transactionDate: true,
-      description: true, classificationSource: true, transferPairId: true,
+      description: true, counterparty: true, classificationSource: true, transferPairId: true,
       fxQuoteCurrency: true, fxQuoteMinor: true,
     },
   });
@@ -158,12 +161,13 @@ function impliedFromLinks(legs: FxLeg[]): ImpliedPair[] {
   return out;
 }
 
-function impliedFromQuotes(legs: FxLeg[], linkedNairaIds: Set<string>): ImpliedPair[] {
+function impliedFromQuotes(legs: FxLeg[], skipIds: Set<string>): ImpliedPair[] {
   const out: ImpliedPair[] = [];
   for (const tx of legs) {
+    if (skipIds.has(tx.id)) continue;
     if (!tx.fxQuoteMinor || tx.fxQuoteMinor <= 0n || tx.amountMinor <= 0n) continue;
     if (tx.fxQuoteCurrency !== BASE || tx.currency === BASE) continue;
-    if (tx.transferPairId && linkedNairaIds.has(tx.transferPairId)) continue;
+    if (tx.transferPairId && skipIds.has(tx.transferPairId)) continue;
     const rate = Number(tx.fxQuoteMinor) / Number(tx.amountMinor);
     if (!Number.isFinite(rate) || rate <= 0) continue;
     out.push({
@@ -180,6 +184,81 @@ function impliedFromQuotes(legs: FxLeg[], linkedNairaIds: Set<string>): ImpliedP
     });
   }
   return out;
+}
+
+async function persistExtractedQuotes(legs: FxLeg[]): Promise<void> {
+  for (const tx of legs) {
+    if (tx.type !== "DEBIT" || tx.currency === BASE || tx.amountMinor <= 0n) continue;
+    if (tx.fxQuoteMinor && tx.fxQuoteMinor > 0n) continue;
+    const q = extractPayoutQuote(tx.description, tx.amountMinor);
+    if (!q) continue;
+    await db.transaction.update({
+      where: { id: tx.id },
+      data: { fxQuoteCurrency: BASE, fxQuoteMinor: q.ngnMinor },
+    });
+    tx.fxQuoteCurrency = BASE;
+    tx.fxQuoteMinor = q.ngnMinor;
+  }
+}
+
+function asLanding(leg: FxLeg): LandingLeg {
+  return {
+    id: leg.id,
+    type: leg.type,
+    amountMinor: leg.amountMinor,
+    currency: leg.currency,
+    transactionDate: leg.transactionDate,
+    description: leg.description,
+    counterparty: leg.counterparty,
+    transferPairId: leg.transferPairId,
+  };
+}
+
+function pairFromLanding(
+  match: { debit: LandingLeg; credit: LandingLeg; rate: number; date: string; foreignMinor: bigint; nairaMinor: bigint },
+  byId: Map<string, FxLeg>,
+  quoted = false,
+): ImpliedPair | undefined {
+  const debit = byId.get(match.debit.id);
+  const credit = byId.get(match.credit.id);
+  if (!debit || !credit) return undefined;
+  const pair = asPair(debit, credit);
+  if (!pair) return undefined;
+  return { ...pair, date: match.date, rate: match.rate, foreignMinor: match.foreignMinor, nairaMinor: match.nairaMinor, quoted };
+}
+
+function impliedFromLandings(
+  legs: FxLeg[],
+  owners: string[],
+  skipIds: Set<string>,
+  referenceForDate: (date: string, currency: string) => number | undefined,
+): ImpliedPair[] {
+  const byId = new Map(legs.map((l) => [l.id, l]));
+  const free = legs.filter((l) => !skipIds.has(l.id) && !l.transferPairId).map(asLanding);
+  const matched = matchPayoutLandings(free, owners, referenceForDate);
+  const pairs: ImpliedPair[] = [];
+  const used = new Set<string>();
+  for (const m of matched) {
+    const pair = pairFromLanding(m, byId);
+    if (!pair) continue;
+    pairs.push(pair);
+    used.add(m.debit.id);
+    used.add(m.credit.id);
+  }
+  const leftover = free.filter((l) => !used.has(l.id));
+  for (const m of aggregateUnmatchedLandings(leftover, owners, [], referenceForDate)) {
+    const pair = pairFromLanding(m, byId, true);
+    if (pair) pairs.push(pair);
+  }
+  return pairs;
+}
+
+async function loadOwners(userId: string): Promise<string[]> {
+  const [accounts, user] = await Promise.all([
+    db.account.findMany({ where: { userId, holderName: { not: null } }, select: { holderName: true } }),
+    db.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
+  return [...new Set([...accounts.map((a) => a.holderName!), ...(user?.name ? [user.name] : [])])];
 }
 
 export async function isBlockedMispair(userId: string, a: string, b: string): Promise<boolean> {
@@ -300,8 +379,9 @@ function referenceFor(
 }
 
 /**
- * Derives realised NGN rates from every linked foreign↔naira pair (and unpaired source quotes).
- * Idempotent: rewrites the user's realised rows, rejects outliers, retags CAD legs stored as USD.
+ * Derives realised NGN rates from linked pairs, quoted payout lines, and Deel-style
+ * same/next-day landings. Idempotent: rewrites the user's realised rows, rejects outliers,
+ * retags CAD legs stored as USD. Market is only a fallback when no realised rate exists.
  */
 export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
   const foreignDays = await db.transaction.findMany({
@@ -310,7 +390,7 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
   });
   const marketResult = await backfillMarketDates([...new Set(foreignDays.map((r) => lagosDay(r.transactionDate)))]);
 
-  const [legs, marketRows, kept] = await Promise.all([
+  const [legs, marketRows, kept, owners] = await Promise.all([
     loadFxLegs(userId),
     db.fxRate.findMany({
       where: { quote: BASE, source: { in: ["market", "seed"] }, userId: "" },
@@ -320,10 +400,22 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
       where: { userId, pattern: { startsWith: MISPAIR_PREFIX }, subcategory: MISPAIR_KEPT },
       select: { pattern: true },
     }),
+    loadOwners(userId),
   ]);
   const keptKeys = new Set(kept.map((k) => k.pattern));
+  await persistExtractedQuotes(legs);
 
-  let pairs = impliedFromLinks(legs);
+  const linked = impliedFromLinks(legs);
+  const taken = new Set(linked.flatMap((p) => [p.debitId, p.creditId, p.foreignId, p.naira.id]));
+  const landings = impliedFromLandings(legs, owners, taken, (date, ccy) => marketOn(marketRows, date, ccy));
+  for (const p of landings) {
+    taken.add(p.debitId);
+    taken.add(p.creditId);
+    taken.add(p.foreignId);
+    taken.add(p.naira.id);
+  }
+  const quotes = impliedFromQuotes(legs, taken);
+  let pairs = [...linked, ...landings, ...quotes];
   const usdRates = pairs.filter((p) => p.foreign.currency === "USD").map((p) => p.rate);
   const usdMedian = marketOn(marketRows, "9999-12-31", "USD") ?? median(usdRates);
   const cadMedian = marketOn(marketRows, "9999-12-31", "CAD") ?? median(pairs.filter((p) => p.foreign.currency === "CAD").map((p) => p.rate));
@@ -339,9 +431,7 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
     retagged++;
   }
 
-  const linkedNaira = new Set(pairs.map((p) => p.naira.id));
-  const quotes = impliedFromQuotes(legs, linkedNaira);
-  const candidates = [...pairs, ...quotes];
+  const candidates = pairs;
 
   const byCurrency = new Map<string, number[]>();
   for (const p of candidates) {
@@ -363,8 +453,11 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
     if (!keptPair && isOutlierRate(p.rate, reference)) {
       rejected++;
       if (!p.quoted) {
-        await rememberMispair(userId, p, reference);
-        await unpairOutlier(userId, p.debitId, p.creditId);
+        const debit = legs.find((l) => l.id === p.debitId);
+        if (debit?.transferPairId === p.creditId) {
+          await rememberMispair(userId, p, reference);
+          await unpairOutlier(userId, p.debitId, p.creditId);
+        }
       }
       continue;
     }

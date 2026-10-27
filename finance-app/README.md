@@ -198,7 +198,7 @@ Schema: `Person`, `PersonAlias` and `PeopleBatch` (undo) tables and a nullable `
 
 **Re-apply categories to existing data.** Rows imported before this change keep their old categories until re-applied. Web: **Settings → Re-apply categories**. CLI: `npm run recategorize -- --email you@example.com`. It also moves old Other / Giving, Tithe, Offering and Charity labels (including hand-made ones and merchant aliases) to the Giving category. Hand-labelled rows otherwise keep their label.
 
-**Rebuild exchange rates.** After deploying FX fixes, restart the app or run `npm run fx:rebuild -- --email you@example.com` (omit `--email` for every user). That backfills realised rates from existing linked pairs, fetches missing daily market rates, drops outlier mis-pairs, and retags CAD wallet legs stored as USD.
+**Rebuild exchange rates.** After deploying FX fixes, restart the app or run `npm run fx:rebuild -- --email you@example.com` (omit `--email` for every user). That backfills realised rates from quoted wallet payouts, Deel-style same/next-day landings, and existing linked pairs; fetches missing daily market rates; drops outlier mis-pairs; and retags CAD wallet legs stored as USD.
 
 ## AI: hybrid local + cloud routing
 

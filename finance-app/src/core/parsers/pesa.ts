@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { parseAmountToMinor } from "@/lib/money";
 import { lagosDay } from "../dedup";
+import { extractPayoutQuote } from "../fx/quotes";
 import type { CanonicalTransaction, TransactionType } from "../types";
 import type { StatementParseResult } from "../statements";
 import { parseBankDate } from "./text";
@@ -493,20 +494,30 @@ export function parsePesaStatement(text: string): { result: StatementParseResult
     const n = (seen.get(key) ?? 0) + 1;
     seen.set(key, n);
     const sourceTransactionId = createHash("sha256").update(`${key}#${n}`).digest("hex").slice(0, 32);
+    const rowCurrency = draft.currency ?? currency;
+    let fxQuoteCurrency = draft.fxQuoteCurrency;
+    let fxQuoteMinor = draft.fxQuoteMinor;
+    if (!fxQuoteMinor && rowCurrency !== "NGN" && draft.type === "DEBIT") {
+      const quoted = extractPayoutQuote(draft.description, draft.amount);
+      if (quoted) {
+        fxQuoteCurrency = "NGN";
+        fxQuoteMinor = quoted.ngnMinor;
+      }
+    }
     transactions.push({
       institution: "Pesa",
       source: "statement",
       sourceTransactionId,
       type: draft.type,
       amountMinor: draft.amount,
-      currency: draft.currency ?? currency,
+      currency: rowCurrency,
       transactionDate: draft.date,
       description: draft.description,
       balanceAfterMinor: draft.balance,
       accountLast4,
       accountHolder: holder,
-      fxQuoteCurrency: draft.fxQuoteCurrency,
-      fxQuoteMinor: draft.fxQuoteMinor,
+      fxQuoteCurrency,
+      fxQuoteMinor,
       confidence: 1,
     });
   }

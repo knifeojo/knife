@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseAmountToMinor } from "@/lib/money";
+import { extractPayoutQuote } from "./fx/quotes";
 import { parseBankDate } from "./parsers/text";
 import type { CanonicalTransaction, TransactionType } from "./types";
 import { inferHolderName } from "./categorize";
@@ -289,6 +290,13 @@ export function parseStatementRows(
       accountLast4,
       confidence: 1,
     };
+    if (currency !== "NGN" && type === "DEBIT") {
+      const quoted = extractPayoutQuote(tx.description, amount);
+      if (quoted) {
+        tx.fxQuoteCurrency = "NGN";
+        tx.fxQuoteMinor = quoted.ngnMinor;
+      }
+    }
     transactions.push(tx);
     prev = tx;
   }

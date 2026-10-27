@@ -138,6 +138,138 @@ describe("FX rebuild from existing pairs", () => {
     expect(hit!.nairaMinor).toBe(9_000_000_00n);
   });
 
+  it("uses a quoted payout rate on an unpaired wallet row", async () => {
+    const { userId, usd } = await setup();
+    await market("2026-10-04", "USD", 1500);
+    await db.transaction.create({
+      data: {
+        userId,
+        accountId: usd.id,
+        source: "fixture",
+        sourceTransactionId: fp(),
+        fingerprint: fp(),
+        transactionDate: new Date("2026-10-04T12:00:00Z"),
+        type: "DEBIT",
+        amountMinor: 100_00n,
+        currency: "USD",
+        description: "USD wallet payout @ 1550 NGN / Guaranty Trust Bank",
+        counterparty: "Ada Eze",
+        category: "Own transfer",
+        subcategory: "Currency conversion",
+        classificationSource: "rule",
+        classificationConfidence: 0.9,
+      },
+    });
+
+    const r = await rebuildUserFx(userId);
+    expect(r.realised).toBe(1);
+    const fx = await db.fxRate.findFirstOrThrow({ where: { userId, source: "realised", date: "2026-10-04" } });
+    expect(fx).toMatchObject({ base: "USD", rate: 1550 });
+    const ctx = await loadFxContext(userId);
+    expect(convertToNgn(ctx, 40_00n, "USD", new Date("2026-10-05T12:00:00Z"))).toMatchObject({ rate: 1550, source: "realised" });
+  });
+
+  it("matches a next-day Deel withdrawal to the naira landing", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-06", "USD", 1500);
+    await db.transaction.create({
+      data: {
+        userId,
+        accountId: usd.id,
+        source: "fixture",
+        sourceTransactionId: fp(),
+        fingerprint: fp(),
+        transactionDate: new Date("2026-10-05T12:00:00Z"),
+        type: "DEBIT",
+        amountMinor: 100_00n,
+        currency: "USD",
+        description: "Money transfer to Ada Eze / Deel withdrawal",
+        counterparty: "Ada Eze",
+        category: "Own transfer",
+        subcategory: "Currency conversion",
+        classificationSource: "rule",
+        classificationConfidence: 0.9,
+      },
+    });
+    await db.transaction.create({
+      data: {
+        userId,
+        accountId: ngn.id,
+        source: "fixture",
+        sourceTransactionId: fp(),
+        fingerprint: fp(),
+        transactionDate: new Date("2026-10-06T09:00:00Z"),
+        type: "CREDIT",
+        amountMinor: 154_000_00n,
+        currency: "NGN",
+        description: "NIP CREDIT DEEL INC",
+        counterparty: "DEEL INC",
+        category: "Income",
+        subcategory: "Transfer",
+        classificationSource: "rule",
+        classificationConfidence: 0.9,
+      },
+    });
+
+    const r = await rebuildUserFx(userId);
+    expect(r.realised).toBe(1);
+    const fx = await db.fxRate.findFirstOrThrow({ where: { userId, source: "realised" } });
+    expect(fx).toMatchObject({ date: "2026-10-06", base: "USD", rate: 1540 });
+  });
+
+  it("uses the day's amount-weighted aggregate when same-day withdrawals are ambiguous", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-08", "USD", 1500);
+    const debit = async (id: string) =>
+      db.transaction.create({
+        data: {
+          userId,
+          accountId: usd.id,
+          source: "fixture",
+          sourceTransactionId: fp(),
+          fingerprint: fp(),
+          transactionDate: new Date("2026-10-08T11:00:00Z"),
+          type: "DEBIT",
+          amountMinor: 100_00n,
+          currency: "USD",
+          description: `Money transfer to Ada Eze / Deel withdrawal ${id}`,
+          counterparty: "Ada Eze",
+          category: "Own transfer",
+          subcategory: "Currency conversion",
+          classificationSource: "rule",
+          classificationConfidence: 0.9,
+        },
+      });
+    const credit = async (ngnMinor: bigint, tag: string) =>
+      db.transaction.create({
+        data: {
+          userId,
+          accountId: ngn.id,
+          source: "fixture",
+          sourceTransactionId: fp(),
+          fingerprint: fp(),
+          transactionDate: new Date("2026-10-08T14:00:00Z"),
+          type: "CREDIT",
+          amountMinor: ngnMinor,
+          currency: "NGN",
+          description: `NIP CREDIT DEEL INC ${tag}`,
+          counterparty: "DEEL INC",
+          category: "Income",
+          subcategory: "Transfer",
+          classificationSource: "rule",
+          classificationConfidence: 0.9,
+        },
+      });
+    await debit("a");
+    await debit("b");
+    await credit(150_000_00n, "one");
+    await credit(160_000_00n, "two");
+
+    await rebuildUserFx(userId);
+    const fx = await db.fxRate.findFirstOrThrow({ where: { userId, source: "realised", date: "2026-10-08" } });
+    expect(fx.rate).toBeCloseTo(310_000 / 200, 8);
+  });
+
   it("retags a USD-labeled pair whose rate matches CAD", async () => {
     const { userId, usd, ngn } = await setup();
     await market("2026-09-28", "USD", 1500);

@@ -6,7 +6,11 @@ Ledger converts foreign-currency amounts to naira so Afford, Review, People and 
 
 For a currency pair on a given Lagos calendar day:
 
-1. **Realised** — the owner’s own conversion. Every linked foreign↔naira pair (`transferPairId`) and unpaired source quote is scanned. Same-day pairs become an **amount-weighted average** (`sum(NGN) / sum(foreign)`). A pair more than ~20% from the daily market rate (or from that currency’s median realised rate when no market row exists) is **rejected**: it is unpaired, flagged in Review as a likely mis-pair, and never stored as a rate. Used for that pair and as the preferred rate within **7 days**.
+1. **Realised** — the owner’s own conversion, and the primary rate for any day with USD activity. Sources, in order:
+   - A wallet payout line that **quotes** the NGN amount or rate (`@ 1550 NGN`, `NGN 155,000.00`) — used even before the bank credit is paired.
+   - A **Deel / payout landing**: a USD debit (`Money transfer to <owner> / Deel withdrawal`) matched to an NGN credit the same or next Lagos day whose narration names Deel, the payout partner, or the owner. Rate = NGN received / USD sent. Match is greedy by closest implied rate within ±20% of the rolling median or market; same-day near-ties use the day’s **amount-weighted aggregate** (`sum(NGN) / sum(USD)`).
+   - Every linked foreign↔naira pair (`transferPairId`) and unpaired source quote (e.g. Deel CSV). Same-day pairs are also amount-weighted.
+   A pair more than ~20% from the daily market rate (or from that currency’s median realised rate when no market row exists) is **rejected**: it is unpaired, flagged in Review as a likely mis-pair, and never stored as a rate. Used for that pair and as the preferred rate within **7 days**. Market is only a fallback when no realised rate exists for that window.
 2. **Daily market** — the free public [Currency API](https://github.com/fawazahmed0/currency-api) (no API key), cached in `FxRate` with source `market`. Official / interbank style. Ledger fetches every Lagos day that has a foreign-currency transaction. Offline it falls back to the nearest cached day.
 3. **Manual (street)** — a rate the owner types in Settings. Wins over market when they prefer street rates. Never beats a realised rate for its own pair within the 7-day window.
 

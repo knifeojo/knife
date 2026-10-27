@@ -73,6 +73,16 @@ describe("parseStatementRows", () => {
     const r = parseStatementRows([["hello", "world"]], { institution: "GTBank" });
     expect(r.errors[0].reason).toMatch(/header row/);
   });
+
+  it("captures a quoted payout rate on an unpaired USD wallet row", () => {
+    const rows = [
+      ["Date", "Transaction Details", "Amount", "Balance"],
+      ["Oct 4, 2026", "USD wallet payout @ 1550 NGN / Guaranty Trust Bank", "(100.00)", "400.00"],
+    ];
+    const r = parseStatementRows(rows, { institution: "Pesa", currency: "USD" });
+    expect(r.transactions).toHaveLength(1);
+    expect(r.transactions[0]).toMatchObject({ fxQuoteCurrency: "NGN", fxQuoteMinor: 155_000_00n });
+  });
 });
 
 describe("detectStatementMeta", () => {

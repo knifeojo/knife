@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
 import { OWN_TRANSFER, categorize, isSelf } from "./categorize";
+import { matchPayoutLandings, mentionsDeel } from "./fx/landings";
 import { lagosDay } from "./fx/rates";
 import { isBlockedMispair, rebuildUserFx } from "./fx/realised";
 import { BANKS } from "./statements";
@@ -91,6 +92,7 @@ export function findPairs(legs: Leg[], owners: string[]): PairCandidate[] {
     }
   }
   options.push(...crossCurrencyOptions(debits, credits, owners));
+  options.push(...payoutLandingOptions(debits, credits, owners));
   options.push(...ownNameFxOptions(debits, credits, owners));
   options.sort((a, b) => a.gap - b.gap);
   const used = new Set<string>();
@@ -151,6 +153,29 @@ function sameOrNextDay(a: Date, b: Date): boolean {
   const db_ = lagosDay(b);
   const gap = Math.abs(Date.parse(`${da}T00:00:00Z`) - Date.parse(`${db_}T00:00:00Z`)) / 86400_000;
   return gap <= 1;
+}
+
+/**
+ * Deel USD (or other foreign) withdrawals that land as an NGN bank credit the same or next
+ * Lagos day. Rate-checked greedy matching; generic wallet→bank sends still need the 3+ cluster
+ * or the owner's name.
+ */
+function payoutLandingOptions(debits: Leg[], credits: Leg[], owners: string[]): (PairCandidate & { gap: number })[] {
+  const byId = new Map([...debits, ...credits].map((l) => [l.id, l]));
+  return matchPayoutLandings([...debits, ...credits], owners)
+    .filter((m) => mentionsDeel(m.debit) || mentionsDeel(m.credit))
+    .flatMap((m) => {
+      const debit = byId.get(m.debit.id);
+      const credit = byId.get(m.credit.id);
+      if (!debit || !credit || debit.accountId === credit.accountId) return [];
+      if (blockedByLabel(debit) || blockedByLabel(credit)) return [];
+      return [{
+        debit,
+        credit,
+        clue: `payout landing ${debit.currency} to NGN`,
+        gap: Math.abs(credit.transactionDate.getTime() - debit.transactionDate.getTime()),
+      }];
+    });
 }
 
 /**

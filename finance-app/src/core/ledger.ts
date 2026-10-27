@@ -7,6 +7,7 @@ import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
 import { BANK_SOURCES, INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
 import type { KnownPerson } from "./people-match";
+import { extractPayoutQuote } from "./fx/quotes";
 import { storeQuotedRate } from "./fx/realised";
 import { pairOwnTransfers } from "./transfers";
 import type { CanonicalTransaction } from "./types";
@@ -176,6 +177,16 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
   const ownerNames = [...(owners ?? (await loadOwners(userId))), ...(tx.accountHolder ? [tx.accountHolder] : [])];
   const c = categorize({ description: tx.description, type: tx.type }, userRules ?? (await loadUserRules(userId)), ownerNames);
 
+  let fxQuoteCurrency = tx.fxQuoteCurrency;
+  let fxQuoteMinor = tx.fxQuoteMinor;
+  if ((!fxQuoteMinor || fxQuoteMinor <= 0n) && tx.currency !== "NGN" && tx.type === "DEBIT") {
+    const quoted = extractPayoutQuote(tx.description, tx.amountMinor);
+    if (quoted) {
+      fxQuoteCurrency = "NGN";
+      fxQuoteMinor = quoted.ngnMinor;
+    }
+  }
+
   try {
     const created = await db.transaction.create({
       data: {
@@ -189,8 +200,8 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
         amountMinor: tx.amountMinor,
         currency: tx.currency,
         balanceAfterMinor: tx.balanceAfterMinor,
-        fxQuoteCurrency: tx.fxQuoteCurrency,
-        fxQuoteMinor: tx.fxQuoteMinor,
+        fxQuoteCurrency,
+        fxQuoteMinor,
         description: tx.description,
         reference: tx.reference,
         counterparty: c.counterparty,
@@ -215,8 +226,8 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
         data: { balanceMinor: tx.balanceAfterMinor, balanceUpdatedAt: tx.transactionDate },
       });
     }
-    if (tx.fxQuoteMinor && tx.fxQuoteCurrency) {
-      await storeQuotedRate(userId, tx);
+    if (fxQuoteMinor && fxQuoteCurrency) {
+      await storeQuotedRate(userId, { ...tx, fxQuoteCurrency, fxQuoteMinor });
     }
     return { status: "created", transactionId: created.id };
   } catch (e) {
