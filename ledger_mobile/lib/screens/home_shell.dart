@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../api/models.dart';
+import '../state/ledger_controller.dart';
 import 'accounts_screen.dart';
 import 'affordability_screen.dart';
+import 'onboarding_screen.dart';
 import 'settings_screen.dart';
 import 'summary_screen.dart';
 import 'transactions_screen.dart';
@@ -16,8 +20,27 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  bool _asked = false;
 
   static const _titles = ['Home', 'Accounts', 'Activity', 'Upload', 'Afford'];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOnboard());
+  }
+
+  Future<void> _maybeOnboard() async {
+    if (_asked || !mounted) return;
+    _asked = true;
+    try {
+      final state = await context.read<LedgerController>().onboarding();
+      if (!mounted || !state.needsOnboarding) return;
+      await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => OnboardingScreen(initial: state)));
+    } on ApiException {
+      // Older servers, or a blip: the rest of the app still works.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

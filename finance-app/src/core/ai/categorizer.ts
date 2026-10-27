@@ -5,6 +5,7 @@ import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
 import { INCOME_CATEGORY, OWN_TRANSFER } from "../categorize";
 import { loadKnownPeople } from "../ledger";
+import { NO_REGISTRY, isRegistryCandidate, type BusinessRegistry, type RegistryResult } from "../merchants/registry";
 import { matchPeople, relationshipInfo, type KnownPerson } from "../people-match";
 import type { Classifier } from "../eval";
 import { AI_CATEGORIES, canonicalLabel, ruleOnly, taxonomyText } from "../taxonomy";
@@ -357,6 +358,40 @@ export interface SuggestOptions {
   /** Ask again about rows the model could not answer before. */
   retryFailed?: boolean;
   onBatch?: (p: BatchProgress) => void;
+  /** Asked about registered business names ("ACME VENTURES LTD") before any model. */
+  registry?: BusinessRegistry;
+}
+
+/**
+ * Registered businesses the registry knows, stored as pending suggestions like a model's answer.
+ * Only business names are looked up (never a person's). Returns the row ids it answered.
+ */
+async function registryAnswers(
+  userId: string,
+  rows: { id: string; type: string; counterparty: string | null; category: string; subcategory: string | null }[],
+  registry: BusinessRegistry,
+  dryRun: boolean,
+): Promise<Set<string>> {
+  const done = new Set<string>();
+  for (const t of rows) {
+    if (!t.counterparty || !isRegistryCandidate(t.counterparty)) continue;
+    let hit: RegistryResult | undefined;
+    try {
+      hit = await registry.lookup(t.counterparty);
+    } catch (e) {
+      log.warn("registry.lookup_failed", { error: e instanceof Error ? e.name : "unknown" });
+      continue;
+    }
+    if (!hit) continue;
+    const verdict = validateSuggestion({ id: "1", category: hit.category, subcategory: hit.subcategory ?? "", confidence: hit.confidence, reason: `Registered business: ${hit.name}` }, t);
+    if (!verdict.ok) continue;
+    done.add(t.id);
+    if (dryRun) continue;
+    const { category, subcategory, confidence, reason } = verdict.suggestion;
+    const data = { category, subcategory, confidence, reason, status: "pending", provider: "registry", model: "registry", decidedAt: null };
+    await db.categorySuggestion.upsert({ where: { transactionId: t.id }, create: { userId, transactionId: t.id, classificationSource: "registry", ...data }, update: data });
+  }
+  return done;
 }
 
 /** A local answer below this confidence (though above MIN_CONFIDENCE) still gets a second opinion. */
@@ -441,7 +476,7 @@ export async function suggestCategories(userId: string, opts: SuggestOptions = {
   const primary: Categorizer = first;
   const retryFailed = !!opts.retryFailed;
   const backlog = await backlogCount(userId, retryFailed);
-  const rows = await db.transaction.findMany({
+  let rows = await db.transaction.findMany({
     where: backlogWhere(userId, retryFailed),
     orderBy: [{ amountMinor: "desc" }, { id: "asc" }],
     take: Math.max(0, opts.limit ?? 200),
@@ -449,9 +484,16 @@ export async function suggestCategories(userId: string, opts: SuggestOptions = {
   });
   if (!rows.length) return empty(undefined, backlog);
 
+  const result = empty(undefined, backlog);
+  const viaRegistry = await registryAnswers(userId, rows, opts.registry ?? NO_REGISTRY, !!opts.dryRun);
+  result.asked += viaRegistry.size;
+  result.suggested += viaRegistry.size;
+  rows = rows.filter((t) => !viaRegistry.has(t.id));
+  if (!opts.dryRun) result.remaining = Math.max(0, backlog - result.asked);
+  if (!rows.length) return result;
+
   const size = Math.max(1, opts.batchSize ?? primary.batchSize ?? LOCAL_BATCH);
   const known = await loadKnownPeople(userId);
-  const result = empty(undefined, backlog);
   const tally = (c: Categorizer) => (c.provider === "anthropic" ? result.cloud : result.local);
   let firstDown: string | undefined;
 

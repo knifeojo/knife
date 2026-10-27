@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { balances, incomeSources, largest, monthPeriod, monthlyTrend, recurring, spendingByCategory, summary } from "@/core/analytics";
 import { loadCadence } from "@/core/cadence";
+import { onboardingState } from "@/core/onboarding";
 import { buildQuestions } from "@/core/review";
 import { formatMoney } from "@/lib/money";
 import { db } from "@/lib/db";
@@ -10,6 +12,7 @@ import { MonthSwitcher, resolveOffset } from "@/components/month-switcher";
 import { Card, Empty, Money, PageHeader, Stat, lagosDateLabel, relativeTime } from "@/components/ui";
 import { TxTable } from "@/components/tx-table";
 import { StatementUpload } from "@/components/statement-upload";
+import { TopPeopleCard } from "./top-people";
 
 export default async function Overview({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
@@ -17,7 +20,11 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const now = new Date();
   const period = monthPeriod(now, offset);
 
-  const txCount = await db.transaction.count({ where: { userId: user.id } });
+  const [txCount, welcome] = await Promise.all([
+    db.transaction.count({ where: { userId: user.id } }),
+    onboardingState(user.id),
+  ]);
+  if (welcome.needsOnboarding) redirect("/app/welcome");
   if (txCount === 0) return <Onboarding />;
 
   const [s, bal, cats, trend, recent, bills, big, lastConn, sources, questions, cadence, peopleCount] = await Promise.all([
@@ -45,7 +52,9 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         action={<MonthSwitcher offset={offset} basePath="/app" />}
       />
 
-      {peopleCount === 0 && peopleAsked > 0 && (
+      {welcome.topPeople.show && <TopPeopleCard people={welcome.topPeople.people} />}
+
+      {peopleCount === 0 && peopleAsked > 0 && !welcome.topPeople.show && (
         <Link href="/app/people" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 px-4 py-3 text-sm hover:opacity-90" data-testid="people-onboarding">
           <span>
             <strong>Who are your people?</strong> Ledger found {peopleAsked} {peopleAsked === 1 ? "person" : "people"} you send money to. Tell it who your spouse, siblings and parents are, and their payments are labelled for you.

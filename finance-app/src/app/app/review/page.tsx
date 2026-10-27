@@ -5,6 +5,8 @@ import { ALL_CATEGORIES } from "@/core/categorize";
 import { formatMoney } from "@/lib/money";
 import { Card, PageHeader } from "@/components/ui";
 import { answerQuestionAction, confirmSuggestionAction, dismissSuggestionAction } from "../actions";
+import { onboardingState } from "@/core/onboarding";
+import { TopPeopleCard } from "../top-people";
 import { PersonAnswers, PersonStatsLine } from "./person-answers";
 
 const labelOf = (g: SuggestionGroup) => (g.subcategory ? `${g.category} / ${g.subcategory}` : g.category);
@@ -31,7 +33,7 @@ function AiPick({ g }: { g: SuggestionGroup }) {
 
 export default async function Review() {
   const user = await requireUser();
-  const { questions, suggestions } = await reviewWithSuggestions(user.id);
+  const [{ questions, suggestions }, welcome] = await Promise.all([reviewWithSuggestions(user.id), onboardingState(user.id)]);
   const total = questions.reduce((s, q) => s + q.totalMinor, 0n);
 
   return (
@@ -48,6 +50,7 @@ export default async function Review() {
         People come first: tell Ledger who someone is once and every payment to and from them is labelled. See and change them on{" "}
         <Link href="/app/people" className="text-accent underline">Your people</Link>.
       </p>
+      {welcome.topPeople.show && <TopPeopleCard people={welcome.topPeople.people} />}
       {!questions.length && !suggestions.length && (
         <Card>
           <p className="text-sm text-ink-2">All caught up. You can still change any category on the <Link href="/app/transactions" className="text-accent underline">Transactions</Link> page.</p>

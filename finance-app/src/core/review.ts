@@ -4,6 +4,7 @@ import { ALL_CATEGORIES, INCOME_CATEGORY, OWN_TRANSFER, categorize, isSelf, name
 import { looksLikePerson } from "./ai/redact";
 import { loadKnownPeople } from "./ledger";
 import { createPerson, updatePerson } from "./people";
+import { familySurnames, guessFor, type PeopleGuess } from "./people-guess";
 import { RELATIONSHIPS, labelFor, mappingFor, matchPeople, relationshipInfo, sameIndividual, type KnownPerson } from "./people-match";
 import { pairOwnTransfers, suspectedConversions, unpairContradicted } from "./transfers";
 void suspectedConversions; // kept for answering legacy conversion questions
@@ -60,6 +61,8 @@ export interface Question {
   person?: PersonStats;
   /** Money still labelled as a plain transfer (or unlabelled) that the answer would fix. Sorts people questions. */
   impactMinor?: bigint;
+  /** Ledger's own guess about who an unknown individual is, with one-tap answers. Changes nothing until tapped. */
+  guess?: PeopleGuess;
 }
 
 export interface NarrationHint {
@@ -287,8 +290,13 @@ function moneyBoth(s: PersonStats): string {
   return parts.join(" and ").replace(/^./, (c) => c.toUpperCase());
 }
 
-export async function buildQuestions(userId: string, limit = 12): Promise<Question[]> {
-  const [aliases, accounts, tx, people] = await Promise.all([
+/** Unknown individuals asked about at a time. The rest wait their turn; their payments stay where the rules put them. */
+export const MAX_PEOPLE_QUESTIONS = 5;
+
+const personRank = (g: PersonGroup) => g.impact * 4n + g.total;
+
+async function reviewData(userId: string) {
+  const [aliases, accounts, tx, people, user] = await Promise.all([
     db.merchantAlias.findMany({ where: { userId }, select: { pattern: true } }),
     db.account.findMany({ where: { userId }, select: { holderName: true } }),
     db.transaction.findMany({
@@ -299,17 +307,49 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
       },
     }),
     loadKnownPeople(userId),
+    db.user.findUnique({ where: { id: userId }, select: { name: true } }),
   ]);
   const answered = (key: string) => aliases.some((a) => a.pattern === key || sameName(a.pattern, key));
-  const questions: Question[] = [];
   const owners = accounts.map((a) => a.holderName).filter((h): h is string => !!h);
+  return { answered, accounts, tx, people, owners, found: individuals(tx, owners, people), surnames: familySurnames(user?.name, owners, people) };
+}
 
-  // People first: one answer labels every payment to and from them.
-  const found = individuals(tx, owners, people);
+export interface TopPerson {
+  key: string;
+  display: string;
+  person: PersonStats;
+  guess?: PeopleGuess;
+}
+
+/** "You send money to these people most": unknown individuals by money sent, for one-tap answers after the first upload. */
+export async function topUnknownPeople(userId: string, limit = 6): Promise<TopPerson[]> {
+  const { answered, found, surnames } = await reviewData(userId);
+  return found.unknown
+    .filter((g) => g.stats.outCount > 0 && !answered(g.key))
+    .sort((a, b) => (b.stats.outMinor > a.stats.outMinor ? 1 : b.stats.outMinor < a.stats.outMinor ? -1 : 0))
+    .slice(0, limit)
+    .map((g) => ({ key: g.key, display: g.display, person: g.stats, guess: guessOf(g, surnames) }));
+}
+
+function guessOf(g: PersonGroup, surnames: string[]): PeopleGuess | undefined {
+  return guessFor({ name: g.display, inCount: g.stats.inCount, outCount: g.stats.outCount, regular: regularPattern(g.hits ?? []), surnames });
+}
+
+export async function buildQuestions(userId: string, limit = 12): Promise<Question[]> {
+  const { answered, accounts, tx, people, found, surnames } = await reviewData(userId);
+  const questions: Question[] = [];
+
+  // People first: one answer labels every payment to and from them. Only the few that move the most
+  // money are asked at once; every unknown individual is kept out of the business questions below.
   const asked = new Set<string>();
-  for (const g of found.unknown.filter((g) => (g.total >= QUESTION_MIN_MINOR || g.count >= 3) && !answered(g.key))) {
+  found.unknown.forEach((g) => g.stats.variants.forEach((v) => asked.add(v)));
+  const worthAsking = found.unknown
+    .filter((g) => (g.total >= QUESTION_MIN_MINOR || g.count >= 3) && !answered(g.key))
+    .sort((a, b) => (personRank(b) > personRank(a) ? 1 : personRank(b) < personRank(a) ? -1 : 0))
+    .slice(0, MAX_PEOPLE_QUESTIONS);
+  for (const g of worthAsking) {
     const regular = regularPattern(g.hits ?? []);
-    g.stats.variants.forEach((v) => asked.add(v));
+    const guess = guessOf(g, surnames);
     questions.push({
       kind: "person", key: g.key, title: `Who is ${g.display} to you?`,
       prompt: regular
@@ -317,6 +357,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
         : `${moneyBoth(g.stats)}. Your answer applies to every payment with them, past and future, and you can undo it.`,
       totalMinor: g.total, count: g.count, examples: g.examples.slice(0, 3), options: INDIVIDUAL_OPTIONS, currentCategory: topCategory(g.categories),
       hint: "The name looks like a person", narrationHints: narrationHints(g.descriptions), person: g.stats, impactMinor: g.impact,
+      ...(guess && { guess }),
     });
   }
   for (const g of found.ambiguous.filter((g) => !answered(g.key))) {

@@ -201,7 +201,7 @@ export default async function People({ searchParams }: { searchParams: Promise<R
         </details>
         <p className="text-xs text-ink-3 mt-3">
           Spellings match even when banks cut names short, reorder them or use initials (&ldquo;OJO GIFT A&rdquo;). Close calls are asked in{" "}
-          <Link href="/app/review" className="text-accent underline">Review</Link>, never guessed. Every change can be undone.
+          <Link href="/app/review" className="text-accent underline">Review</Link>, never guessed. Every change can be undone. These names stay on your device and are never sent to the cloud.
         </p>
       </Card>
 

@@ -156,7 +156,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     index: i,
                     total: queue.questions.length,
                     busy: _busy,
-                    onAnswer: (value, {otherText, otherCategory}) => _answer(q, value, otherText: otherText, otherCategory: otherCategory),
+                    onAnswer: (value, {otherText, otherCategory, vendorCategory, vendorSubcategory}) =>
+                        _answer(q, value, otherText: otherText, otherCategory: otherCategory, vendorCategory: vendorCategory, vendorSubcategory: vendorSubcategory),
                     onOther: () => _other(q, queue.categories),
                     onVendor: () => _vendor(q, queue.categories),
                     onSuggestion: _suggestion,
@@ -180,7 +181,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 }
 
-typedef ReviewAnswer = void Function(String value, {String? otherText, String? otherCategory});
+typedef ReviewAnswer = void Function(String value, {String? otherText, String? otherCategory, String? vendorCategory, String? vendorSubcategory});
 
 /// `action` is "confirm" or "dismiss".
 typedef SuggestionAnswer = void Function(AiSuggestion suggestion, String action);
@@ -484,6 +485,23 @@ class _PersonQuestionBodyState extends State<PersonQuestionBody> {
               decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(6)),
               child: SelectableText(e, style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace')),
             ),
+        ],
+        if (q.guess != null) ...[
+          const SizedBox(height: 8),
+          Text(q.guess!.reason, key: Key('people-guess-${q.key}'), style: theme.textTheme.labelSmall),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final a in q.guess!.answers)
+                FilledButton(
+                  key: Key('guess-${q.key}-${a.label}'),
+                  onPressed: busy ? null : () => widget.onAnswer(a.value, vendorCategory: a.vendorCategory, vendorSubcategory: a.vendorSubcategory),
+                  child: Text(a.label),
+                ),
+            ],
+          ),
         ],
         if (aiOption != null) ...[
           const SizedBox(height: 6),

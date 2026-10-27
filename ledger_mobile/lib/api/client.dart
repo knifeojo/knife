@@ -68,6 +68,52 @@ class LedgerApi {
     return _parse(_object(_uri('/api/v1/review'), _get), ReviewQueue.fromJson);
   }
 
+  /// First-run form and the after-upload picker. Older servers answer 404.
+  Future<OnboardingState> onboarding() {
+    return _onboarding(_parse(_object(_uri('/api/v1/onboarding'), _get), OnboardingState.fromJson));
+  }
+
+  Future<OnboardingState> saveOnboarding({
+    bool skip = false,
+    String? ownName,
+    String? relationshipStatus,
+    String? partner,
+    String? parents,
+    String? siblings,
+    String? supported,
+  }) {
+    return _onboarding(
+      _parse(
+        _object(
+          _uri('/api/v1/onboarding'),
+          (uri) => _post(uri, {
+            if (skip) 'skip': true,
+            'ownName': ?ownName,
+            'relationshipStatus': ?relationshipStatus,
+            'partner': ?partner,
+            'parents': ?parents,
+            'siblings': ?siblings,
+            'supported': ?supported,
+          }),
+        ),
+        OnboardingState.fromJson,
+      ),
+    );
+  }
+
+  Future<OnboardingState> finishTopPeople() {
+    return _onboarding(_parse(_object(_uri('/api/v1/onboarding'), (uri) => _post(uri, const {'topPeopleDone': true})), OnboardingState.fromJson));
+  }
+
+  Future<T> _onboarding<T>(Future<T> call) async {
+    try {
+      return await call;
+    } on ApiException catch (error) {
+      if (error.status == 404) throw const ApiException(404, 'This Ledger server does not have onboarding yet.');
+      rethrow;
+    }
+  }
+
   /// Answers one Review question. `value` "other" needs `otherText`; "unknown" is "Can't remember" / Skip;
   /// `rel:<relationship>` saves the person ("rel:vendor" takes `vendorCategory`). Returns rows updated.
   Future<int> answerReview({
