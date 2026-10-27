@@ -94,6 +94,13 @@ describe("detectStatementMeta", () => {
   it("falls back to the file name", () => {
     expect(detectStatementMeta([["Date", "Narration", "Debit", "Credit"]], "access-bank-aug.csv").institution).toBe("Access Bank");
   });
+
+  it("reads a Pesa CAD wallet id even when the amount column is labelled $", () => {
+    const cad = [["Pesa Account Statement"], ["Wallet: CAOO123456789"], ["Date", "Transaction Details", "Amount", "Balance"]];
+    expect(detectStatementMeta(cad)).toEqual({ institution: "Pesa", currency: "CAD" });
+    const usd = [["Pesa Account Statement"], ["Wallet: USOO123456789"], ["Date", "Transaction Details", "Amount", "Balance"]];
+    expect(detectStatementMeta(usd)).toEqual({ institution: "Pesa", currency: "USD" });
+  });
 });
 
 describe("importStatement", () => {

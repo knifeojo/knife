@@ -82,9 +82,10 @@ export default async function Settings() {
       <Card title="Exchange rates">
         <p className="text-sm text-ink-2">
           Official (interbank) and street naira rates differ. Ledger uses a <strong>realised</strong> rate
-          from your own wallet-to-bank conversions when one is within 7 days of the transaction.
-          Otherwise it uses the daily public market feed, or your street override if you choose that.
-          A realised rate for its own pair always wins over a manual override.
+          from your own wallet-to-bank conversions when one is within 7 days of the transaction
+          (same-day pairs are averaged by amount; a pair more than 20% off the market rate is ignored
+          and flagged in Review). Otherwise it uses the daily public market feed, or your street override
+          if you choose that. A seed from months earlier is labelled approximate.
         </p>
         <form action={setFxPreferenceAction} className="mt-3 flex flex-wrap items-end gap-2">
           <div>

@@ -4,7 +4,9 @@ import { formatMoney } from "@/lib/money";
 const BASE = "NGN";
 
 export const REALISED_WINDOW_DAYS = 7;
-export type FxSourceKind = "realised" | "market" | "manual";
+/** A cached seed/market rate older than this is still used, but labelled approximate. */
+export const APPROXIMATE_AFTER_DAYS = 30;
+export type FxSourceKind = "realised" | "market" | "manual" | "approximate";
 export type FxNgnPreference = "official" | "street";
 
 export interface RateRow {
@@ -62,9 +64,11 @@ function latest(rows: RateRow[], base: string, quote: string): RateRow | undefin
   return hits[0];
 }
 
-function asKind(source: string): FxSourceKind {
+function asKind(source: string, rateDate: string, txDate: string): FxSourceKind {
   if (source === "realised") return "realised";
   if (source === "manual") return "manual";
+  if (source === "approximate") return "approximate";
+  if (daysBetween(rateDate, txDate) > APPROXIMATE_AFTER_DAYS) return "approximate";
   return "market";
 }
 
@@ -95,13 +99,13 @@ function pickPair(ctx: FxContext, date: string, base: string, quote: string): Ra
   return market ?? manual ?? latest(ctx.realised, base, quote);
 }
 
-function toConversion(row: RateRow, foreignMinor: bigint): Conversion | null {
+function toConversion(row: RateRow, foreignMinor: bigint, txDate: string): Conversion | null {
   if (!Number.isFinite(row.rate) || row.rate <= 0) return null;
   return {
     nairaMinor: BigInt(Math.round(Number(foreignMinor) * row.rate)),
     rate: row.rate,
     rateDate: row.date,
-    source: asKind(row.source),
+    source: asKind(row.source, row.date, txDate),
   };
 }
 
@@ -115,7 +119,7 @@ export function convertToNgn(ctx: FxContext, minor: bigint, currency: string, da
   }
   const day = lagosDay(date);
   const direct = pickPair(ctx, day, currency, BASE);
-  if (direct) return toConversion(direct, minor);
+  if (direct) return toConversion(direct, minor, day);
   // Cross via USD when we have both legs.
   if (currency !== "USD") {
     const toUsd = pickPair(ctx, day, currency, "USD");
@@ -128,7 +132,7 @@ export function convertToNgn(ctx: FxContext, minor: bigint, currency: string, da
         rate: toUsd.rate * usdToNgn.rate,
         source: usdToNgn.source === "realised" || toUsd.source === "realised" ? "realised" : usdToNgn.source,
       };
-      return toConversion(via, minor);
+      return toConversion(via, minor, day);
     }
   }
   return null;
@@ -139,7 +143,7 @@ export function nairaOf(ctx: FxContext, minor: bigint, currency: string, date: D
   return convertToNgn(ctx, minor, currency, date)?.nairaMinor ?? null;
 }
 
-/** "converted at ₦1,550.00 per $ (realised) on 24 Sep 2026" */
+/** "converted at ₦1,550.00 per $ (realised) on 24 Sep 2026" — source may be approximate. */
 export function conversionLabel(c: Conversion, currency: string): string {
   if (currency === BASE) return "";
   const per = formatMoney(BigInt(Math.round(c.rate * 100)), BASE);

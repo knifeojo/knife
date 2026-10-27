@@ -51,6 +51,23 @@ function ngnPer(quotes: Record<string, number>, code: string): number | undefine
   return undefined;
 }
 
+/** Fetch and cache the public daily feed for each date. Offline / test runs skip the network. */
+export async function backfillMarketDates(dates: string[]): Promise<{ fetched: number; failed: number }> {
+  if (process.env.NODE_ENV === "test" || process.env.FX_FETCH === "0") return { fetched: 0, failed: 0 };
+  const unique = [...new Set(dates.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort();
+  let fetched = 0;
+  let failed = 0;
+  for (const date of unique) {
+    try {
+      await importMarketRates(date);
+      fetched++;
+    } catch {
+      failed++;
+    }
+  }
+  return { fetched, failed };
+}
+
 export async function importMarketRates(date = "latest"): Promise<{ date: string; stored: number }> {
   const usd = await fetchBase(date, "USD");
   if (!usd) throw new Error("Could not fetch daily FX rates. Check the network, or enter a rate in Settings.");

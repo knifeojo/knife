@@ -72,6 +72,15 @@ describe("FX precedence", () => {
     expect(hit).toMatchObject({ rate: 1500, source: "market" });
   });
 
+  it("marks a seed from months earlier as approximate", async () => {
+    const u = await user("official");
+    await rate({ date: "2026-01-15", base: "USD", rate: 1550, source: "seed" });
+    const ctx = await loadFxContext(u.id);
+    const hit = convertToNgn(ctx, 100_00n, "USD", new Date("2026-09-20T12:00:00Z"));
+    expect(hit).toMatchObject({ rate: 1550, source: "approximate", rateDate: "2026-01-15" });
+    expect(conversionLabel(hit!, "USD")).toMatch(/\(approximate\) on 15 Jan 2026/);
+  });
+
   it("leaves naira amounts unconverted", async () => {
     const u = await user();
     const ctx = await loadFxContext(u.id);

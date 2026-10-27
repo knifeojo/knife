@@ -71,17 +71,21 @@ function last4(wallet: string | undefined): string | undefined {
 }
 
 /**
- * USD unless the wallet id is a country prefix plus a digit ("CA00…" is the CAD wallet,
- * "CAOO…" is not) or the preamble names a currency.
+ * Wallet ids start with a country prefix (CA / US / GB / EU / NG), letters or digits after it.
+ * "CAOO…" and "CA00…" are both CAD; "USOO…" is USD. An explicit "Currency: GBP" still wins.
  */
 export function pesaCurrency(preamble: string, wallet?: string): string {
+  const labeled = preamble.match(/\bcurrency\s*:\s*(USD|CAD|GBP|EUR|NGN)\b/i)?.[1]?.toUpperCase();
+  if (labeled) return labeled;
+  const namedWallet = preamble.match(/\b(USD|CAD|GBP|EUR|NGN)\s+wallet\b/i)?.[1]?.toUpperCase();
+  if (namedWallet) return namedWallet;
+  if (wallet && /^CA[A-Z0-9]/i.test(wallet)) return "CAD";
+  if (wallet && /^GB[A-Z0-9]/i.test(wallet)) return "GBP";
+  if (wallet && /^EU[A-Z0-9]/i.test(wallet)) return "EUR";
+  if (wallet && /^NG[A-Z0-9]/i.test(wallet)) return "NGN";
+  if (wallet && /^US[A-Z0-9]/i.test(wallet)) return "USD";
   const explicit = preamble.match(/\b(USD|CAD|GBP|EUR|NGN)\b/i)?.[1]?.toUpperCase();
   if (explicit) return explicit;
-  if (wallet && /^CA\d/i.test(wallet)) return "CAD";
-  if (wallet && /^GB\d/i.test(wallet)) return "GBP";
-  if (wallet && /^EU\d/i.test(wallet)) return "EUR";
-  if (wallet && /^NG\d/i.test(wallet)) return "NGN";
-  if (wallet && /^US\d/i.test(wallet)) return "USD";
   return "USD";
 }
 

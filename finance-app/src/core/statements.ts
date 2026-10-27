@@ -154,12 +154,13 @@ export function detectStatementMeta(rows: Cell[][], fileName = "", otherText = "
     for (const m of t.match(/\b(NGN|USD|GBP|EUR|CAD)\b/gi) ?? []) counts.set(m.toUpperCase(), (counts.get(m.toUpperCase()) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   };
-  // Wallet / account IDs that start with a country code ("Wallet: CA00…") identify the currency.
+  // Wallet / account IDs that start with a country code ("Wallet: CA00…" or "CAOO…") identify the currency.
+  // Prefer that over an incidental "$" / "USD" in the preamble (Amount($) column headers).
   const idCountry = preamble.match(/\b(?:wallet|account)\s*(?:id|no|number)?\s*:?\s*(CA|US|GB|NG|GH|KE)[A-Z0-9]{6,}/i)?.[1]?.toUpperCase();
   const COUNTRY_CURRENCY: Record<string, string> = { CA: "CAD", US: "USD", GB: "GBP", NG: "NGN", GH: "GHS", KE: "KES" };
   const cur =
-    codes(preamble) ??
     (idCountry ? COUNTRY_CURRENCY[idCountry] : undefined) ??
+    codes(preamble) ??
     (/\bnaira\b|₦/i.test(preamble) ? "NGN" : undefined) ??
     // "$" alone is ambiguous: the footer usually says which dollar ("CAD wallet").
     codes(footer) ??

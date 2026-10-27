@@ -12,6 +12,7 @@
     "postinstall": "prisma generate",
     "setup": "prisma db push",
     "recategorize": "tsx src/scripts/recategorize.ts",
+    "fx:rebuild": "tsx src/scripts/fx-rebuild.ts",
     "ai:suggest": "tsx src/scripts/ai-suggest.ts",
     "alerts:mac-messages": "tsx src/scripts/mac-messages.ts"
   },

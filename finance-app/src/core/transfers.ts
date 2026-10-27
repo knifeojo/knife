@@ -3,7 +3,7 @@ import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
 import { OWN_TRANSFER, categorize, isSelf } from "./categorize";
 import { lagosDay } from "./fx/rates";
-import { storeRealisedRates } from "./fx/realised";
+import { isBlockedMispair, rebuildUserFx } from "./fx/realised";
 import { BANKS } from "./statements";
 
 // Pairs money moving between two of the user's own accounts, so it is neither spending (on the
@@ -192,7 +192,9 @@ export async function pairOwnTransfers(userId: string): Promise<number> {
     });
     const legs: Leg[] = rows.map((r) => ({ ...r, institution: inst.get(r.accountId) ?? "" }));
     const pairs = findPairs(legs, owners);
+    let linked = 0;
     for (const p of pairs) {
+      if (await isBlockedMispair(userId, p.debit.id, p.credit.id)) continue;
       // Link both legs. The user's own labels are kept (e.g. "Salary"): totals skip linked legs, so the
       // label stays meaningful without double counting. Unlabelled legs show as an own transfer.
       const data = (leg: Leg, other: string) =>
@@ -203,15 +205,16 @@ export async function pairOwnTransfers(userId: string): Promise<number> {
         db.transaction.update({ where: { id: p.debit.id }, data: data(p.debit, p.credit.id) }),
         db.transaction.update({ where: { id: p.credit.id }, data: data(p.credit, p.debit.id) }),
       ]);
+      linked++;
     }
-    if (pairs.length) {
-      await storeRealisedRates(userId, pairs.map((p) => ({ debitId: p.debit.id, creditId: p.credit.id })));
-      log.info("transfers.paired", { userId, pairs: pairs.length });
-    }
-    paired = pairs.length;
+    if (linked) log.info("transfers.paired", { userId, pairs: linked });
+    paired = linked;
   }
   paired += await pairReversals(userId);
   paired += await pairAdvances(userId);
+  // Always rebuild: pairs made before the FX migration never wrote a rate, and same-day
+  // pairs must become an amount-weighted average rather than the last write.
+  await rebuildUserFx(userId);
   return paired;
 }
 
