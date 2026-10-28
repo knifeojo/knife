@@ -27,6 +27,9 @@ import type { Facts } from "@/core/ask/answer";
 import { applyNoteLabel, matchNotes, monthFromHeading, parseNotes, type NoteMatch } from "@/core/notes";
 import { specificMonth } from "@/core/analytics";
 import { affordabilityJson, checkAffordability, cleanDescription, parseAmountInput, parseHorizon, type AffordabilityJson } from "@/core/affordability";
+import { unlockStatement } from "@/core/alerts/import-statements";
+import { statementInstitutions } from "@/core/alerts/statement-mail";
+import { forgetAllStatementPasswords, forgetStatementPassword, saveStatementPassword } from "@/core/statements/passwords";
 import { MAX_STATEMENT_FILES, StatementFormatError, importStatement, recordFailedImport, resolveIssueByAdding, resolveIssueByIgnoring, type StatementImportSummary } from "@/core/statement-import";
 import { FX_CURRENCIES, clearManualRate, importMarketRates, setManualRate } from "@/core/fx/provider";
 import { rebuildUserFx } from "@/core/fx/realised";
@@ -196,6 +199,7 @@ export async function askAction(_: AskState, form: FormData): Promise<AskState> 
 
 export async function deleteMyData() {
   const user = await requireUser();
+  forgetAllStatementPasswords(user.id);
   await db.$transaction([
     db.transaction.deleteMany({ where: { userId: user.id } }),
     db.transactionSource.deleteMany({ where: { userId: user.id } }),
@@ -209,6 +213,7 @@ export async function deleteMyData() {
     db.merchantAlias.deleteMany({ where: { userId: user.id } }),
     db.syncRun.deleteMany({ where: { userId: user.id } }),
     db.loan.deleteMany({ where: { userId: user.id } }),
+    db.statementFile.deleteMany({ where: { userId: user.id } }),
     db.financialConnection.updateMany({ where: { userId: user.id }, data: { lastSyncedAt: null, gmailHistoryId: null, lastProcessedMessageId: null } }),
   ]);
   revalidatePath("/app", "layout");
@@ -243,6 +248,35 @@ export async function importStatementsAction(_: StatementState, form: FormData):
   if (results.some((r) => "ok" in r)) suggestInBackground(user.id);
   revalidatePath("/app", "layout");
   return { results };
+}
+
+/** Settings → Statement passwords. Empty fields keep the saved password. The value is sealed locally and never logged. */
+export async function saveStatementPasswordsAction(form: FormData) {
+  const user = await requireUser();
+  if (user.isDemo) redirect("/app/settings?passwords=demo");
+  try {
+    for (const inst of statementInstitutions()) {
+      if (String(form.get(`clear:${inst.id}`) ?? "") === "1") forgetStatementPassword(user.id, inst.institution);
+      const password = String(form.get(`password:${inst.id}`) ?? "");
+      if (password.trim()) saveStatementPassword(user.id, inst.institution, password);
+    }
+  } catch (e) {
+    log.error("statement.password_save_failed", { userId: user.id, error: e instanceof Error ? e.message : "unknown" });
+    redirect("/app/settings?passwords=error");
+  }
+  revalidatePath("/app/settings");
+  redirect("/app/settings?passwords=saved");
+}
+
+/** Review: open a password-protected statement. The password is not logged and is not sent to the cloud AI. */
+export async function unlockStatementAction(form: FormData) {
+  const user = await requireUser();
+  const result = await unlockStatement(user.id, String(form.get("id") ?? ""), String(form.get("password") ?? ""), {
+    remember: String(form.get("remember") ?? "") === "1",
+  });
+  revalidatePath("/app", "layout");
+  if ("error" in result) redirect("/app/review?statement=wrong");
+  redirect("/app/review?statement=ok");
 }
 
 export async function reapplyCategoriesAction(): Promise<SyncState> {

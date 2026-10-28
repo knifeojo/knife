@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { log } from "@/lib/log";
+import { emailFieldsFromGmailResource } from "../alerts/attachments";
 import type { EmailMessage } from "../types";
 import type { EmailSource } from "./types";
 
@@ -136,20 +137,6 @@ export async function gmailProfile(accessToken: string): Promise<{ emailAddress:
   return res.json();
 }
 
-interface GmailPart {
-  mimeType?: string;
-  body?: { data?: string };
-  parts?: GmailPart[];
-}
-
-function collectBodies(part: GmailPart | undefined, out: { html?: string; text?: string }) {
-  if (!part) return;
-  const data = part.body?.data ? Buffer.from(part.body.data, "base64url").toString("utf8") : undefined;
-  if (data && part.mimeType === "text/html" && !out.html) out.html = data;
-  if (data && part.mimeType === "text/plain" && !out.text) out.text = data;
-  for (const p of part.parts ?? []) collectBodies(p, out);
-}
-
 export class GmailEmailSource implements EmailSource {
   readonly source = "gmail" as const;
   constructor(private readonly connectionId: string) {}
@@ -202,18 +189,15 @@ export class GmailEmailSource implements EmailSource {
     }
   }
 
+  async fetchAttachment(messageId: string, attachmentId: string): Promise<Buffer> {
+    const json = await this.get(`/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`) as { data?: string };
+    if (!json.data) return Buffer.alloc(0);
+    return Buffer.from(json.data, "base64url");
+  }
+
   async getMessage(id: string): Promise<EmailMessage> {
     const msg = await this.get(`/messages/${id}?format=full`);
-    const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];
-    const header = (n: string) => headers.find((h) => h.name.toLowerCase() === n)?.value ?? "";
-    const bodies: { html?: string; text?: string } = {};
-    collectBodies(msg.payload, bodies);
-    return {
-      id,
-      from: header("from"),
-      subject: header("subject"),
-      date: new Date(Number(msg.internalDate)),
-      ...bodies,
-    };
+    const fields = emailFieldsFromGmailResource(msg);
+    return { ...fields, id };
   }
 }

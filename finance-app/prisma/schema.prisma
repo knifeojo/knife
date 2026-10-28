@@ -56,6 +56,7 @@ model User {
   reconFlags        ReconFlag[]
   forwardingNotices ForwardingNotice[]
   processedAlerts   ProcessedAlert[]
+  statementFiles    StatementFile[]
 }
 
 model Session {
@@ -487,4 +488,46 @@ model ProcessedAlert {
   createdAt     DateTime @default(now())
 
   @@unique([userId, channel, sourceId])
+}
+
+// One row per statement file (email attachment or upload). The file bytes are not kept after a
+// successful import. While a PDF is waiting for its password, `encryptedBytes` holds ciphertext
+// sealed with STATEMENT_PASSWORD_KEY or ENCRYPTION_KEY. The password itself is never stored here.
+model StatementFile {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentHash      String
+  fileName         String
+  institution      String?
+  accountKey       String?
+  periodFrom       DateTime?
+  periodTo         DateTime?
+  source           String // gmail | imap | inbound | upload | fixture
+  messageId        String?
+  sender           String?
+  subject          String?
+  status           String // imported | needs_password | unrecognised | duplicate
+  detail           String?
+  occurrences      Int       @default(1)
+  rowsRead         Int       @default(0)
+  transactionCount Int       @default(0)
+  accountLast4     String?
+  currency         String?
+  balanceBreaks    Int       @default(0)
+  gap              String?
+  complete         Boolean   @default(false)
+  // Ciphertext only, and only while status is needs_password.
+  encryptedBytes   String?
+  // True when encryptedBytes is set, so Review can list locked files without loading the ciphertext.
+  bytesStored      Boolean   @default(false)
+  // StatementImportSummary JSON from the first successful read, so a repeat can report duplicates
+  // without parsing again. Never contains a password.
+  replayJson       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, contentHash])
+  @@index([userId, status])
+  @@index([userId, accountKey])
 }

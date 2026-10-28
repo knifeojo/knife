@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { apiError, apiJson } from "@/lib/mobile/http";
+import { attachmentsFromInboundRaw } from "@/core/alerts/attachments";
 import { adaptInbound, inboundConfirmation, inboundTokenOf, verifyInboundSecret } from "@/core/alerts/inbound";
+import { importEmailAttachments } from "@/core/alerts/import-statements";
 import { ingestAlertMessage } from "@/core/alerts/ingest";
 import { emailToAlert } from "@/core/alerts/email-adapter";
 import { userIdForInboundToken } from "@/core/alerts/tokens";
@@ -36,8 +38,16 @@ export async function POST(req: Request) {
     return apiJson({ confirmation: true, code: confirm.code ?? null, link: confirm.link ?? null });
   }
 
+  if (!email.attachments?.length) {
+    try {
+      email.attachments = await attachmentsFromInboundRaw(json);
+    } catch {
+      email.attachments = [];
+    }
+  }
+  const messageId = email.messageId ?? `inbound-${Date.now()}`;
   const msg = emailToAlert({
-    id: email.messageId ?? `inbound-${Date.now()}`,
+    id: messageId,
     from: email.from,
     subject: email.subject,
     date: email.date ? new Date(email.date) : new Date(),
@@ -45,5 +55,12 @@ export async function POST(req: Request) {
     html: email.html,
   });
   const result = await ingestAlertMessage(userId, msg, { source: "inbound", sourceId: email.messageId });
-  return apiJson(result);
+  const statements = await importEmailAttachments(userId, {
+    source: "inbound",
+    messageId,
+    from: email.from,
+    subject: email.subject,
+    attachments: email.attachments,
+  });
+  return apiJson(statements.length ? { ...result, statements } : result);
 }

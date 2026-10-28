@@ -286,6 +286,12 @@ If neither model can answer, it says so and exits; the server works the same wit
 | `OLLAMA_ESCALATION_MODEL` | no | Model for `AI_ESCALATION=local` second opinions; default `OLLAMA_MODEL` |
 | `ANTHROPIC_API_KEY` | for cloud | Enables the cloud features in `hybrid`/`anthropic`. Without it hybrid runs local-only. Only redacted data is sent |
 | `GMAIL_QUERY_GTBANK` | no | Override the Gmail search for GTBank alerts |
+| `GMAIL_QUERY_STATEMENTS` | no | Override the Gmail search for statement emails (statement, e-statement, account statement, plus PDF/CSV/XLSX). The alert query stays alert-only; sync runs both |
+| `STATEMENT_EMAIL_RULES` | no | JSON array of `{ id, institution, senders, subject, filename }` to add or replace a bank/wallet/Deel statement rule |
+| `WALLET_STATEMENT_SENDERS` | no | Extra sender domains for wallet statements (default institution Pesa) |
+| `WALLET_STATEMENT_INSTITUTION` | no | Display name for the wallet provider. Default `Pesa` |
+| `STATEMENT_PASSWORD_KEY` | no | 32 bytes base64. Encrypts per-bank statement PDF passwords and locked PDFs waiting in Review. Falls back to `ENCRYPTION_KEY` |
+| `STATEMENT_PASSWORD_FILE` | no | Where those ciphertext passwords live. Default `~/.ledger/statement-passwords.json` (mode 0600). Never commit this file |
 
 ## Status against the Definition of Done
 

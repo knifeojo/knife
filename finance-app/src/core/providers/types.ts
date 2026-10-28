@@ -5,6 +5,8 @@ export interface EmailSource {
   readonly source: SourceType;
   listMessageIds(opts: { query: string; after?: Date; max?: number }): Promise<string[]>;
   getMessage(id: string): Promise<EmailMessage>;
+  /** Gmail stores large attachments separately. Other sources put bytes on the message. */
+  fetchAttachment?(messageId: string, attachmentId: string): Promise<Buffer>;
   listHistoryMessageIds?(startHistoryId: string): Promise<{ ids: string[]; historyId?: string; stale?: boolean }>;
 }
 

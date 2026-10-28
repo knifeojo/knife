@@ -5,7 +5,8 @@ import { LEGACY_GIVING_SUBCATEGORIES, categorize, inferHolderName, type UserRule
 import { accountKey, computeFingerprint, findFuzzyMatch } from "./dedup";
 import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
-import { BANK_SOURCES, INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
+import { emailSearchQueries } from "./alerts/statement-mail";
+import { INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
 import type { KnownPerson } from "./people-match";
 import { extractPayoutQuote } from "./fx/quotes";
 import { storeQuotedRate } from "./fx/realised";
@@ -266,17 +267,22 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
     const owners = await loadOwners(userId);
     let lastId: string | undefined;
     let historyId: string | undefined;
-    for (const bank of BANK_SOURCES) {
+    let historyTried = false;
+    let historyCoveredAll = false;
+    for (const query of emailSearchQueries(source.source)) {
+      if (historyCoveredAll) break;
       let ids: string[] = [];
-      if (source.listHistoryMessageIds && conn.gmailHistoryId && conn.lastSyncedAt) {
+      if (!historyTried && source.listHistoryMessageIds && conn.gmailHistoryId && conn.lastSyncedAt) {
+        historyTried = true;
         const hist = await source.listHistoryMessageIds(conn.gmailHistoryId);
-        if (hist.stale) ids = await source.listMessageIds({ query: bank.query, after, max: MAX_MESSAGES_PER_SYNC });
+        if (hist.stale) ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC });
         else {
           ids = hist.ids.slice(0, MAX_MESSAGES_PER_SYNC);
           historyId = hist.historyId;
+          historyCoveredAll = true;
         }
       } else {
-        ids = await source.listMessageIds({ query: bank.query, after, max: MAX_MESSAGES_PER_SYNC });
+        ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC });
       }
       const done = new Set(
         (await db.processedEmail.findMany({ where: { userId, messageId: { in: ids } }, select: { messageId: true } })).map((p) => p.messageId),
@@ -285,6 +291,18 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
         if (done.has(id)) continue;
         m.emailsScanned++;
         const email = await source.getMessage(id);
+        const { importEmailAttachments } = await import("./alerts/import-statements");
+        const statements = await importEmailAttachments(userId, {
+          source: source.source,
+          messageId: id,
+          from: email.from,
+          subject: email.subject,
+          attachments: email.attachments,
+          fetchAttachment: source.fetchAttachment ? (attachmentId) => source.fetchAttachment!(id, attachmentId) : undefined,
+        }).catch((e: unknown) => {
+          log.error("statement.email_failed", { userId, messageId: id, error: e instanceof Error ? e.message : "unknown" });
+          return [];
+        });
         const outcome = parseEmail(email);
         let status = outcome.status as string;
         let transactionId: string | undefined;
@@ -305,6 +323,8 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
           m.parseFailures++;
           const { queueKnownUnparsed } = await import("./alerts/ingest-email");
           await queueKnownUnparsed(userId, email, outcome.parser);
+        } else if (statements.length) {
+          status = statements.every((file) => file.status === "duplicate") ? "duplicate" : "parsed";
         } else m.skipped++;
 
         // Metadata only. The body is dropped here and never persisted.
@@ -317,7 +337,7 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
             subject: email.subject.slice(0, 200),
             receivedAt: email.date,
             status,
-            parser: "parser" in outcome ? outcome.parser : null,
+            parser: statements.length && outcome.status !== "parsed" ? "statement" : "parser" in outcome ? outcome.parser : null,
             transactionId,
           },
         });

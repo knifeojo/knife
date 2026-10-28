@@ -104,6 +104,25 @@ LEDGER_USER_EMAIL=you@example.com npm run alerts:mac-messages
 
 Read-only against `~/Library/Messages/chat.db`. Only configured bank sender IDs are selected. When `text` is null, `attributedBody` is scanned for the alert string. Non-bank threads are never opened. Run on an interval via `cron` or `launchd` if you like.
 
+## Statement attachments
+
+Monthly statements arrive in the same mailboxes as alerts. Sync imports PDF, CSV and XLSX attachments from Gmail, IMAP (including Yahoo) and `POST /api/inbound/email` (Postmark `Attachments`, a generic `attachments` array, or Cloudflare `raw` MIME). They go through the same importer as `POST /api/v1/statements`, then alert-vs-statement reconciliation runs.
+
+Detection is per sender plus a subject or filename pattern: GTBank, First Bank, Sterling, Providus, Deel, and the wallet provider (Pesa unless `WALLET_STATEMENT_INSTITUTION` / `WALLET_STATEMENT_SENDERS` say otherwise). `STATEMENT_EMAIL_RULES` (JSON) replaces or adds a rule. Gmail runs a second query — `statement`, `e-statement`, `account statement`, and statement filenames — so the alert-only GTBank query does not miss them. Override it with `GMAIL_QUERY_STATEMENTS`.
+
+The same file (email or a manual upload) is hashed and not imported twice. A different file whose dates overlap a statement already imported for that account adds only new rows; if it adds none, it is marked duplicate. Row fingerprints still apply.
+
+Password-protected PDFs: Settings → **Statement passwords**. The password is sealed with `STATEMENT_PASSWORD_KEY` or `ENCRYPTION_KEY` in `STATEMENT_PASSWORD_FILE` (default `~/.ledger/statement-passwords.json`, mode 0600). It is not stored in the database, not logged, and not sent to the cloud AI. If none is saved, the file waits in Review as **needs password**; type it once and optionally remember it for that bank. Other outcomes shown on Accounts → Sync history: **imported**, **unrecognised layout**, **duplicate**.
+
+After pulling this change, from `finance-app`:
+
+```bash
+npm install
+npm run db:push
+```
+
+`db:push` adds `StatementFile`. No existing column is rewritten.
+
 ## Dedup and Review
 
 SMS, email alerts and statement rows for the same account / amount / direction / time window / similar narration merge. Statement is the source of truth: it links rather than duplicates. Source badges show every observation.

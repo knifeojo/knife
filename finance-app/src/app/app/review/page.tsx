@@ -4,7 +4,7 @@ import { reviewWithSuggestions, type SuggestionGroup } from "@/core/ai/suggestio
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { formatMoney } from "@/lib/money";
 import { Card, PageHeader } from "@/components/ui";
-import { answerQuestionAction, confirmSuggestionAction, dismissGapAction, dismissReconAction, dismissSuggestionAction, resolveUnparsedAction } from "../actions";
+import { answerQuestionAction, confirmSuggestionAction, dismissGapAction, dismissReconAction, dismissSuggestionAction, resolveUnparsedAction, unlockStatementAction } from "../actions";
 import { onboardingState } from "@/core/onboarding";
 import { db } from "@/lib/db";
 import { TopPeopleCard } from "../top-people";
@@ -32,15 +32,31 @@ function AiPick({ g }: { g: SuggestionGroup }) {
   );
 }
 
-export default async function Review() {
+export default async function Review({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
-  const [{ questions, suggestions }, welcome, unparsed, gaps, flags] = await Promise.all([
+  const sp = await searchParams;
+  const [{ questions, suggestions }, welcome, unparsed, gaps, flags, locked] = await Promise.all([
     reviewWithSuggestions(user.id),
     onboardingState(user.id),
     db.unparsedAlert.findMany({ where: { userId: user.id, status: "open" }, orderBy: { receivedAt: "desc" }, take: 40 }),
     db.balanceGap.findMany({ where: { userId: user.id, status: "open" }, orderBy: { atDate: "desc" }, take: 20 }),
     db.reconFlag.findMany({ where: { userId: user.id, status: "open" }, orderBy: { createdAt: "desc" }, take: 20 }),
+    db.statementFile.findMany({
+      where: { userId: user.id, status: "needs_password" },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { id: true, fileName: true, institution: true, sender: true, subject: true, detail: true, bytesStored: true },
+    }),
   ]);
+  const lockedFiles = locked.map((file) => ({
+    id: file.id,
+    fileName: file.fileName,
+    institution: file.institution,
+    sender: file.sender,
+    subject: file.subject,
+    detail: file.detail,
+    hasBytes: file.bytesStored,
+  }));
   const total = questions.reduce((s, q) => s + q.totalMinor, 0n);
 
   return (
@@ -53,11 +69,42 @@ export default async function Review() {
             : "Nothing to ask right now. New questions appear when new names show up in your transactions."
         }
       />
+      {sp.statement === "ok" && <p className="mb-4 rounded-xl bg-accent-soft text-accent px-4 py-3 text-sm">Statement imported. The password was not sent anywhere except this machine.</p>}
+      {sp.statement === "wrong" && <p className="mb-4 rounded-xl bg-warn-bg text-warn-ink px-4 py-3 text-sm">That password did not open the statement. It stays in Review. Nothing was sent to the cloud AI.</p>}
       <p className="-mt-2 mb-4 text-sm text-ink-2">
         People come first: tell Ledger who someone is once and every payment to and from them is labelled. See and change them on{" "}
         <Link href="/app/people" className="text-accent underline">Your people</Link>.
       </p>
       {welcome.topPeople.show && <TopPeopleCard people={welcome.topPeople.people} />}
+      {lockedFiles.length > 0 && (
+        <Card title="Statements that need a password" className="mb-4">
+          <p className="text-sm text-ink-2 mb-3">The PDF password from the bank&rsquo;s email, not your bank login. Typed here once, used only to open the file on this machine, never sent to the cloud AI.</p>
+          <ul className="space-y-4">
+            {lockedFiles.map((file) => (
+              <li key={file.id} className="text-sm border-t border-border pt-3 first:border-0 first:pt-0">
+                <p className="font-medium">{file.fileName}</p>
+                <p className="text-xs text-ink-3">{file.institution ?? "Unknown bank"}{file.sender ? ` · ${file.sender}` : ""}{file.subject ? ` · ${file.subject}` : ""}</p>
+                {file.hasBytes ? (
+                  <form action={unlockStatementAction} className="mt-2 flex flex-wrap items-end gap-2">
+                    <input type="hidden" name="id" value={file.id} />
+                    <div>
+                      <label className="label" htmlFor={`stmt-pw-${file.id}`}>Password</label>
+                      <input id={`stmt-pw-${file.id}`} name="password" type="password" autoComplete="off" required className="input mt-1" />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-ink-2 mb-2">
+                      <input type="checkbox" name="remember" value="1" />
+                      Remember for {file.institution ?? "this bank"}
+                    </label>
+                    <button className="btn btn-secondary h-9 text-sm">Open statement</button>
+                  </form>
+                ) : (
+                  <p className="mt-2 text-xs text-warn-ink">{file.detail ?? "The file could not be kept. Upload it on Accounts and enter the password there."}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       {unparsed.length > 0 && (
         <Card title="Unparsed bank alerts" className="mb-4">
           <p className="text-sm text-ink-2 mb-3">Known bank senders we could not post automatically. Samples stay on this machine only.</p>
@@ -108,7 +155,7 @@ export default async function Review() {
           </ul>
         </Card>
       )}
-      {!questions.length && !suggestions.length && !unparsed.length && !gaps.length && !flags.length && (
+      {!questions.length && !suggestions.length && !unparsed.length && !gaps.length && !flags.length && !lockedFiles.length && (
         <Card>
           <p className="text-sm text-ink-2">All caught up. You can still change any category on the <Link href="/app/transactions" className="text-accent underline">Transactions</Link> page.</p>
         </Card>

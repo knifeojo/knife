@@ -2,8 +2,10 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { EmailMessage } from "../types";
 import type { EmailSource } from "../providers/types";
+import { attachmentsFromMailparser } from "./attachments";
 import { imapPassword } from "./secrets";
 import { BANK_SENDERS } from "./senders";
+import { statementSenderDomains } from "./statement-mail";
 
 export interface ImapConfig {
   host: string;
@@ -41,6 +43,12 @@ export function bankEmailFromQuery(): { from: string }[] {
   return BANK_SENDERS.filter((s) => s.channel !== "sms").map((s) => ({ from: s.id }));
 }
 
+/** Bank alert domains plus statement senders (Deel, the wallet provider, and the banks). */
+export function imapFromClauses(): { from: string }[] {
+  const domains = [...new Set([...bankEmailFromQuery().map((clause) => clause.from), ...statementSenderDomains()])];
+  return domains.map((from) => ({ from }));
+}
+
 export class ImapEmailSource implements EmailSource {
   readonly source = "imap" as const;
 
@@ -73,7 +81,7 @@ export class ImapEmailSource implements EmailSource {
 
   async listMessageIds({ after, max = 500 }: { query: string; after?: Date; max?: number }): Promise<string[]> {
     return this.withClient(async (c) => {
-      const froms = bankEmailFromQuery();
+      const froms = imapFromClauses();
       const query: Record<string, unknown> = {};
       if (after) query.since = after;
       if (froms.length >= 2) query.or = froms;
@@ -96,6 +104,7 @@ export class ImapEmailSource implements EmailSource {
         date: parsed.date ?? msg.envelope?.date ?? new Date(),
         text: parsed.text || undefined,
         html: typeof parsed.html === "string" ? parsed.html : undefined,
+        attachments: attachmentsFromMailparser(parsed.attachments),
       };
     });
   }
