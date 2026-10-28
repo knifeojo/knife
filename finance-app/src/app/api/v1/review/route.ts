@@ -32,7 +32,7 @@ export async function GET(req: Request) {
       /** Answer one with { value: "other", otherText: words, otherCategory: category unless "Other" }. */
       narrationHints: (q.narrationHints ?? []).map((h) => ({ words: h.words, category: h.category, subcategory: h.subcategory })),
       /** Holder and conversion questions take only the listed options. */
-      allowsOther: q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "match" && q.kind !== "mispair",
+      allowsOther: q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "match" && q.kind !== "mispair" && q.kind !== "duplicate" && q.kind !== "currency",
       /** For questions about an individual: money both ways, last date and every spelling seen. Null otherwise. */
       person: q.person
         ? {

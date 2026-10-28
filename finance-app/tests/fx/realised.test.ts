@@ -103,6 +103,35 @@ describe("pairing-derived realised rates", () => {
     expect(s.expenses).toBe(0n);
   });
 
+  it("sets both legs to Own transfer and does not restore Income on unpair", async () => {
+    const { userId, usd, ngn } = await setup();
+    const debit = await row(userId, usd.id, {
+      type: "DEBIT", amountMinor: 100_00n, currency: "USD", date: "2026-10-10",
+      description: "Money transfer to ADA EZE / Deel withdrawal",
+      category: "Own transfer", counterparty: "Ada Eze",
+    });
+    const credit = await row(userId, ngn.id, {
+      type: "CREDIT", amountMinor: 155_000_00n, currency: "NGN", date: "2026-10-10",
+      description: "0001-ADA EZE-110059-PESAPEER LTD",
+      category: "Income", counterparty: "Pesapeer Ltd",
+    });
+    expect(await pairOwnTransfers(userId)).toBeGreaterThanOrEqual(1);
+    const linkedDebit = await db.transaction.findUniqueOrThrow({ where: { id: debit.id } });
+    const linkedCredit = await db.transaction.findUniqueOrThrow({ where: { id: credit.id } });
+    expect(linkedDebit).toMatchObject({ category: "Own transfer", transferPairId: credit.id });
+    expect(linkedCredit).toMatchObject({ category: "Own transfer", transferPairId: debit.id });
+
+    await db.transaction.update({
+      where: { id: debit.id },
+      data: { category: "Family", classificationSource: "user" },
+    });
+    const { unpairContradicted } = await import("@/core/transfers");
+    await unpairContradicted(userId, [debit.id]);
+    const leftover = await db.transaction.findUniqueOrThrow({ where: { id: credit.id } });
+    expect(leftover.transferPairId).toBeNull();
+    expect(leftover.category).not.toBe("Income");
+  });
+
   it("stores a Deel quoted NGN proceeds as a realised rate on ingest", async () => {
     const { userId, usd } = await setup();
     await ingestTransaction(userId, {

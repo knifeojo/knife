@@ -1,14 +1,25 @@
 import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
-import { categorize } from "../categorize";
+import { recategorizeUnpaired, shouldNeverPair } from "./pairing-rules";
+import { scanDuplicateFlags } from "./duplicates";
+import {
+  OUTLIER_TOLERANCE,
+  inSanityBand,
+  isOutlierRate,
+  isUnusableRate,
+  looksLikeCadNotUsd,
+  median,
+  monthlyMedian,
+} from "./guard";
 import { aggregateUnmatchedLandings, matchPayoutLandings, type LandingLeg } from "./landings";
 import { backfillMarketDates } from "./provider";
 import { extractPayoutQuote } from "./quotes";
 import { lagosDay } from "./rates";
+import { scanWalletCurrencyGuesses } from "./wallet-currency";
 
 const BASE = "NGN";
-export const OUTLIER_TOLERANCE = 0.20;
+export { OUTLIER_TOLERANCE, isOutlierRate, looksLikeCadNotUsd };
 export const MISPAIR_PREFIX = "fx-mispair:";
 export const MISPAIR_PENDING = "likely mis-pair";
 export const MISPAIR_KEPT = "kept conversion";
@@ -43,6 +54,7 @@ interface FxLeg {
   transactionDate: Date;
   description: string;
   counterparty: string | null;
+  category: string;
   classificationSource: string;
   transferPairId: string | null;
   fxQuoteCurrency: string | null;
@@ -60,39 +72,6 @@ interface ImpliedPair {
   foreignMinor: bigint;
   nairaMinor: bigint;
   quoted?: boolean;
-}
-
-function median(values: number[]): number | undefined {
-  if (!values.length) return undefined;
-  const s = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-}
-
-function offBy(rate: number, ref: number): number {
-  return Math.abs(rate - ref) / ref;
-}
-
-export function isOutlierRate(rate: number, reference: number | undefined): boolean {
-  if (reference === undefined || !Number.isFinite(reference) || reference <= 0) return false;
-  if (!Number.isFinite(rate) || rate <= 0) return true;
-  return offBy(rate, reference) > OUTLIER_TOLERANCE;
-}
-
-/**
- * A USD-labeled implied rate that is far from USD but close to CAD (or ~75% of the USD
- * reference, the usual CAD/USD band) is a CAD wallet leg stored as USD.
- */
-export function looksLikeCadNotUsd(rate: number, usdReference?: number, cadReference?: number): boolean {
-  if (!Number.isFinite(rate) || rate <= 0) return false;
-  if (cadReference && cadReference > 0 && offBy(rate, cadReference) <= OUTLIER_TOLERANCE) {
-    return !usdReference || offBy(rate, usdReference) > OUTLIER_TOLERANCE;
-  }
-  if (usdReference && usdReference > 0 && offBy(rate, usdReference) > OUTLIER_TOLERANCE) {
-    const ratio = rate / usdReference;
-    return ratio >= 0.65 && ratio <= 0.85;
-  }
-  return false;
 }
 
 export function mispairKey(a: string, b: string): string {
@@ -139,7 +118,7 @@ async function loadFxLegs(userId: string): Promise<FxLeg[]> {
     where: { userId },
     select: {
       id: true, type: true, amountMinor: true, currency: true, transactionDate: true,
-      description: true, counterparty: true, classificationSource: true, transferPairId: true,
+      description: true, counterparty: true, category: true, classificationSource: true, transferPairId: true,
       fxQuoteCurrency: true, fxQuoteMinor: true,
     },
   });
@@ -210,6 +189,7 @@ function asLanding(leg: FxLeg): LandingLeg {
     transactionDate: leg.transactionDate,
     description: leg.description,
     counterparty: leg.counterparty,
+    category: leg.category,
     transferPairId: leg.transferPairId,
   };
 }
@@ -285,7 +265,7 @@ async function unpairOutlier(userId: string, debitId: string, creditId: string):
   const legs = await db.transaction.findMany({ where: { userId, id: { in: [debitId, creditId] } } });
   for (const leg of legs) {
     if (leg.classificationSource === "pair") {
-      const c = categorize({ description: leg.description, type: leg.type as "DEBIT" | "CREDIT" });
+      const c = recategorizeUnpaired({ description: leg.description, type: leg.type as "DEBIT" | "CREDIT" });
       await db.transaction.update({
         where: { id: leg.id },
         data: {
@@ -300,10 +280,6 @@ async function unpairOutlier(userId: string, debitId: string, creditId: string):
       await db.transaction.update({ where: { id: leg.id }, data: { transferPairId: null } });
     }
   }
-}
-
-async function retagCurrency(id: string, currency: string): Promise<void> {
-  await db.transaction.update({ where: { id }, data: { currency } });
 }
 
 export async function listPendingMispairs(userId: string): Promise<FxMispair[]> {
@@ -374,14 +350,51 @@ function referenceFor(
   base: string,
   market: { date: string; base: string; quote: string; rate: number }[],
   medians: Map<string, number>,
+  monthly?: { date: string; currency: string; rate: number }[],
 ): number | undefined {
-  return marketOn(market, date, base) ?? medians.get(base);
+  return monthlyMedian(monthly ?? [], date, base) ?? marketOn(market, date, base) ?? medians.get(base);
+}
+
+async function sweepBadPairs(
+  userId: string,
+  legs: FxLeg[],
+  owners: string[],
+  marketRows: { date: string; base: string; quote: string; rate: number }[],
+  keptKeys: Set<string>,
+): Promise<number> {
+  const byId = new Map(legs.map((l) => [l.id, l]));
+  const linked = impliedFromLinks(legs);
+  const sane = linked
+    .filter((p) => inSanityBand(p.rate, p.foreign.currency))
+    .map((p) => ({ date: p.date, currency: p.foreign.currency, rate: p.rate }));
+  let n = 0;
+  for (const p of linked) {
+    if (keptKeys.has(mispairKey(p.debitId, p.creditId))) continue;
+    const debit = byId.get(p.debitId);
+    const credit = byId.get(p.creditId);
+    if (!debit || !credit) continue;
+    const ref = marketOn(marketRows, p.date, p.foreign.currency) ?? monthlyMedian(sane, p.date, p.foreign.currency);
+    if (shouldNeverPair(debit, credit, owners) || !inSanityBand(p.rate, p.foreign.currency)) {
+      await rememberMispair(userId, p, ref);
+      await unpairOutlier(userId, p.debitId, p.creditId);
+      n++;
+      continue;
+    }
+    if (p.foreign.currency === "USD" && looksLikeCadNotUsd(p.rate, marketOn(marketRows, p.date, "USD"), marketOn(marketRows, p.date, "CAD"))) {
+      continue;
+    }
+    if (!isUnusableRate(p.rate, p.foreign.currency, ref)) continue;
+    await rememberMispair(userId, p, ref);
+    await unpairOutlier(userId, p.debitId, p.creditId);
+    n++;
+  }
+  return n;
 }
 
 /**
  * Derives realised NGN rates from linked pairs, quoted payout lines, and Deel-style
- * same/next-day landings. Idempotent: rewrites the user's realised rows, rejects outliers,
- * retags CAD legs stored as USD. Market is only a fallback when no realised rate exists.
+ * same/next-day landings. First re-evaluates existing pairs against the pairing rules
+ * and unpairs the bad ones. Market is only a fallback when no realised rate exists.
  */
 export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
   const foreignDays = await db.transaction.findMany({
@@ -390,7 +403,7 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
   });
   const marketResult = await backfillMarketDates([...new Set(foreignDays.map((r) => lagosDay(r.transactionDate)))]);
 
-  const [legs, marketRows, kept, owners] = await Promise.all([
+  const [loaded, marketRows, kept, owners] = await Promise.all([
     loadFxLegs(userId),
     db.fxRate.findMany({
       where: { quote: BASE, source: { in: ["market", "seed"] }, userId: "" },
@@ -403,7 +416,9 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
     loadOwners(userId),
   ]);
   const keptKeys = new Set(kept.map((k) => k.pattern));
-  await persistExtractedQuotes(legs);
+  await persistExtractedQuotes(loaded);
+  const swept = await sweepBadPairs(userId, loaded, owners, marketRows, keptKeys);
+  const legs = swept ? await loadFxLegs(userId) : loaded;
 
   const linked = impliedFromLinks(legs);
   const taken = new Set(linked.flatMap((p) => [p.debitId, p.creditId, p.foreignId, p.naira.id]));
@@ -415,29 +430,24 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
     taken.add(p.naira.id);
   }
   const quotes = impliedFromQuotes(legs, taken);
-  let pairs = [...linked, ...landings, ...quotes];
-  const usdRates = pairs.filter((p) => p.foreign.currency === "USD").map((p) => p.rate);
-  const usdMedian = marketOn(marketRows, "9999-12-31", "USD") ?? median(usdRates);
-  const cadMedian = marketOn(marketRows, "9999-12-31", "CAD") ?? median(pairs.filter((p) => p.foreign.currency === "CAD").map((p) => p.rate));
-
-  let retagged = 0;
-  for (const p of pairs) {
-    if (p.foreign.currency !== "USD") continue;
-    const usdRef = marketOn(marketRows, p.date, "USD") ?? usdMedian;
-    const cadRef = marketOn(marketRows, p.date, "CAD") ?? cadMedian;
-    if (!looksLikeCadNotUsd(p.rate, usdRef, cadRef)) continue;
-    await retagCurrency(p.foreignId, "CAD");
-    p.foreign = { ...p.foreign, currency: "CAD" };
-    retagged++;
-  }
+  const pairs = [...linked, ...landings, ...quotes];
+  const usdMonthly = marketOn(marketRows, "9999-12-31", "USD")
+    ?? median(pairs.filter((p) => p.foreign.currency === "USD" && inSanityBand(p.rate, "USD")).map((p) => p.rate));
+  const cadMonthly = marketOn(marketRows, "9999-12-31", "CAD")
+    ?? median(pairs.filter((p) => p.foreign.currency === "CAD" && inSanityBand(p.rate, "CAD")).map((p) => p.rate));
+  const retagged = await scanWalletCurrencyGuesses(userId, usdMonthly, cadMonthly);
+  await scanDuplicateFlags(userId);
 
   const candidates = pairs;
+  const monthly = candidates
+    .filter((p) => inSanityBand(p.rate, p.foreign.currency))
+    .map((p) => ({ date: p.date, currency: p.foreign.currency, rate: p.rate }));
 
   const byCurrency = new Map<string, number[]>();
-  for (const p of candidates) {
-    const list = byCurrency.get(p.foreign.currency) ?? [];
+  for (const p of monthly) {
+    const list = byCurrency.get(p.currency) ?? [];
     list.push(p.rate);
-    byCurrency.set(p.foreign.currency, list);
+    byCurrency.set(p.currency, list);
   }
   const medians = new Map<string, number>();
   for (const [ccy, rates] of byCurrency) {
@@ -446,11 +456,14 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
   }
 
   const accepted: ImpliedPair[] = [];
-  let rejected = 0;
+  let rejected = swept;
   for (const p of candidates) {
-    const reference = referenceFor(p.date, p.foreign.currency, marketRows, medians);
+    const reference = referenceFor(p.date, p.foreign.currency, marketRows, medians, monthly);
     const keptPair = keptKeys.has(mispairKey(p.debitId, p.creditId));
-    if (!keptPair && isOutlierRate(p.rate, reference)) {
+    if (!keptPair && isUnusableRate(p.rate, p.foreign.currency, reference)) {
+      if (p.foreign.currency === "USD" && looksLikeCadNotUsd(p.rate, usdMonthly, cadMonthly)) {
+        continue;
+      }
       rejected++;
       if (!p.quoted) {
         const debit = legs.find((l) => l.id === p.debitId);
@@ -539,7 +552,7 @@ export async function storeQuotedRate(
     select: { date: true, base: true, quote: true, rate: true },
   });
   const reference = marketOn(market, date, tx.currency);
-  if (isOutlierRate(rate, reference)) return;
+  if (isUnusableRate(rate, tx.currency, reference)) return;
   await db.fxRate.upsert({
     where: { userId_date_base_quote_source: { userId, date, base: tx.currency, quote: BASE, source: "realised" } },
     create: { userId, date, base: tx.currency, quote: BASE, rate, source: "realised" },

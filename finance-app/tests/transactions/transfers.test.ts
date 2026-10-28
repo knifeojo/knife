@@ -132,6 +132,40 @@ describe("cross-currency own transfers", () => {
     expect(findPairs(legs, []).some((p) => p.debit.id === toFirstBank.id)).toBe(false);
   });
 
+  it("never pairs a Debt debit, a wallet-fund line, or a different third-party credit", () => {
+    const debt = cad(100, "2026-09-24");
+    debt.category = "Debt";
+    debt.description = "Deel advance repayment";
+    expect(findPairs([debt, ngn(155000, "2026-09-24")], ["Ada Eze"])).toHaveLength(0);
+
+    const fund = cad(8.12, "2026-09-24");
+    fund.description = "8.12 CAD debited from CAD wallet to fund GBP wallet (4.35GBP)";
+    expect(findPairs([fund, ngn(7840, "2026-09-24")], ["Ada Eze"])).toHaveLength(0);
+
+    const d = cad(100, "2026-09-24");
+    d.category = "Own transfer";
+    d.counterparty = "Ada Eze";
+    const other = ngn(155000, "2026-09-25");
+    other.counterparty = "John Doe";
+    other.description = "NIP FROM JOHN DOE";
+    expect(findPairs([d, other], ["Ada Eze"])).toHaveLength(0);
+  });
+
+  it("rejects a cross-currency pair outside the sanity band even without a market rate", () => {
+    const d = cad(100, "2026-09-24");
+    d.category = "Own transfer";
+    d.currency = "USD";
+    d.counterparty = "Ada Eze";
+    const cheap = ngn(4000, "2026-09-24"); // implied 40
+    cheap.description = "NIP CREDIT DEEL INC";
+    cheap.counterparty = "DEEL INC";
+    expect(findPairs([d, cheap], ["Ada Eze"])).toHaveLength(0);
+    const huge = ngn(12_542_800, "2026-09-24"); // implied 125,428
+    huge.description = "NIP CREDIT DEEL INC";
+    huge.counterparty = "DEEL INC";
+    expect(findPairs([d, huge], ["Ada Eze"])).toHaveLength(0);
+  });
+
   it("ignores rates far from the others", () => {
     const legs = [cad(1000, "2026-09-24"), ngn(973000, "2026-09-24"), cad(860, "2026-09-26"), ngn(829040, "2026-09-26"), cad(170, "2026-09-28"), ngn(163912.3, "2026-09-28"), cad(50, "2026-09-28"), ngn(500000, "2026-09-28")];
     expect(findPairs(legs, []).some((p) => p.debit.amountMinor === 5000n)).toBe(false);

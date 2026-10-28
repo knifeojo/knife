@@ -270,7 +270,78 @@ describe("FX rebuild from existing pairs", () => {
     expect(fx.rate).toBeCloseTo(310_000 / 200, 8);
   });
 
-  it("retags a USD-labeled pair whose rate matches CAD", async () => {
+  it("re-evaluates existing pairs and unpairs a Debt debit and an out-of-band rate", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-12", "USD", 1500);
+    const debt = await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 155_000_00n, date: "2026-10-12" });
+    await db.transaction.update({ where: { id: debt.debit.id }, data: { category: "Debt", description: "Deel advance repayment" } });
+    const wild = await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 21_600_00n, date: "2026-10-13" });
+
+    const r = await rebuildUserFx(userId);
+    expect(r.rejected).toBeGreaterThanOrEqual(2);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: debt.debit.id } })).transferPairId).toBeNull();
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: wild.debit.id } })).transferPairId).toBeNull();
+    const qs = await buildQuestions(userId);
+    expect(qs.filter((q) => q.kind === "mispair").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not let a poisoned median bless a rate outside the sanity band", async () => {
+    const { userId, usd, ngn } = await setup();
+    await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 4_000_00n, date: "2026-10-14" });
+    await linkPair(userId, usd.id, ngn.id, { usdMinor: 80_00n, ngnMinor: 3_200_00n, date: "2026-10-14" });
+    await rebuildUserFx(userId);
+    expect(await db.fxRate.count({ where: { userId, source: "realised" } })).toBe(0);
+  });
+
+  it("flags possible duplicate bank credits when the balance only moved once", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-16", "USD", 1500);
+    const d1 = await db.transaction.create({
+      data: {
+        userId, accountId: usd.id, source: "fixture", sourceTransactionId: fp(), fingerprint: fp(),
+        transactionDate: new Date("2026-10-16T11:00:00Z"), type: "DEBIT", amountMinor: 100_00n, currency: "USD",
+        description: "Money transfer to Ada Eze / Deel withdrawal a", counterparty: "Ada Eze",
+        category: "Own transfer", classificationSource: "rule", classificationConfidence: 0.9,
+      },
+    });
+    const d2 = await db.transaction.create({
+      data: {
+        userId, accountId: usd.id, source: "fixture", sourceTransactionId: fp(), fingerprint: fp(),
+        transactionDate: new Date("2026-10-16T11:05:00Z"), type: "DEBIT", amountMinor: 100_00n, currency: "USD",
+        description: "Money transfer to Ada Eze / Deel withdrawal b", counterparty: "Ada Eze",
+        category: "Own transfer", classificationSource: "rule", classificationConfidence: 0.9,
+      },
+    });
+    const c1 = await db.transaction.create({
+      data: {
+        userId, accountId: ngn.id, source: "fixture", sourceTransactionId: fp(), fingerprint: fp(),
+        transactionDate: new Date("2026-10-16T14:00:00Z"), type: "CREDIT", amountMinor: 155_000_00n, currency: "NGN",
+        description: "PAYMENT-882211", counterparty: "DEEL INC",
+        category: "Income", classificationSource: "rule", classificationConfidence: 0.9,
+        balanceAfterMinor: 500_000_00n,
+      },
+    });
+    const c2 = await db.transaction.create({
+      data: {
+        userId, accountId: ngn.id, source: "fixture", sourceTransactionId: fp(), fingerprint: fp(),
+        transactionDate: new Date("2026-10-17T09:00:00Z"), type: "CREDIT", amountMinor: 155_000_00n, currency: "NGN",
+        description: "PAYMENT/AT5_M882211", counterparty: "DEEL INC",
+        category: "Income", classificationSource: "rule", classificationConfidence: 0.9,
+        balanceAfterMinor: 500_000_00n,
+      },
+    });
+    await db.transaction.update({ where: { id: d1.id }, data: { transferPairId: c1.id } });
+    await db.transaction.update({ where: { id: c1.id }, data: { transferPairId: d1.id } });
+    await db.transaction.update({ where: { id: d2.id }, data: { transferPairId: c2.id } });
+    await db.transaction.update({ where: { id: c2.id }, data: { transferPairId: d2.id } });
+
+    await rebuildUserFx(userId);
+    const qs = await buildQuestions(userId);
+    expect(qs.some((q) => q.kind === "duplicate")).toBe(true);
+    expect(await db.transaction.count({ where: { userId, id: { in: [c1.id, c2.id] } } })).toBe(2);
+  });
+
+  it("asks to confirm a USD-labeled wallet that looks like CAD, then applies on confirm", async () => {
     const { userId, usd, ngn } = await setup();
     await market("2026-09-28", "USD", 1500);
     await market("2026-09-28", "CAD", 960);
@@ -279,7 +350,13 @@ describe("FX rebuild from existing pairs", () => {
     });
 
     const r = await rebuildUserFx(userId);
-    expect(r.retagged).toBe(1);
+    expect(r.retagged).toBeGreaterThanOrEqual(1);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: debit.id } })).currency).toBe("USD");
+    const qs = await buildQuestions(userId);
+    const ask = qs.find((q) => q.kind === "currency");
+    expect(ask).toBeTruthy();
+    const { answerQuestion } = await import("@/core/review");
+    await answerQuestion(userId, "currency", ask!.key, "cad");
     expect((await db.transaction.findUniqueOrThrow({ where: { id: debit.id } })).currency).toBe("CAD");
     const fx = await db.fxRate.findFirstOrThrow({ where: { userId, source: "realised" } });
     expect(fx).toMatchObject({ base: "CAD" });

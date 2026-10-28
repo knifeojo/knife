@@ -1,11 +1,15 @@
 import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
-import { OWN_TRANSFER, categorize, isSelf } from "./categorize";
+import { OWN_TRANSFER, isSelf } from "./categorize";
+import { isUnusableRate, monthlyMedian } from "./fx/guard";
 import { matchPayoutLandings, mentionsDeel } from "./fx/landings";
+import { recategorizeUnpaired, shouldNeverPair } from "./fx/pairing-rules";
 import { lagosDay } from "./fx/rates";
 import { isBlockedMispair, rebuildUserFx } from "./fx/realised";
 import { BANKS } from "./statements";
+
+export type FxRateLookup = (date: Date, currency: string) => number | undefined;
 
 // Pairs money moving between two of the user's own accounts, so it is neither spending (on the
 // sending account) nor income (on the receiving one). Runs after every import.
@@ -71,7 +75,7 @@ function blockedByLabel(l: Leg): boolean {
   return l.classificationSource === "user" && l.category !== OWN_TRANSFER && !(l.type === "CREDIT" && l.category === "Income");
 }
 
-export function findPairs(legs: Leg[], owners: string[]): PairCandidate[] {
+export function findPairs(legs: Leg[], owners: string[], rateFor?: FxRateLookup): PairCandidate[] {
   const debits = legs.filter((l) => l.type === "DEBIT");
   const credits = legs.filter((l) => l.type === "CREDIT");
   const options: (PairCandidate & { gap: number })[] = [];
@@ -91,9 +95,9 @@ export function findPairs(legs: Leg[], owners: string[]): PairCandidate[] {
       if (clue) options.push({ debit: d, credit: c, clue, gap });
     }
   }
-  options.push(...crossCurrencyOptions(debits, credits, owners));
-  options.push(...payoutLandingOptions(debits, credits, owners));
-  options.push(...ownNameFxOptions(debits, credits, owners));
+  options.push(...crossCurrencyOptions(debits, credits, owners, rateFor));
+  options.push(...payoutLandingOptions(debits, credits, owners, rateFor));
+  options.push(...ownNameFxOptions(debits, credits, owners, rateFor));
   options.sort((a, b) => a.gap - b.gap);
   const used = new Set<string>();
   const pairs: PairCandidate[] = [];
@@ -112,12 +116,24 @@ export function findPairs(legs: Leg[], owners: string[]): PairCandidate[] {
  * receiving bank, and the implied rate agrees (within 2.5%) with the most common rate among candidates.
  * Needs at least 3 consistent candidates, so a single coincidence never pairs.
  */
-function crossCurrencyOptions(debits: Leg[], credits: Leg[], owners: string[]): (PairCandidate & { gap: number })[] {
+function foreignOf(d: Leg, c: Leg): string {
+  return d.currency !== "NGN" ? d.currency : c.currency;
+}
+
+function fxAllowed(d: Leg, c: Leg, owners: string[], rateFor?: FxRateLookup): boolean {
+  if (shouldNeverPair(d, c, owners)) return false;
+  const rate = Number(c.amountMinor) / Number(d.amountMinor);
+  const ccy = foreignOf(d, c);
+  return !isUnusableRate(rate, ccy, rateFor?.(c.transactionDate, ccy));
+}
+
+function crossCurrencyOptions(debits: Leg[], credits: Leg[], owners: string[], rateFor?: FxRateLookup): (PairCandidate & { gap: number })[] {
   const raw: (PairCandidate & { gap: number; rate: number; key: string })[] = [];
   for (const d of debits) {
     for (const c of credits) {
       if (c.accountId === d.accountId || c.currency === d.currency) continue;
       if (blockedByLabel(d) || blockedByLabel(c)) continue;
+      if (!fxAllowed(d, c, owners, rateFor)) continue;
       const gap = Math.abs(c.transactionDate.getTime() - d.transactionDate.getTime());
       if (gap > 36 * 3600_000) continue;
       // The send must point at the receiving bank, or at least not name a DIFFERENT bank.
@@ -160,15 +176,16 @@ function sameOrNextDay(a: Date, b: Date): boolean {
  * Lagos day. Rate-checked greedy matching; generic wallet→bank sends still need the 3+ cluster
  * or the owner's name.
  */
-function payoutLandingOptions(debits: Leg[], credits: Leg[], owners: string[]): (PairCandidate & { gap: number })[] {
+function payoutLandingOptions(debits: Leg[], credits: Leg[], owners: string[], rateFor?: FxRateLookup): (PairCandidate & { gap: number })[] {
   const byId = new Map([...debits, ...credits].map((l) => [l.id, l]));
-  return matchPayoutLandings([...debits, ...credits], owners)
+  return matchPayoutLandings([...debits, ...credits], owners, rateFor ? (date, ccy) => rateFor(new Date(`${date}T12:00:00Z`), ccy) : undefined)
     .filter((m) => mentionsDeel(m.debit) || mentionsDeel(m.credit))
     .flatMap((m) => {
       const debit = byId.get(m.debit.id);
       const credit = byId.get(m.credit.id);
       if (!debit || !credit || debit.accountId === credit.accountId) return [];
       if (blockedByLabel(debit) || blockedByLabel(credit)) return [];
+      if (!fxAllowed(debit, credit, owners, rateFor)) return [];
       return [{
         debit,
         credit,
@@ -182,13 +199,14 @@ function payoutLandingOptions(debits: Leg[], credits: Leg[], owners: string[]): 
  * A single foreign debit to the owner's own name, paired with an NGN credit on a naira account
  * the same or next day. Strong enough without a rate cluster: this is the owner's own conversion.
  */
-function ownNameFxOptions(debits: Leg[], credits: Leg[], owners: string[]): (PairCandidate & { gap: number })[] {
+function ownNameFxOptions(debits: Leg[], credits: Leg[], owners: string[], rateFor?: FxRateLookup): (PairCandidate & { gap: number })[] {
   const out: (PairCandidate & { gap: number })[] = [];
   for (const d of debits) {
     for (const c of credits) {
       if (c.accountId === d.accountId || c.currency === d.currency) continue;
       if (d.currency === "NGN" || c.currency !== "NGN") continue;
       if (blockedByLabel(d) || blockedByLabel(c)) continue;
+      if (!fxAllowed(d, c, owners, rateFor)) continue;
       if (!sameOrNextDay(d.transactionDate, c.transactionDate)) continue;
       // A send that names a different bank is not this naira credit, even if it is the owner's name.
       const namesOtherBank = Object.keys(SHORT_CODES).some((inst) => inst !== c.institution && mentionsInstitution(d.description, inst));
@@ -204,6 +222,37 @@ function ownNameFxOptions(debits: Leg[], credits: Leg[], owners: string[]): (Pai
   return out;
 }
 
+async function loadPairRateLookup(userId: string): Promise<FxRateLookup> {
+  const [market, linked] = await Promise.all([
+    db.fxRate.findMany({
+      where: { quote: "NGN", source: { in: ["market", "seed"] }, userId: "" },
+      select: { date: true, base: true, rate: true },
+    }),
+    db.transaction.findMany({
+      where: { userId, transferPairId: { not: null }, currency: { not: "NGN" } },
+      select: { id: true, amountMinor: true, currency: true, transactionDate: true, transferPairId: true },
+    }),
+  ]);
+  const monthly: { date: string; currency: string; rate: number }[] = [];
+  for (const d of linked) {
+    if (!d.transferPairId || d.amountMinor <= 0n) continue;
+    const c = await db.transaction.findFirst({
+      where: { userId, id: d.transferPairId, currency: "NGN" },
+      select: { amountMinor: true, transactionDate: true },
+    });
+    if (!c || c.amountMinor <= 0n) continue;
+    const rate = Number(c.amountMinor) / Number(d.amountMinor);
+    if (!isUnusableRate(rate, d.currency)) monthly.push({ date: lagosDay(c.transactionDate), currency: d.currency, rate });
+  }
+  return (date, currency) => {
+    const day = lagosDay(date);
+    const month = monthlyMedian(monthly, day, currency);
+    if (month !== undefined) return month;
+    const hits = market.filter((r) => r.base === currency && r.date <= day).sort((a, b) => (a.date < b.date ? 1 : -1));
+    return hits[0]?.rate;
+  };
+}
+
 /** Finds and links own-account transfer pairs for a user. Returns how many new pairs were made. */
 export async function pairOwnTransfers(userId: string): Promise<number> {
   const accounts = await db.account.findMany({ where: { userId } });
@@ -216,16 +265,19 @@ export async function pairOwnTransfers(userId: string): Promise<number> {
       select: { id: true, accountId: true, type: true, amountMinor: true, currency: true, transactionDate: true, description: true, counterparty: true, category: true, classificationSource: true },
     });
     const legs: Leg[] = rows.map((r) => ({ ...r, institution: inst.get(r.accountId) ?? "" }));
-    const pairs = findPairs(legs, owners);
+    const pairs = findPairs(legs, owners, await loadPairRateLookup(userId));
     let linked = 0;
     for (const p of pairs) {
       if (await isBlockedMispair(userId, p.debit.id, p.credit.id)) continue;
       // Link both legs. The user's own labels are kept (e.g. "Salary"): totals skip linked legs, so the
       // label stays meaningful without double counting. Unlabelled legs show as an own transfer.
-      const data = (leg: Leg, other: string) =>
-        leg.classificationSource === "user"
-          ? { transferPairId: other }
-          : { transferPairId: other, category: OWN_TRANSFER, subcategory: p.debit.currency !== p.credit.currency ? "Currency conversion" : "Between own accounts", classificationSource: "pair", classificationConfidence: 0.95 };
+      const data = (_leg: Leg, other: string) => ({
+        transferPairId: other,
+        category: OWN_TRANSFER,
+        subcategory: p.debit.currency !== p.credit.currency ? "Currency conversion" : "Between own accounts",
+        classificationSource: "pair",
+        classificationConfidence: 0.95,
+      });
       await db.$transaction([
         db.transaction.update({ where: { id: p.debit.id }, data: data(p.debit, p.credit.id) }),
         db.transaction.update({ where: { id: p.credit.id }, data: data(p.credit, p.debit.id) }),
@@ -363,7 +415,7 @@ export async function suspectedConversions(userId: string): Promise<ConversionEv
     classificationSource: r.type === "CREDIT" && r.classificationSource === "user" && r.category === "Income" ? "default" : r.classificationSource,
   }));
   const userIncome = new Set(rows.filter((r) => r.type === "CREDIT" && r.classificationSource === "user" && r.category === "Income").map((r) => r.id));
-  const pairs = findPairs(legs, owners).filter((p) => p.debit.currency !== p.credit.currency && userIncome.has(p.credit.id));
+  const pairs = findPairs(legs, owners, await loadPairRateLookup(userId)).filter((p) => p.debit.currency !== p.credit.currency && userIncome.has(p.credit.id));
   const byName = new Map<string, ConversionEvidence>();
   const fmt = (m: bigint, c: string) => formatMoney(m, c);
   for (const p of pairs) {
@@ -394,7 +446,7 @@ export async function unpairContradicted(userId: string, ids: string[]): Promise
     const partner = await db.transaction.findFirst({ where: { userId, id: leg.transferPairId! } });
     await db.transaction.update({ where: { id: leg.id }, data: { transferPairId: null } });
     if (partner && partner.classificationSource === "pair") {
-      const c = categorize({ description: partner.description, type: partner.type as "DEBIT" | "CREDIT" });
+      const c = recategorizeUnpaired({ description: partner.description, type: partner.type as "DEBIT" | "CREDIT" });
       await db.transaction.update({
         where: { id: partner.id },
         data: { transferPairId: null, category: c.category, subcategory: c.subcategory ?? null, classificationSource: c.source, classificationConfidence: c.confidence },

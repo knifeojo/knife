@@ -1,8 +1,9 @@
 import { isSelf } from "../categorize";
+import { inSanityBand, isUnusableRate, median } from "./guard";
+import { isInternalWalletFund } from "./pairing-rules";
 import { lagosDay } from "./rates";
 
 const BASE = "NGN";
-const OUTLIER_TOLERANCE = 0.20;
 const PAYOUT_DEBIT = /deel withdrawal|money transfer to/i;
 const LANDING_PARTNER = /\bdeel\b|pesapeer|\bpesa\b|payoneer/i;
 const DEEL = /\bdeel\b/i;
@@ -15,6 +16,7 @@ export interface LandingLeg {
   transactionDate: Date;
   description: string;
   counterparty?: string | null;
+  category?: string;
   transferPairId?: string | null;
 }
 
@@ -45,6 +47,7 @@ export function mentionsDeel(leg: LandingLeg): boolean {
 
 export function isPayoutDebit(leg: LandingLeg, owners: string[]): boolean {
   if (leg.type !== "DEBIT" || leg.currency === BASE || leg.amountMinor <= 0n) return false;
+  if (leg.category === "Debt" || isInternalWalletFund(leg.description)) return false;
   if (PAYOUT_DEBIT.test(leg.description)) return true;
   return isSelf(leg.counterparty ?? undefined, owners) || mentionsOwner(leg.description, owners);
 }
@@ -61,18 +64,6 @@ function sameOrNextDay(a: Date, b: Date): boolean {
   return Math.abs(Date.parse(`${da}T00:00:00Z`) - Date.parse(`${db_}T00:00:00Z`)) / 86400_000 <= 1;
 }
 
-function median(values: number[]): number | undefined {
-  if (!values.length) return undefined;
-  const s = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-}
-
-function outlier(rate: number, reference: number | undefined): boolean {
-  if (reference === undefined || !Number.isFinite(reference) || reference <= 0) return false;
-  if (!Number.isFinite(rate) || rate <= 0) return true;
-  return Math.abs(rate - reference) / reference > OUTLIER_TOLERANCE;
-}
 
 /**
  * Deel / wallet payouts landing as NGN bank credits: same or next Lagos day, credit
@@ -116,9 +107,9 @@ export function matchPayoutLandings(
   }
   const plausible = raw.filter((r) => {
     const ref = referenceFor?.(r.date, r.debit.currency) ?? cluster;
-    return !outlier(r.rate, ref);
+    return !isUnusableRate(r.rate, r.debit.currency, ref);
   });
-  const pool = plausible.length ? plausible : raw.length === 1 ? raw : [];
+  const pool = plausible.length ? plausible : raw.length === 1 && inSanityBand(raw[0].rate, raw[0].debit.currency) ? raw : [];
   pool.sort((a, b) => a.score - b.score || a.gap - b.gap);
 
   const byDebit = new Map<string, typeof pool>();
@@ -181,7 +172,7 @@ export function aggregateUnmatchedLandings(
     if (foreignMinor <= 0n) continue;
     const rate = Number(nairaMinor) / Number(foreignMinor);
     const ref = referenceFor?.(g.date, g.currency);
-    if (!Number.isFinite(rate) || rate <= 0 || outlier(rate, ref)) continue;
+    if (!Number.isFinite(rate) || rate <= 0 || isUnusableRate(rate, g.currency, ref)) continue;
     out.push({
       debit: g.debits[0],
       credit: g.credits[0],

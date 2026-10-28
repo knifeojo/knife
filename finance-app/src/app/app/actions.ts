@@ -29,6 +29,8 @@ import { specificMonth } from "@/core/analytics";
 import { affordabilityJson, checkAffordability, cleanDescription, parseAmountInput, parseHorizon, type AffordabilityJson } from "@/core/affordability";
 import { MAX_STATEMENT_FILES, StatementFormatError, importStatement, recordFailedImport, resolveIssueByAdding, resolveIssueByIgnoring, type StatementImportSummary } from "@/core/statement-import";
 import { FX_CURRENCIES, clearManualRate, importMarketRates, setManualRate } from "@/core/fx/provider";
+import { rebuildUserFx } from "@/core/fx/realised";
+import { applyAccountCurrency } from "@/core/fx/wallet-currency";
 
 export type SyncState = { ok?: string; error?: string } | undefined;
 
@@ -568,6 +570,18 @@ export async function setManualRateAction(form: FormData) {
   if (!(FX_CURRENCIES as readonly string[]).includes(base)) return;
   const rate = Number(form.get("rate"));
   await setManualRate(user.id, base, "NGN", rate);
+  revalidatePath("/app", "layout");
+}
+
+export async function setAccountCurrencyAction(form: FormData) {
+  const user = await requireUser();
+  if (user.isDemo) return;
+  const accountId = String(form.get("accountId") ?? "");
+  const currency = String(form.get("currency") ?? "").toUpperCase();
+  const allowed = ["NGN", ...FX_CURRENCIES];
+  if (!accountId || !allowed.includes(currency)) return;
+  await applyAccountCurrency(user.id, accountId, currency);
+  await rebuildUserFx(user.id);
   revalidatePath("/app", "layout");
 }
 

@@ -8,7 +8,9 @@ import { loadKnownPeople } from "./ledger";
 import { createPerson, updatePerson } from "./people";
 import { familySurnames, guessFor, type PeopleGuess } from "./people-guess";
 import { RELATIONSHIPS, labelFor, mappingFor, matchPeople, relationshipInfo, sameIndividual, type KnownPerson } from "./people-match";
-import { listPendingMispairs, resolveMispair } from "./fx/realised";
+import { listPendingDuplicates, resolveDuplicate } from "./fx/duplicates";
+import { rebuildUserFx, listPendingMispairs, resolveMispair } from "./fx/realised";
+import { listPendingWalletGuesses, resolveWalletGuess } from "./fx/wallet-currency";
 import { pairOwnTransfers, suspectedConversions, unpairContradicted } from "./transfers";
 void suspectedConversions; // kept for answering legacy conversion questions
 
@@ -17,8 +19,8 @@ void suspectedConversions; // kept for answering legacy conversion questions
 // People come first: "Who is GIFT ADEBAYO OJO to you?" is answered once and labels every payment
 // to and from them through the relationship (core/people).
 
-export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match" | "mispair";
-export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion", "match", "mispair"];
+export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match" | "mispair" | "duplicate" | "currency";
+export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion", "match", "mispair", "duplicate", "currency"];
 
 export interface Option {
   value: string;
@@ -146,13 +148,29 @@ export const MISPAIR_OPTIONS: Option[] = [
   { value: "keep", label: "Keep — this was a real conversion", category: OWN_TRANSFER, subcategory: "Currency conversion" },
 ];
 
+export const DUPLICATE_OPTIONS: Option[] = [
+  { value: "keep", label: "Keep both — they are different payments", category: "" },
+  { value: "dismiss", label: "Got it — I'll review them myself", category: "" },
+];
+
+export const CURRENCY_OPTIONS: Option[] = [
+  { value: "cad", label: "Yes, this wallet is CAD", category: "" },
+  { value: "keep", label: "No, leave it as it is", category: "" },
+];
+
 const HOLDER_OPTIONS: Option[] = [
   { value: "yes", label: "Yes, that's me", category: OWN_TRANSFER, subcategory: "Between own accounts" },
   { value: "no", label: "No", category: "" },
 ];
 
 export function optionsFor(kind: QuestionKind): Option[] {
-  return kind === "income" ? INCOME_OPTIONS : kind === "holder" ? HOLDER_OPTIONS : kind === "conversion" ? CONVERSION_OPTIONS : kind === "mispair" ? MISPAIR_OPTIONS : PERSON_OPTIONS;
+  return kind === "income" ? INCOME_OPTIONS
+    : kind === "holder" ? HOLDER_OPTIONS
+    : kind === "conversion" ? CONVERSION_OPTIONS
+    : kind === "mispair" ? MISPAIR_OPTIONS
+    : kind === "duplicate" ? DUPLICATE_OPTIONS
+    : kind === "currency" ? CURRENCY_OPTIONS
+    : PERSON_OPTIONS;
 }
 
 /** The one-tap answers to "Who is <NAME> to you?". Each one creates a person (core/people). */
@@ -409,6 +427,35 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   const { answered, accounts, tx, people, found, surnames, ctx } = await reviewData(userId);
   const questions: Question[] = [];
 
+  for (const g of await listPendingWalletGuesses(userId)) {
+    questions.push({
+      kind: "currency",
+      key: g.key,
+      title: "This wallet looks like CAD, confirm?",
+      prompt: `${g.label} is stored as ${g.current}, but the wallet id, CAD funding lines, or landing rates (~0.75× USD) look like Canadian dollars. Confirming relabels the account and rebuilds rates. Nothing is changed until you answer.`,
+      totalMinor: g.totalMinor,
+      totalCurrency: g.current,
+      count: Math.max(1, g.examples.length),
+      examples: g.examples,
+      options: CURRENCY_OPTIONS,
+    });
+  }
+
+  for (const d of await listPendingDuplicates(userId)) {
+    const extra = d.debitIds.length ? " Matching foreign debits of the same size may also be duplicated." : "";
+    questions.push({
+      kind: "duplicate",
+      key: d.key,
+      title: "Possible duplicate bank credit",
+      prompt: `Two ${d.amount} credits on ${d.date} (or the next day) use different narration formats, but the running balance only moved once.${extra} Ledger will not delete either row — mark them so they stop appearing here.`,
+      totalMinor: d.totalMinor,
+      totalCurrency: "NGN",
+      count: d.creditIds.length + d.debitIds.length,
+      examples: d.examples,
+      options: DUPLICATE_OPTIONS,
+    });
+  }
+
   for (const m of await listPendingMispairs(userId)) {
     const per = m.impliedRate > 0 ? `implied about ₦${m.impliedRate.toLocaleString("en-NG", { maximumFractionDigits: 0 })} per unit` : "the implied rate";
     questions.push({
@@ -532,7 +579,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   const weight = (q: Question) => (/around the \d+(st|nd|rd|th)/.test(q.prompt) ? q.totalMinor * 2n : q.totalMinor);
   // People questions are ranked by the unlabelled money they fix, then by everything with them.
   const impact = (q: Question) => (q.impactMinor ?? 0n) * 4n + q.totalMinor;
-  const rank = (q: Question) => (q.kind === "holder" ? 0 : q.kind === "mispair" ? 1 : q.person ? 2 : q.kind === "conversion" ? 3 : 4);
+  const rank = (q: Question) => (q.kind === "holder" ? 0 : q.kind === "currency" || q.kind === "mispair" || q.kind === "duplicate" ? 1 : q.person ? 2 : q.kind === "conversion" ? 3 : 4);
   questions.sort((a, b) => {
     const r = rank(a) - rank(b);
     if (r) return r;
@@ -635,6 +682,18 @@ export async function answerQuestion(
   if (kind === "mispair") {
     if (value !== "unpair" && value !== "keep") throw new Error("unknown answer");
     return resolveMispair(userId, key, value);
+  }
+
+  if (kind === "duplicate") {
+    if (value !== "keep" && value !== "dismiss") throw new Error("unknown answer");
+    return resolveDuplicate(userId, key, value);
+  }
+
+  if (kind === "currency") {
+    if (value !== "cad" && value !== "keep") throw new Error("unknown answer");
+    const n = await resolveWalletGuess(userId, key, value);
+    if (value === "cad") await rebuildUserFx(userId);
+    return n;
   }
 
   if (kind === "conversion") {

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
+import bundledSeed from "./seed.json";
 
 const BASE = "NGN";
 
@@ -73,13 +74,28 @@ function asKind(source: string, rateDate: string, txDate: string): FxSourceKind 
 }
 
 export async function loadFxContext(userId: string): Promise<FxContext> {
-  const [user, rows] = await Promise.all([
+  const [user, initial] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { fxNgnPreference: true } }),
     db.fxRate.findMany({
       where: { OR: [{ userId }, { userId: "" }] },
       select: { date: true, base: true, quote: true, rate: true, source: true, userId: true },
     }),
   ]);
+  let rows = initial;
+  if (!rows.some((r) => r.source === "market" || r.source === "seed")) {
+    for (const r of bundledSeed) {
+      if (!Number.isFinite(r.rate) || r.rate <= 0) continue;
+      await db.fxRate.upsert({
+        where: { userId_date_base_quote_source: { userId: "", date: r.date, base: r.base, quote: r.quote, source: "seed" } },
+        create: { ...r, source: "seed", userId: "" },
+        update: { rate: r.rate },
+      });
+    }
+    rows = await db.fxRate.findMany({
+      where: { OR: [{ userId }, { userId: "" }] },
+      select: { date: true, base: true, quote: true, rate: true, source: true, userId: true },
+    });
+  }
   const preferManual = user?.fxNgnPreference === "street";
   return {
     userId,
@@ -95,8 +111,10 @@ function pickPair(ctx: FxContext, date: string, base: string, quote: string): Ra
   if (realisedNear) return realisedNear;
   const market = nearestOnOrBefore(ctx.market, date, base, quote);
   const manual = latest(ctx.manual, base, quote);
-  if (ctx.preferManual) return manual ?? market ?? latest(ctx.realised, base, quote);
-  return market ?? manual ?? latest(ctx.realised, base, quote);
+  const oldRealised = latest(ctx.realised, base, quote);
+  const realisedOk = oldRealised && daysBetween(oldRealised.date, date) <= APPROXIMATE_AFTER_DAYS ? oldRealised : undefined;
+  if (ctx.preferManual) return manual ?? market ?? realisedOk;
+  return market ?? manual ?? realisedOk;
 }
 
 function toConversion(row: RateRow, foreignMinor: bigint, txDate: string): Conversion | null {
