@@ -26,6 +26,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   String? _error;
   bool _busy = false;
   bool _changed = false;
+  bool _loadingMore = false;
 
   @override
   void initState() {
@@ -35,7 +36,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   Future<void> _load() async {
     try {
-      final queue = await context.read<LedgerController>().review();
+      final queue = await context.read<LedgerController>().review(limit: 30);
       if (!mounted) return;
       setState(() {
         _queue = queue;
@@ -44,6 +45,26 @@ class _ReviewScreenState extends State<ReviewScreen> {
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _error = error.message);
+    }
+  }
+
+  Future<void> _more() async {
+    final queue = _queue;
+    if (_loadingMore || queue == null || queue.nextCursor == null) return;
+    setState(() => _loadingMore = true);
+    try {
+      final next = await context.read<LedgerController>().review(limit: 30, cursor: queue.nextCursor);
+      if (!mounted) return;
+      setState(() {
+        _queue = queue.mergePage(next);
+        _loadingMore = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+        _loadingMore = false;
+      });
     }
   }
 
@@ -133,7 +154,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
           title: const Text('Review'),
           actions: [IconButton(key: const Key('review-people'), tooltip: 'Your people', icon: const Icon(Icons.people_outline), onPressed: _openPeople)],
         ),
-        body: RefreshIndicator(
+        body: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification.metrics.extentAfter < 400) _more();
+            return false;
+          },
+          child: RefreshIndicator(
           onRefresh: _load,
           child: ListView(
             key: const Key('review-list'),
@@ -173,8 +199,15 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 const SizedBox(height: 8),
                 for (final s in queue.suggestions) AiSuggestionCard(key: Key('suggestion-${s.id}'), suggestion: s, busy: _busy, onAnswer: _suggestion),
               ],
+              if (_loadingMore) const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
+              if (queue != null && queue.nextCursor == null && (queue.questions.isNotEmpty || queue.suggestions.isNotEmpty))
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(0, 8, 0, 16),
+                  child: Center(child: Text("That's everything")),
+                ),
             ],
           ),
+        ),
         ),
       ),
     );

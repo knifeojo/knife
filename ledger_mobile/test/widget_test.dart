@@ -58,10 +58,10 @@ void main() {
     await tester.tap(find.byKey(const Key('submit-auth')));
     await tester.pumpAndSettle();
 
-    expect(find.text('September 2026'), findsOneWidget);
-    expect(find.text('₦1,983,611.00'), findsOneWidget);
-    expect(find.text('Food'), findsWidgets);
-    expect(find.text('Shoprite'), findsOneWidget);
+    expect(find.text('IN'), findsOneWidget);
+    expect(find.text('OUT'), findsOneWidget);
+    expect(find.text('LEFT'), findsOneWidget);
+    expect(find.text('1. Food'), findsOneWidget);
 
     await tester.tap(find.text('Afford'));
     await tester.pumpAndSettle();
@@ -127,9 +127,11 @@ void main() {
         ),
       ),
     );
-    expect(find.text('Food'), findsOneWidget);
     expect(find.text('Shoprite'), findsOneWidget);
     expect(find.textContaining('₦45,250.50'), findsOneWidget);
+    await tester.tap(find.text('Shoprite'));
+    await tester.pumpAndSettle();
+    expect(find.text('Food'), findsOneWidget);
     expect(find.byType(CadenceChip), findsNothing);
   });
 
@@ -170,10 +172,10 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.text('Landlord'));
+    await tester.pumpAndSettle();
     expect(find.text('Recurring bill'), findsOneWidget);
-    expect(find.text('Recurring'), findsOneWidget);
-    expect(find.text('One-off'), findsOneWidget);
-    expect(find.byType(CadenceChip), findsNWidgets(3));
+    expect(find.byType(CadenceChip), findsOneWidget);
   });
 
   testWidgets('summary splits spending into recurring and one-off', (tester) async {
@@ -266,7 +268,7 @@ void main() {
     var reloaded = 0;
     await tester.pumpWidget(_app(controller, ListView(children: [SummaryBody(summary: summary, onChanged: () => reloaded++)])));
 
-    expect(find.text('6 payments need a purpose — help Ledger label them'), findsOneWidget);
+    expect(find.text('6 payments need a purpose. Help Ledger label them'), findsOneWidget);
     expect(find.text('What you spent on'), findsOneWidget);
     expect(find.text('Also written as Okeke Chidie'), findsOneWidget);
     expect(find.text('several times a month'), findsOneWidget);
@@ -508,6 +510,12 @@ Future<http.Response> _api(http.Request request) async {
       200,
     );
   }
+  if (path.endsWith('/onboarding')) {
+    return http.Response(jsonEncode({'needsOnboarding': false, 'trustNote': '', 'topPeople': {'show': false, 'people': []}, 'statuses': [], 'relationships': []}), 200);
+  }
+  if (path.endsWith('/overview')) {
+    return http.Response(jsonEncode(_overviewJson), 200);
+  }
   if (path.endsWith('/summary')) {
     return http.Response(jsonEncode(_summaryJson), 200);
   }
@@ -519,10 +527,26 @@ Future<http.Response> _api(http.Request request) async {
     return http.Response(jsonEncode(affordabilityResponse), 200, headers: {'content-type': 'application/json; charset=utf-8'});
   }
   if (path.endsWith('/transactions')) {
-    return http.Response(jsonEncode({'transactions': [], 'total': 0, 'page': 1, 'pageSize': 50, 'categories': ['Food', 'Income']}), 200);
+    return http.Response(jsonEncode({'transactions': [], 'nextCursor': null, 'dayTotals': [], 'categories': ['Food', 'Income']}), 200);
   }
   return http.Response(jsonEncode({'error': 'not found'}), 404);
 }
+
+const _overviewJson = {
+  'period': {'label': 'October 2026', 'from': '2026-09-30T23:00:00.000Z', 'to': '2026-10-31T23:00:00.000Z', 'month': '2026-10'},
+  'inMinor': '198361100',
+  'outMinor': '42370050',
+  'leftMinor': '155991050',
+  'keptBp': 7864,
+  'prevOutMinor': '40000000',
+  'reviewCount': 0,
+  'categories': [
+    {'category': 'Food', 'totalMinor': '1845000', 'count': 1, 'shareBp': 435},
+  ],
+  'incomeSources': [
+    {'name': 'Example Payroll Ltd', 'kind': 'Salary', 'totalMinor': '198361100', 'count': 1},
+  ],
+};
 
 /// What a server from before the recurring vs one-off split sends.
 const _summaryJson = {

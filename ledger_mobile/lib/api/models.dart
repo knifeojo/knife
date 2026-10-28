@@ -178,28 +178,55 @@ class LedgerTransaction {
   }
 }
 
+class DayTotal {
+  const DayTotal({required this.date, required this.netMinor, required this.inMinor, required this.outMinor});
+
+  /// Lagos calendar day, YYYY-MM-DD.
+  final String date;
+  final String netMinor;
+  final String inMinor;
+  final String outMinor;
+
+  factory DayTotal.fromJson(Map<String, dynamic> json) {
+    return DayTotal(
+      date: _string(json, 'date'),
+      netMinor: _minor(json, 'netMinor'),
+      inMinor: _optionalMinor(json, 'inMinor') ?? '0',
+      outMinor: _optionalMinor(json, 'outMinor') ?? '0',
+    );
+  }
+}
+
 class TransactionPage {
   const TransactionPage({
     required this.transactions,
-    required this.total,
-    required this.page,
-    required this.pageSize,
+    this.total,
+    this.page,
+    this.pageSize,
     required this.categories,
+    this.nextCursor,
+    this.dayTotals = const [],
   });
 
   final List<LedgerTransaction> transactions;
-  final int total;
-  final int page;
-  final int pageSize;
+
+  /// Present on offset pages (`page`/`pageSize`). Cursor pages omit it.
+  final int? total;
+  final int? page;
+  final int? pageSize;
   final List<String> categories;
+  final String? nextCursor;
+  final List<DayTotal> dayTotals;
 
   factory TransactionPage.fromJson(Map<String, dynamic> json) {
     return TransactionPage(
       transactions: _list(json, 'transactions').map(LedgerTransaction.fromJson).toList(),
-      total: _int(json, 'total'),
-      page: _int(json, 'page'),
-      pageSize: _int(json, 'pageSize'),
+      total: _optionalInt(json, 'total'),
+      page: _optionalInt(json, 'page'),
+      pageSize: _optionalInt(json, 'pageSize'),
       categories: _stringList(json, 'categories'),
+      nextCursor: _optionalString(json, 'nextCursor'),
+      dayTotals: _optionalList(json, 'dayTotals').map(DayTotal.fromJson).toList(),
     );
   }
 }
@@ -559,6 +586,117 @@ class HomeSummary {
       incomeSources: _optionalList(json, 'incomeSources').map(IncomeSource.fromJson).toList(),
       monthlyTrend: _optionalList(json, 'monthlyTrend').map(MonthTrend.fromJson).toList(),
       span: period['span'] is String ? period['span'] as String : null,
+    );
+  }
+}
+
+class OverviewCategory {
+  const OverviewCategory({required this.category, required this.totalMinor, required this.count, required this.shareBp});
+
+  final String category;
+  final String totalMinor;
+  final int count;
+  final int shareBp;
+
+  factory OverviewCategory.fromJson(Map<String, dynamic> json) {
+    return OverviewCategory(
+      category: _string(json, 'category'),
+      totalMinor: _minor(json, 'totalMinor'),
+      count: _int(json, 'count'),
+      shareBp: _optionalInt(json, 'shareBp') ?? 0,
+    );
+  }
+}
+
+class MonthOverview {
+  const MonthOverview({
+    required this.periodLabel,
+    required this.month,
+    required this.inMinor,
+    required this.outMinor,
+    required this.leftMinor,
+    this.keptBp,
+    required this.prevOutMinor,
+    required this.reviewCount,
+    required this.categories,
+    required this.incomeSources,
+    this.periodFrom,
+    this.periodTo,
+  });
+
+  final String periodLabel;
+  final String month;
+  final DateTime? periodFrom;
+  final DateTime? periodTo;
+  final String inMinor;
+  final String outMinor;
+  final String leftMinor;
+  final int? keptBp;
+  final String prevOutMinor;
+  final int reviewCount;
+  final List<OverviewCategory> categories;
+  final List<IncomeSource> incomeSources;
+
+  factory MonthOverview.fromJson(Map<String, dynamic> json) {
+    final period = _map(json, 'period');
+    return MonthOverview(
+      periodLabel: _string(period, 'label'),
+      month: period['month'] is String ? period['month'] as String : '',
+      periodFrom: _optionalDate(period, 'from'),
+      periodTo: _optionalDate(period, 'to'),
+      inMinor: _minor(json, 'inMinor'),
+      outMinor: _minor(json, 'outMinor'),
+      leftMinor: _minor(json, 'leftMinor'),
+      keptBp: _optionalInt(json, 'keptBp'),
+      prevOutMinor: _minor(json, 'prevOutMinor'),
+      reviewCount: _optionalInt(json, 'reviewCount') ?? 0,
+      categories: _optionalList(json, 'categories').map(OverviewCategory.fromJson).toList(),
+      incomeSources: _optionalList(json, 'incomeSources').map(IncomeSource.fromJson).toList(),
+    );
+  }
+}
+
+class CategorySubtotal {
+  const CategorySubtotal({required this.name, required this.totalMinor, required this.count});
+
+  final String name;
+  final String totalMinor;
+  final int count;
+
+  factory CategorySubtotal.fromJson(Map<String, dynamic> json) {
+    return CategorySubtotal(name: _string(json, 'name'), totalMinor: _minor(json, 'totalMinor'), count: _int(json, 'count'));
+  }
+}
+
+class CategoryDetail {
+  const CategoryDetail({
+    required this.category,
+    required this.periodLabel,
+    required this.totalMinor,
+    required this.count,
+    required this.shareBp,
+    required this.avg6mMinor,
+    required this.subcategories,
+  });
+
+  final String category;
+  final String periodLabel;
+  final String totalMinor;
+  final int count;
+  final int shareBp;
+  final String avg6mMinor;
+  final List<CategorySubtotal> subcategories;
+
+  factory CategoryDetail.fromJson(Map<String, dynamic> json) {
+    final period = _map(json, 'period');
+    return CategoryDetail(
+      category: _string(json, 'category'),
+      periodLabel: _string(period, 'label'),
+      totalMinor: _minor(json, 'totalMinor'),
+      count: _optionalInt(json, 'count') ?? 0,
+      shareBp: _optionalInt(json, 'shareBp') ?? 0,
+      avg6mMinor: _minor(json, 'avg6mMinor'),
+      subcategories: _optionalList(json, 'subcategories').map(CategorySubtotal.fromJson).toList(),
     );
   }
 }
@@ -1039,7 +1177,13 @@ class ReviewQuestion {
 }
 
 class ReviewQueue {
-  const ReviewQueue({required this.questions, required this.totalMinor, required this.categories, this.suggestions = const []});
+  const ReviewQueue({
+    required this.questions,
+    required this.totalMinor,
+    required this.categories,
+    this.suggestions = const [],
+    this.nextCursor,
+  });
 
   final List<ReviewQuestion> questions;
   final String totalMinor;
@@ -1047,6 +1191,7 @@ class ReviewQueue {
 
   /// AI suggestions for payees no question covers.
   final List<AiSuggestion> suggestions;
+  final String? nextCursor;
 
   factory ReviewQueue.fromJson(Map<String, dynamic> json) {
     return ReviewQueue(
@@ -1054,6 +1199,17 @@ class ReviewQueue {
       totalMinor: _minor(json, 'totalMinor'),
       categories: _stringList(json, 'categories'),
       suggestions: _optionalList(json, 'suggestions').map(AiSuggestion.fromJson).toList(),
+      nextCursor: _optionalString(json, 'nextCursor'),
+    );
+  }
+
+  ReviewQueue mergePage(ReviewQueue next) {
+    return ReviewQueue(
+      questions: [...questions, ...next.questions],
+      totalMinor: totalMinor,
+      categories: next.categories.isEmpty ? categories : next.categories,
+      suggestions: [...suggestions, ...next.suggestions],
+      nextCursor: next.nextCursor,
     );
   }
 }
