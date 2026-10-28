@@ -10,7 +10,7 @@ import 'package:ledger_mobile/alerts/sms_controller.dart';
 import 'package:ledger_mobile/alerts/sms_platform.dart';
 import 'package:ledger_mobile/alerts/source_id.dart';
 import 'package:ledger_mobile/api/models.dart';
-import 'package:ledger_mobile/screens/settings_screen.dart';
+import 'package:ledger_mobile/screens/bank_alerts_screen.dart';
 import 'package:ledger_mobile/screens/sms_alerts_card.dart';
 import 'package:ledger_mobile/state/ledger_controller.dart';
 import 'package:ledger_mobile/storage/settings_store.dart';
@@ -265,7 +265,7 @@ void main() {
           controller: sms,
           child: ChangeNotifierProvider<LedgerController>.value(
             value: controller,
-            child: const MaterialApp(home: SettingsScreen()),
+            child: const MaterialApp(home: BankAlertsScreen()),
           ),
         ),
       );

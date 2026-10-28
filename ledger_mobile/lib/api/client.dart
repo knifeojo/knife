@@ -47,25 +47,57 @@ class LedgerApi {
 
   /// `cadence` is "recurring", "one_off" or "everyday"; `payee` matches every spelling of one name.
   /// `from` and `to` are inclusive Lagos days (YYYY-MM-DD).
+  /// Cursor pages send `limit` (default 30). Offset pages send `page`/`pageSize` when [page] is set.
   Future<TransactionPage> transactions({
     String? category,
+    String? subcategory,
     String? query,
     String? cadence,
     String? payee,
     String? type,
+    String? direction,
     String? from,
     String? to,
-    int page = 1,
+    String? month,
+    int? page,
+    int limit = 30,
+    String? cursor,
   }) {
-    final params = {'category': category, 'q': query, 'cadence': cadence, 'payee': payee, 'type': type, 'from': from, 'to': to};
+    final params = {
+      'category': category,
+      'subcategory': subcategory,
+      'q': query,
+      'cadence': cadence,
+      'payee': payee,
+      'type': type,
+      'direction': direction,
+      'from': from,
+      'to': to,
+      'month': month,
+      'cursor': cursor,
+      if (page != null) 'page': '$page',
+      if (page != null) 'pageSize': '$limit',
+      if (page == null) 'limit': '$limit',
+    };
+    return _parse(_object(_uri('/api/v1/transactions', params), _get), TransactionPage.fromJson);
+  }
+
+  Future<MonthOverview> overview({String? month}) {
+    return _parse(_object(_uri('/api/v1/overview', {'month': month}), _get), MonthOverview.fromJson);
+  }
+
+  Future<CategoryDetail> categoryMonth({required String category, String? month}) {
     return _parse(
-      _object(_uri('/api/v1/transactions', {...params, 'page': '$page', 'pageSize': '50'}), _get),
-      TransactionPage.fromJson,
+      _object(_uri('/api/v1/categories/${Uri.encodeComponent(category)}', {'month': month}), _get),
+      CategoryDetail.fromJson,
     );
   }
 
-  Future<ReviewQueue> review() {
-    return _parse(_object(_uri('/api/v1/review'), _get), ReviewQueue.fromJson);
+  Future<ReviewQueue> review({int? limit, String? cursor}) {
+    return _parse(
+      _object(_uri('/api/v1/review', {'limit': limit?.toString(), 'cursor': cursor}), _get),
+      ReviewQueue.fromJson,
+    );
   }
 
   /// First-run form and the after-upload picker. Older servers answer 404.

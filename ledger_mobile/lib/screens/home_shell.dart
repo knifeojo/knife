@@ -4,13 +4,12 @@ import 'package:provider/provider.dart';
 import '../alerts/sms_controller.dart';
 import '../api/models.dart';
 import '../state/ledger_controller.dart';
-import 'accounts_screen.dart';
+import '../theme.dart';
 import 'affordability_screen.dart';
+import 'home_screen.dart';
+import 'more_screen.dart';
 import 'onboarding_screen.dart';
-import 'settings_screen.dart';
-import 'summary_screen.dart';
 import 'transactions_screen.dart';
-import 'upload_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -23,7 +22,7 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   bool _asked = false;
 
-  static const _titles = ['Home', 'Accounts', 'Activity', 'Upload', 'Afford'];
+  static const _titles = ['Home', 'Activity', 'Afford', 'More'];
 
   @override
   void initState() {
@@ -42,6 +41,12 @@ class _HomeShellState extends State<HomeShell> {
       // Older servers, or a blip: the rest of the app still works.
     }
     if (!mounted) return;
+    try {
+      await context.read<LedgerController>().overview();
+    } on ApiException {
+      // Badge stays at 0 until Home loads.
+    }
+    if (!mounted) return;
     final sms = SmsAlertScope.maybeOf(context);
     if (sms == null) return;
     try {
@@ -53,32 +58,35 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final badge = context.watch<LedgerController>().reviewBadge;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_titles[_index]),
-        actions: [
-          IconButton(
-            tooltip: 'Settings',
-            onPressed: () {
-              Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
-            },
-            icon: const Icon(Icons.settings_outlined),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text(_titles[_index])),
       body: IndexedStack(
         index: _index,
-        children: const [SummaryScreen(), AccountsScreen(), TransactionsScreen(), UploadScreen(), AffordabilityScreen()],
+        children: const [HomeScreen(), TransactionsScreen(), AffordabilityScreen(), MoreScreen()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (index) => setState(() => _index = index),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'Accounts'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Activity'),
-          NavigationDestination(icon: Icon(Icons.upload_file_outlined), selectedIcon: Icon(Icons.upload_file), label: 'Upload'),
-          NavigationDestination(icon: Icon(Icons.help_outline), selectedIcon: Icon(Icons.help), label: 'Afford'),
+        destinations: [
+          const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
+          const NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Activity'),
+          const NavigationDestination(icon: Icon(Icons.help_outline), selectedIcon: Icon(Icons.help), label: 'Afford'),
+          NavigationDestination(
+            icon: Badge(
+              isLabelVisible: badge > 0,
+              label: Text('$badge'),
+              backgroundColor: ledgerBlue,
+              child: const Icon(Icons.more_horiz),
+            ),
+            selectedIcon: Badge(
+              isLabelVisible: badge > 0,
+              label: Text('$badge'),
+              backgroundColor: ledgerBlue,
+              child: const Icon(Icons.more_horiz),
+            ),
+            label: 'More',
+          ),
         ],
       ),
     );

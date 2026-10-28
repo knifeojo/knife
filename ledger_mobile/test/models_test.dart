@@ -270,6 +270,39 @@ void main() {
     expect(hybrid.local!.modelInstalled, isTrue);
     expect(hybrid.notes.single, contains('local-only'));
   });
+
+  test('reads a month overview and a cursor transaction page', () {
+    final overview = MonthOverview.fromJson({
+      'period': {'label': 'October 2026', 'from': '2026-09-30T23:00:00.000Z', 'to': '2026-10-31T23:00:00.000Z', 'month': '2026-10'},
+      'inMinor': '125000000',
+      'outMinor': '98000000',
+      'leftMinor': '27000000',
+      'keptBp': 2160,
+      'prevOutMinor': '91000000',
+      'reviewCount': 4,
+      'categories': [
+        {'category': 'Housing', 'totalMinor': '42000000', 'count': 3, 'shareBp': 4286},
+      ],
+      'incomeSources': [
+        {'name': 'Example Payroll Ltd', 'kind': 'Salary', 'totalMinor': '125000000', 'count': 1},
+      ],
+    });
+    expect(overview.inMinor, '125000000');
+    expect(overview.categories.single.category, 'Housing');
+    expect(overview.incomeSources.single.name, 'Example Payroll Ltd');
+
+    final page = TransactionPage.fromJson({
+      'transactions': [_tx],
+      'nextCursor': 'abc',
+      'dayTotals': [
+        {'date': '2026-09-19', 'netMinor': '-4525050', 'inMinor': '0', 'outMinor': '4525050'},
+      ],
+      'categories': ['Food'],
+    });
+    expect(page.total, isNull);
+    expect(page.nextCursor, 'abc');
+    expect(page.dayTotals.single.date, '2026-09-19');
+  });
 }
 
 const _tx = {
