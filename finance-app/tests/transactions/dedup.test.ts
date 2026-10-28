@@ -139,7 +139,7 @@ describe("fuzzy cross-source matching", () => {
     expect(pickStatementAmountMatch(weekLater, [statement], true)).toBeUndefined();
   });
 
-  it("does not amount-match two statement rows of ₦10,000 on the same day", () => {
+  it("claims one unclaimed statement row and skips a row that already has this alert", () => {
     const sms: CanonicalTransaction = {
       ...base,
       source: "sms",
@@ -147,11 +147,40 @@ describe("fuzzy cross-source matching", () => {
       reference: undefined,
       description: "POS ACME MART",
       transactionDate: new Date("2026-10-04T19:00:00.000Z"),
+      balanceAfterMinor: 9_000_000n,
       sourceTransactionId: "sms-ambig",
     };
-    const a = asCandidate({ ...sms, source: "statement", description: "ROW A", sourceTransactionId: "a" }, "tx-a");
-    const b = asCandidate({ ...sms, source: "statement", description: "ROW B", sourceTransactionId: "b" }, "tx-b");
-    expect(pickStatementAmountMatch(sms, [a, b], true)).toBeUndefined();
+    const closer = asCandidate({ ...sms, source: "statement", description: "ROW A", transactionDate: new Date("2026-10-04T18:00:00.000Z"), sourceTransactionId: "a" }, "tx-a");
+    const farther = asCandidate({ ...sms, source: "statement", description: "ROW B", transactionDate: new Date("2026-10-04T08:00:00.000Z"), sourceTransactionId: "b" }, "tx-b");
+    expect(pickStatementAmountMatch(sms, [closer, farther], true)?.id).toBe("tx-a");
+
+    const taken = { ...closer, sources: ["statement", "sms"] };
+    expect(pickStatementAmountMatch(sms, [taken], true)).toBeUndefined();
+    const sameBalance = { ...taken, balanceAfterMinor: sms.balanceAfterMinor };
+    expect(pickStatementAmountMatch(sms, [sameBalance], true)?.id).toBe("tx-a");
+  });
+
+  it("does not attach a second statement row to an SMS that already has one", () => {
+    const sms = asCandidate({
+      ...base,
+      source: "sms",
+      amountMinor: 500_000n,
+      reference: undefined,
+      description: "POS ACME MART",
+      transactionDate: new Date("2026-10-04T17:00:00.000Z"),
+      sourceTransactionId: "sms-5k",
+    }, "sms-row");
+    sms.sources = ["sms", "statement"];
+    const second: CanonicalTransaction = {
+      ...base,
+      source: "statement",
+      amountMinor: 500_000n,
+      reference: undefined,
+      description: "AIRTIME VEND",
+      transactionDate: new Date("2026-10-04T18:00:00.000Z"),
+      sourceTransactionId: "stmt-5k-b",
+    };
+    expect(pickStatementAmountMatch(second, [sms], true)).toBeUndefined();
   });
 
   it("links a PAYMENTDEEL SMS credit to a Deel INC statement/email credit", () => {

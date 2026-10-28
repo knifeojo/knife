@@ -213,6 +213,79 @@ Bal:NGN20,000.00`,
     expect(sms.transactionId).toBe(stmt.transactionId);
   });
 
+  it("keeps two same-day statement debits when only one SMS exists", async () => {
+    const user = await db.user.create({ data: { email: "sms-two-stmt@test.dev" } });
+    const sms = await ingestSmsPayload(user.id, {
+      sender: "GTBank",
+      body: `Acct:******1234
+Amt:NGN5,000.00 DR
+Desc:POS ACME MART
+Bal:NGN80,000.00
+Date:2026-10-04 6:00PM`,
+      receivedAt: "2026-10-04T17:00:00.000Z",
+      sourceId: "sms-5k",
+    });
+    expect(sms.status).toBe("created");
+    const statement = {
+      institution: "GTBank",
+      source: "statement" as const,
+      type: "DEBIT" as const,
+      amountMinor: 500_000n,
+      currency: "NGN",
+      accountLast4: "1234",
+      confidence: 1,
+    };
+    const first = await ingestTransaction(user.id, {
+      ...statement,
+      sourceTransactionId: "stmt-5k-a",
+      transactionDate: new Date("2026-10-04T12:00:00.000Z"),
+      description: "ATM WITHDRAWAL",
+      balanceAfterMinor: 7_500_000n,
+    });
+    const second = await ingestTransaction(user.id, {
+      ...statement,
+      sourceTransactionId: "stmt-5k-b",
+      transactionDate: new Date("2026-10-04T15:00:00.000Z"),
+      description: "AIRTIME VEND",
+      balanceAfterMinor: 7_000_000n,
+    });
+    expect(first.status).toBe("duplicate");
+    expect(second.status).toBe("created");
+    const rows = await db.transaction.findMany({ where: { userId: user.id }, include: { sources: true } });
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((r) => r.source === "sms" || r.sources.some((s) => s.source === "sms"))).toHaveLength(1);
+  });
+
+  it("keeps two same-day SMS debits when only one statement row exists", async () => {
+    const user = await db.user.create({ data: { email: "two-sms-stmt@test.dev" } });
+    const body = (bal: string) => `Acct:******1234
+Amt:NGN5,000.00 DR
+Desc:POS ACME MART
+Bal:NGN${bal}
+Date:2026-10-04 6:00PM`;
+    const a = await ingestSmsPayload(user.id, { sender: "GTBank", body: body("80,000.00"), receivedAt: "2026-10-04T17:00:00.000Z", sourceId: "sms-5k-a" });
+    const b = await ingestSmsPayload(user.id, { sender: "GTBank", body: body("75,000.00"), receivedAt: "2026-10-04T17:05:00.000Z", sourceId: "sms-5k-b" });
+    expect(a.status).toBe("created");
+    expect(b.status).toBe("created");
+    const stmt = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "statement",
+      sourceTransactionId: "stmt-5k-only",
+      type: "DEBIT",
+      amountMinor: 500_000n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-04T17:00:00.000Z"),
+      description: "ATM WITHDRAWAL",
+      accountLast4: "1234",
+      balanceAfterMinor: 6_000_000n,
+      confidence: 1,
+    });
+    expect(stmt.status).toBe("duplicate");
+    const rows = await db.transaction.findMany({ where: { userId: user.id }, include: { sources: true } });
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((r) => r.source === "statement" || r.sources.some((s) => s.source === "statement"))).toHaveLength(1);
+  });
+
   it("is idempotent on a repeated SMS", async () => {
     const again = await ingestSmsPayload(userId, { sender: "GTBank", body: TRANSFER, receivedAt: "2026-10-07T14:17:00.000Z", sourceId: "sms-1" });
     expect(again.status).toBe("duplicate");

@@ -169,8 +169,13 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
       currency: tx.currency,
       transactionDate: { gte: new Date(tx.transactionDate.getTime() - window), lte: new Date(tx.transactionDate.getTime() + window) },
     },
+    include: { sources: { select: { source: true } } },
   });
-  const mapped = candidates.map((c) => ({ ...c, accountKey: accountKey(tx.institution, tx.accountLast4) }));
+  const mapped = candidates.map((c) => ({
+    ...c,
+    accountKey: accountKey(tx.institution, tx.accountLast4),
+    sources: [...new Set([c.source, ...c.sources.map((s) => s.source)])],
+  }));
   const fuzzy = findFuzzyMatch(tx, mapped);
   if (fuzzy) return link(fuzzy.id, "fuzzy");
   const covered = statementCoversDate(account.statementCoveredFrom, account.statementCoveredTo, tx.transactionDate);
