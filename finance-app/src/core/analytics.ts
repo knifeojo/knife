@@ -29,11 +29,39 @@ export function monthPeriod(now: Date, offset = 0): Period {
 }
 
 export function specificMonth(year: number, monthIndex: number): Period {
-  return {
-    from: new Date(Date.UTC(year, monthIndex, 1) - LAGOS_MS),
-    to: new Date(Date.UTC(year, monthIndex + 1, 1) - LAGOS_MS),
-    label: `${MONTH_NAMES[monthIndex]} ${year}`,
-  };
+  const from = new Date(Date.UTC(year, monthIndex, 1) - LAGOS_MS);
+  const to = new Date(Date.UTC(year, monthIndex + 1, 1) - LAGOS_MS);
+  const lf = new Date(from.getTime() + LAGOS_MS);
+  return { from, to, label: `${MONTH_NAMES[lf.getUTCMonth()]} ${lf.getUTCFullYear()}` };
+}
+
+/** `YYYY-MM` as a Lagos calendar month, or an error for anything else. */
+export function periodFromYearMonth(value: string): Period | { error: string } {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return { error: "month must be YYYY-MM" };
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  if (monthIndex < 0 || monthIndex > 11 || year < 2000 || year > 2100) return { error: "month must be YYYY-MM" };
+  return specificMonth(year, monthIndex);
+}
+
+/** The Lagos calendar month immediately before `p` (p.from is that month's first instant). */
+export function previousCalendarMonth(p: Period): Period {
+  const local = new Date(p.from.getTime() + LAGOS_MS);
+  return specificMonth(local.getUTCFullYear(), local.getUTCMonth() - 1);
+}
+
+/** Lagos calendar day of an instant as YYYY-MM-DD. */
+export function lagosDateKey(d: Date): string {
+  return new Date(d.getTime() + LAGOS_MS).toISOString().slice(0, 10);
+}
+
+/** `part / whole` in basis points, rounded half up. 43% is 4300. */
+export function basisPoints(part: bigint, whole: bigint): number {
+  if (whole <= 0n) return 0;
+  const sign = part < 0n ? -1n : 1n;
+  const abs = part < 0n ? -part : part;
+  return Number(sign * ((abs * 10000n + whole / 2n) / whole));
 }
 
 /** Inclusive span of `months` Lagos calendar months ending in the month that contains `now`. */
@@ -470,6 +498,7 @@ export interface TransactionFilters {
   to?: Date;
   type?: "DEBIT" | "CREDIT";
   category?: string;
+  subcategory?: string;
   q?: string;
   minMinor?: bigint;
   maxMinor?: bigint;
@@ -483,15 +512,50 @@ export interface TransactionFilters {
   payee?: Prisma.TransactionWhereInput;
 }
 
-export async function listTransactions(userId: string, f: TransactionFilters, page = 1, pageSize = 50) {
-  const where = {
+export interface TxCursor {
+  date: Date;
+  id: string;
+}
+
+/** Opaque cursor: base64url of `ISO date \\t id` of the last row on a page. */
+export function encodeTxCursor(date: Date, id: string): string {
+  return Buffer.from(`${date.toISOString()}\t${id}`, "utf8").toString("base64url");
+}
+
+export function decodeTxCursor(raw: string): TxCursor | null {
+  try {
+    const text = Buffer.from(raw, "base64url").toString("utf8");
+    const tab = text.indexOf("\t");
+    if (tab < 1) return null;
+    const date = new Date(text.slice(0, tab));
+    const id = text.slice(tab + 1);
+    if (Number.isNaN(date.getTime()) || !id || id.length > 64) return null;
+    return { date, id };
+  } catch {
+    return null;
+  }
+}
+
+function transactionWhere(userId: string, f: TransactionFilters, cursor?: TxCursor): Prisma.TransactionWhereInput {
+  const and: Prisma.TransactionWhereInput[] = [];
+  if (f.cadence) and.push(f.cadence);
+  if (f.payee) and.push(f.payee);
+  if (cursor) {
+    and.push({
+      OR: [
+        { transactionDate: { lt: cursor.date } },
+        { transactionDate: cursor.date, id: { lt: cursor.id } },
+      ],
+    });
+  }
+  return {
     userId,
     ...(f.type && { type: f.type }),
     ...(f.category && { category: f.category }),
+    ...(f.subcategory && { subcategory: f.subcategory }),
     ...(f.accountId && { accountId: f.accountId }),
     ...(f.merchant && { merchantName: f.merchant }),
     ...(f.ids && { id: { in: f.ids } }),
-    ...((f.cadence || f.payee) && { AND: [f.cadence, f.payee].filter((w): w is Prisma.TransactionWhereInput => !!w) }),
     ...((f.from || f.to) && { transactionDate: { ...(f.from && { gte: f.from }), ...(f.to && { lt: f.to }) } }),
     ...((f.minMinor !== undefined || f.maxMinor !== undefined) && {
       amountMinor: { ...(f.minMinor !== undefined && { gte: f.minMinor }), ...(f.maxMinor !== undefined && { lte: f.maxMinor }) },
@@ -504,12 +568,120 @@ export async function listTransactions(userId: string, f: TransactionFilters, pa
         { reference: { contains: f.q } },
       ],
     }),
+    ...(and.length ? { AND: and } : {}),
   };
+}
+
+const txListInclude = { account: true, sources: true } as const;
+
+export async function listTransactions(userId: string, f: TransactionFilters, page = 1, pageSize = 50) {
+  const where = transactionWhere(userId, f);
   const [rows, total] = await Promise.all([
-    db.transaction.findMany({ where, orderBy: { transactionDate: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include: { account: true, sources: true } }),
+    db.transaction.findMany({ where, orderBy: { transactionDate: "desc" }, skip: (page - 1) * pageSize, take: pageSize, include: txListInclude }),
     db.transaction.count({ where }),
   ]);
   return { rows, total, page, pageSize };
+}
+
+/**
+ * Newest first, keyed by (transactionDate, id). Does not run count(*).
+ * Fetches `limit + 1` so the caller can tell whether a next page exists.
+ */
+export async function listTransactionsCursor(userId: string, f: TransactionFilters, limit: number, cursor?: TxCursor) {
+  const where = transactionWhere(userId, f, cursor);
+  const rows = await db.transaction.findMany({
+    where,
+    orderBy: [{ transactionDate: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    include: txListInclude,
+  });
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page[page.length - 1];
+  return {
+    rows: page,
+    nextCursor: hasMore && last ? encodeTxCursor(last.transactionDate, last.id) : null,
+  };
+}
+
+export interface DayTotal {
+  date: string;
+  netMinor: bigint;
+  inMinor: bigint;
+  outMinor: bigint;
+}
+
+/** Naira in/out/net for each Lagos day in `days`, using the same filters as the list (not the countable-only set). */
+export async function dayTotalsFor(userId: string, f: TransactionFilters, days: string[]): Promise<DayTotal[]> {
+  const unique = [...new Set(days)].sort();
+  if (!unique.length) return [];
+  const from = new Date(`${unique[0]}T00:00:00+01:00`);
+  const to = new Date(new Date(`${unique[unique.length - 1]}T00:00:00+01:00`).getTime() + 86400_000);
+  const where = transactionWhere(userId, { ...f, from, to });
+  const [rows, ctx] = await Promise.all([
+    db.transaction.findMany({
+      where,
+      select: { transactionDate: true, type: true, amountMinor: true, currency: true },
+    }),
+    loadFxContext(userId),
+  ]);
+  const byDay = new Map<string, { inMinor: bigint; outMinor: bigint }>();
+  for (const day of unique) byDay.set(day, { inMinor: 0n, outMinor: 0n });
+  for (const r of rows) {
+    const day = lagosDateKey(r.transactionDate);
+    const bucket = byDay.get(day);
+    if (!bucket) continue;
+    const naira = r.currency === BASE_CURRENCY ? r.amountMinor : nairaAt(ctx, r.amountMinor, r.currency, r.transactionDate)?.naira;
+    if (naira === undefined) continue;
+    if (r.type === "CREDIT") bucket.inMinor += naira;
+    else bucket.outMinor += naira;
+  }
+  return unique.map((date) => {
+    const g = byDay.get(date)!;
+    return { date, inMinor: g.inMinor, outMinor: g.outMinor, netMinor: g.inMinor - g.outMinor };
+  });
+}
+
+export interface CategoryMonthDetail {
+  total: bigint;
+  count: number;
+  shareBp: number;
+  avg6mMinor: bigint;
+  subcategories: { name: string; total: bigint; count: number }[];
+}
+
+/** One spending (or Income) category for a month: total, share of the month, 6-month average, ranked subcategories. */
+export async function categoryMonthDetail(userId: string, category: string, period: Period): Promise<CategoryMonthDetail> {
+  const income = category === INCOME_CATEGORY;
+  const local = new Date(period.from.getTime() + LAGOS_MS);
+  const year = local.getUTCFullYear();
+  const monthIndex = local.getUTCMonth();
+  const window = Array.from({ length: 6 }, (_, i) => specificMonth(year, monthIndex - (5 - i)));
+  const [figures, cats, { rows }, monthly] = await Promise.all([
+    summary(userId, period),
+    spendingByCategory(userId, period),
+    countableInNaira(userId, period, income ? { type: "CREDIT", category: INCOME_CATEGORY } : { type: "DEBIT", category }),
+    Promise.all(
+      window.map(async (m) => {
+        if (income) return (await summary(userId, m)).income;
+        const list = await spendingByCategory(userId, m);
+        return list.find((c) => c.category === category)?.total ?? 0n;
+      }),
+    ),
+  ]);
+  const catRow = cats.find((c) => c.category === category);
+  const total = income ? figures.income : (catRow?.total ?? 0n);
+  const count = income ? figures.incomeCount : (catRow?.count ?? 0);
+  const shareOf = income ? figures.income : figures.expenses;
+  const grouped = groupSum(rows, (r) => r.subcategory ?? (income ? "Other income" : "Other"));
+  const avg6mMinor = monthly.reduce((s, n) => s + n, 0n) / 6n;
+  return {
+    total,
+    count,
+    shareBp: basisPoints(total, shareOf),
+    avg6mMinor,
+    subcategories: grouped.map(([name, g]) => ({ name, total: g.total, count: g.count })),
+  };
 }
 
 export class NotFoundError extends Error {}
