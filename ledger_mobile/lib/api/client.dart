@@ -180,7 +180,7 @@ class LedgerApi {
       _object(
         _uri('/api/v1/summary', {
           if (span == null || span == 'month') 'offset': '$offset',
-          if (span != null) 'span': span,
+          'span': ?span,
           if (year != null) 'year': '$year',
         }),
         _get,
@@ -303,6 +303,14 @@ class LedgerApi {
         'sourceId': ?sourceId,
       }),
     );
+  }
+
+  /// Batch form of [uploadSms]. The route accepts `{ messages: [...] }` up to 200 rows.
+  Future<List<Map<String, dynamic>>> uploadSmsBatch(List<Map<String, Object?>> messages) async {
+    final json = await _object(_uri('/api/v1/alerts/sms'), (uri) => _post(uri, {'messages': messages}));
+    final results = json['results'];
+    if (results is! List) throw const ApiException(0, 'The server did not confirm the SMS upload.');
+    return [for (final item in results) _asMap(item)];
   }
 
   Future<Map<String, dynamic>> alertStatus() => _object(_uri('/api/v1/alerts/status'), _get);

@@ -10,8 +10,14 @@ import 'package:ledger_mobile/storage/settings_store.dart';
 void main() {
   test('sender allowlist drops telcos and phone numbers', () {
     expect(isAllowedSmsSender('GTBank'), isTrue);
+    expect(isAllowedSmsSender('GTWorld'), isTrue);
     expect(isAllowedSmsSender('FirstBank'), isTrue);
     expect(isAllowedSmsSender('STERLING'), isTrue);
+    expect(isAllowedSmsSender('Sterling'), isTrue);
+    expect(isAllowedSmsSender('Providus'), isTrue);
+    expect(isAllowedSmsSender('PROVIDUS'), isTrue);
+    expect(isAllowedSmsSender(''), isFalse);
+    expect(isAllowedSmsSender('   '), isFalse);
     expect(isAllowedSmsSender('303'), isFalse);
     expect(isAllowedSmsSender('GloDataSale'), isFalse);
     expect(isAllowedSmsSender('GLO-ROAM'), isFalse);
@@ -19,6 +25,10 @@ void main() {
     expect(isAllowedSmsSender('getmigo'), isFalse);
     expect(isAllowedSmsSender('MYD ALERT'), isFalse);
     expect(isAllowedSmsSender('+2348012345678'), isFalse);
+    expect(isAllowedSmsSender('+234 801 234 5678'), isFalse);
+    expect(isAllowedSmsSender('MTN'), isFalse);
+    expect(isAllowedSmsSender('Airtel'), isFalse);
+    expect(isAllowedSmsSender('9mobile'), isFalse);
     expect(isPhoneSender('08012345678'), isTrue);
     expect(isBankMarketing('Congratulations! You have a loan offer up to N300,000'), isTrue);
     expect(isBankMarketing('Debit: 301XXXX123 Amt: NGN12,500.00'), isFalse);

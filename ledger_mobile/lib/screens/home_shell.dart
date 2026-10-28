@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../alerts/sms_controller.dart';
 import '../api/models.dart';
 import '../state/ledger_controller.dart';
 import 'accounts_screen.dart';
@@ -39,6 +40,14 @@ class _HomeShellState extends State<HomeShell> {
       await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => OnboardingScreen(initial: state)));
     } on ApiException {
       // Older servers, or a blip: the rest of the app still works.
+    }
+    if (!mounted) return;
+    final sms = SmsAlertScope.maybeOf(context);
+    if (sms == null) return;
+    try {
+      await sms.onAppOpen();
+    } catch (_) {
+      // Captured bank SMS stay on the phone until the next sync.
     }
   }
 

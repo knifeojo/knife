@@ -64,13 +64,44 @@ class SmsOutbox {
     await _persist();
   }
 
+  Future<void> enqueueAll(List<QueuedSms> items) async {
+    if (items.isEmpty) return;
+    await load();
+    _items.addAll(items);
+    await _persist();
+  }
+
   Future<void> removeAt(int index) async {
     _items.removeAt(index);
     await _persist();
   }
 
+  Future<void> removeSourceIds(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    await load();
+    final before = _items.length;
+    _items.removeWhere((item) => item.sourceId != null && ids.contains(item.sourceId));
+    if (_items.length != before) await _persist();
+  }
+
+  Future<void> markRetried(String sourceId) async {
+    await load();
+    final index = _items.indexWhere((item) => item.sourceId == sourceId);
+    if (index < 0) return;
+    _items[index] = _items[index].retried();
+    await _persist();
+  }
+
   Future<void> replace(int index, QueuedSms sms) async {
     _items[index] = sms;
+    await _persist();
+  }
+
+  Future<void> replaceAll(List<QueuedSms> items) async {
+    await load();
+    _items
+      ..clear()
+      ..addAll(items);
     await _persist();
   }
 
