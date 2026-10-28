@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../alerts/queue.dart';
+import '../alerts/upload_api.dart';
 import '../api/client.dart';
 import '../api/models.dart';
 import '../server_url.dart';
@@ -208,6 +210,8 @@ class LedgerController extends ChangeNotifier {
   Future<Map<String, dynamic>> uploadSms({required String sender, required String body, DateTime? receivedAt, String? sourceId}) {
     return _guard((api) => api.uploadSms(sender: sender, body: body, receivedAt: receivedAt, sourceId: sourceId));
   }
+
+  Future<List<bool>> uploadSmsBatch(List<QueuedSms> messages) => _guard((api) => postSmsBatch(api, messages));
 
   LedgerApi _api() {
     final url = serverUrl;

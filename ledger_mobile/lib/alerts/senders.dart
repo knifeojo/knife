@@ -1,6 +1,9 @@
 /// Bank SMS sender IDs. Personal numbers and telco/promo IDs are never read or uploaded.
 const defaultBankSenders = ['GTBank', 'GTWorld', 'FirstBank', 'STERLING', 'Sterling', 'PROVIDUS'];
 
+/// Names shown before the SMS permission prompt.
+const smsBankSenderPhrase = 'GTBank, GTWorld, FirstBank, Sterling and Providus';
+
 const defaultBlockedSenders = ['303', 'GloDataSale', 'GLO-ROAM', 'VIDEO', 'getmigo', 'MYD ALERT', 'MTN', 'Airtel', '9mobile', 'Glo'];
 
 final _phone = RegExp(r'^\+?\d{8,15}$');

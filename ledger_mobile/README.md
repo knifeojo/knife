@@ -19,7 +19,7 @@ The server URL is not compiled into the app. You set it on the first screen, so 
 | Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with what would help (loans to clear, spending to cut, one-offs) and the figures behind it, recurring bills and one-offs shown apart |
 | Loans | Settings → Your loans. Loans entered by hand (`/api/v1/loans`): balance left, instalments, next and last payment. Add, edit, close or reopen. A loan with statement repayments after its balance date is marked out of date. Afford shows the balance on a loan line, or **Add your balance** when there is none |
 | Your people | Settings → Your people (or the people icon on Review). Who the names in your statements are: add family with plain sentences ("My wife is Gift Ojo"), change a relationship, add or reject bank spellings, merge duplicates, remove, and undo. Each person shows what their payments are labelled and the totals per month. Review asks "Who is NAME to you?" first, with one-tap relationships and the AI's guess highlighted |
-| Settings | Re-run categorization, bank-alert **Sync now** / last-synced, open Review, show the server, sign out, or forget the server |
+| Settings | Re-run categorization, bank-alert **Sync now** / last email sync, **SMS bank alerts** (opt-in, this month’s backfill, captured / sent), open Review, show the server, sign out, or forget the server |
 
 Afford does no maths on the phone. The server works out the answer from the ledger (see “Can I really afford this?” in `../finance-app/README.md`). The phone only turns what you type (“2.5m”, “500k”) into kobo and shows the result.
 
@@ -96,7 +96,11 @@ flutter test
 
 Google Play does not allow `RECEIVE_SMS` / `READ_SMS` for a personal-finance listing. This works on the sideloaded Samsung APK.
 
-Settings explains the opt-in. Only sender IDs on the bank allowlist (`GTBank`, `FirstBank`, `STERLING`, `PROVIDUS`, plus extras from the server registry) are read. Phone numbers and telco/promo IDs are dropped on the device and never uploaded. Parsed fields plus the raw bank SMS go to `POST /api/v1/alerts/sms`. If Tailscale is down they sit in an on-device queue and retry.
+Turn it on under **Settings → Bank alerts → SMS bank alerts**. The switch explains that only `GTBank`, `GTWorld`, `FirstBank`, `Sterling` and `Providus` are read, then Android asks for SMS access. The opt-in is saved only if you allow it. If you deny it, the switch stays off. If Android will not ask again, the app links to its settings page. Turning the switch off clears the opt-in.
+
+The first time you turn it on, Ledger offers to read bank SMS from the start of the current month (same sender filter) so this month’s transactions can show up.
+
+Phone numbers and telco/promo IDs are dropped on the device and never uploaded. Bank messages go to `POST /api/v1/alerts/sms` with `sender`, `body`, `receivedAt` and a stable `sourceId` (that is what the server uses to dedup SMS against itself, email and statements). They send on **Sync now**, when you open the app, and right after a message arrives while the app is online. A message leaves the phone queue only after the server accepts it. The Bank alerts section shows the last SMS sync time and how many were captured and sent. SMS bodies are not written to logs.
 
 A `NotificationListenerService` stub is in the Android tree as a fallback for bank-app push notifications.
 

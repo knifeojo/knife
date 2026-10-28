@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../alerts/senders.dart';
+import '../alerts/sms_controller.dart';
+import '../alerts/sync.dart';
 import '../api/models.dart';
 import '../server_url.dart';
 import '../state/ledger_controller.dart';
 import 'loans_screen.dart';
 import 'people_screen.dart';
 import 'review_screen.dart';
+import 'sms_alerts_card.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -60,7 +64,11 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 24),
           Text('Bank alerts', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 4),
-          const Text('Email sync runs on the Ledger server. SMS is opt-in on this phone: only listed bank sender IDs are read. Personal messages are never uploaded. Google Play does not allow this permission; this is for the sideloaded APK.'),
+          const Text(
+            'Email sync runs on the Ledger server. SMS bank alerts are the switch below: only $smsBankSenderPhrase are read. Personal messages are never uploaded. Google Play does not allow this permission; this is for the sideloaded APK.',
+          ),
+          const SizedBox(height: 8),
+          const SmsBankAlertsCard(),
           const SizedBox(height: 8),
           const AlertSyncCard(),
           const SizedBox(height: 24),
@@ -298,15 +306,27 @@ class _AlertSyncCardState extends State<AlertSyncCard> {
   Future<void> _sync() async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
+    final sms = SmsAlertScope.maybeOf(context);
+    ApiException? failure;
     try {
       await context.read<LedgerController>().syncAlerts();
-      await _load();
-      messenger.showSnackBar(const SnackBar(content: Text('Synced bank alerts.')));
     } on ApiException catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      failure = error;
     }
+    FlushResult? smsResult;
+    if (sms != null) {
+      smsResult = await sms.flush();
+      if (failure == null && smsResult.error is ApiException) failure = smsResult.error as ApiException;
+    }
+    if (!mounted) return;
+    if (failure != null) {
+      messenger.showSnackBar(SnackBar(content: Text(failure.message)));
+    } else {
+      final extra = smsResult != null && smsResult.sent > 0 ? ' Sent ${smsResult.sent} bank SMS.' : '';
+      messenger.showSnackBar(SnackBar(content: Text('Synced bank alerts.$extra')));
+    }
+    await _load();
+    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -314,7 +334,7 @@ class _AlertSyncCardState extends State<AlertSyncCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(_last == null ? 'Last synced: never (or this server has no alert status yet)' : 'Last synced: $_last', key: const Key('alert-last-synced')),
+        Text(_last == null ? 'Last email sync: never (or this server has no alert status yet)' : 'Last email sync: $_last', key: const Key('alert-last-synced')),
         const SizedBox(height: 8),
         FilledButton(key: const Key('alert-sync-now'), onPressed: _busy ? null : _sync, child: Text(_busy ? 'Syncing…' : 'Sync now')),
       ],

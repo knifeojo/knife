@@ -1,7 +1,7 @@
 name: ledger_mobile
 description: Ledger for Android. Talks to a self-hosted Ledger server.
 publish_to: "none"
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ^3.13.5
@@ -19,6 +19,7 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  crypto: ^3.0.6
   file_picker: ^13.0.0
   http: ^1.5.0
   provider: ^6.1.5
