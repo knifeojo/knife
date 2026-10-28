@@ -150,7 +150,7 @@ class CompactTransactionTile extends StatelessWidget {
     final amount = formatMinor(transaction.amountMinor, currency: transaction.currency);
     final masked = transaction.maskedAccountNumber;
     final time = formatLagosTime(transaction.transactionDate);
-    final sub = [if (masked != null) masked, time].join(' · ');
+    final sub = [?masked, time].join(' · ');
     return InkWell(
       onTap: () => showTransactionSheet(context, transaction),
       child: Padding(

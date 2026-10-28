@@ -91,7 +91,7 @@ export default async function Settings() {
         </p>
         {accounts.some((a) => a.currency !== "NGN") && (
           <div className="mt-4 space-y-2">
-            <p className="text-xs text-ink-3">Wallet currency override — confirm if a wallet was stored as the wrong currency.</p>
+            <p className="text-xs text-ink-3">Wallet currency override - confirm if a wallet was stored as the wrong currency.</p>
             {accounts.filter((a) => a.currency !== "NGN").map((a) => (
               <form key={a.id} action={setAccountCurrencyAction} className="flex flex-wrap items-end gap-2">
                 <input type="hidden" name="accountId" value={a.id} />
@@ -117,7 +117,7 @@ export default async function Settings() {
           <button className="btn btn-secondary" disabled={user.isDemo}>Save preference</button>
         </form>
         <p className="mt-3 text-xs text-ink-3">
-          Market source: {fx.sourceLabel}. {fx.latestMarketDate ? `Latest cached day: ${fx.latestMarketDate}.` : "No daily rates cached yet — refresh below or enter a street rate."}
+          Market source: {fx.sourceLabel}. {fx.latestMarketDate ? `Latest cached day: ${fx.latestMarketDate}.` : "No daily rates cached yet. Refresh below or enter a street rate."}
         </p>
         <div className="mt-3">
           <SyncButton action={importMarketRatesAction} label="Refresh daily market rates" />

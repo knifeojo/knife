@@ -101,7 +101,7 @@ export default async function Review() {
           <ul className="space-y-2 text-sm">
             {flags.map((f) => (
               <li key={f.id} className="flex justify-between gap-3">
-                <span>{f.kind === "alert_without_statement" ? "Alert with no statement row" : "Statement row with no alert"} — {f.detail}</span>
+                <span>{f.kind === "alert_without_statement" ? "Alert with no statement row" : "Statement row with no alert"} - {f.detail}</span>
                 <form action={dismissReconAction}><input type="hidden" name="id" value={f.id} /><button className="btn btn-ghost h-8 text-xs">Dismiss</button></form>
               </li>
             ))}
