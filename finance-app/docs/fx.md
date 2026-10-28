@@ -14,7 +14,7 @@ For a currency pair on a given Lagos calendar day:
 2. **Daily market** — the free public [Currency API](https://github.com/fawazahmed0/currency-api) (no API key), cached in `FxRate` with source `market`. Official / interbank style. Ledger fetches every Lagos day that has a foreign-currency transaction. Offline it falls back to the nearest cached day.
 3. **Manual (street)** — a rate the owner types in Settings. Wins over market when they prefer street rates. Never beats a realised rate for its own pair within the 7-day window.
 
-If nothing nearer applies, Ledger uses the latest realised rate it has (so conversions still work offline before any market seed). A **seed** (or any cached market rate) from more than 30 days earlier is still used so totals do not go blank, but it is labelled **approximate**.
+If nothing nearer applies, Ledger uses the latest realised rate **within 30 days**. Older realised rates are not reused, so a single bad pair cannot convert months of activity. A **seed** (or any cached market rate) from more than 30 days earlier is still used so totals do not go blank, but it is labelled **approximate**. Bundled `seed.json` rows are written automatically when the store has no market or seed rates.
 
 Detail views show `converted at ₦X per $ (realised|market|manual|approximate) on date`.
 

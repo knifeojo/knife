@@ -352,7 +352,7 @@ function referenceFor(
   medians: Map<string, number>,
   monthly?: { date: string; currency: string; rate: number }[],
 ): number | undefined {
-  return monthlyMedian(monthly ?? [], date, base) ?? marketOn(market, date, base) ?? medians.get(base);
+  return marketOn(market, date, base) ?? monthlyMedian(monthly ?? [], date, base) ?? medians.get(base);
 }
 
 async function sweepBadPairs(
@@ -361,12 +361,13 @@ async function sweepBadPairs(
   owners: string[],
   marketRows: { date: string; base: string; quote: string; rate: number }[],
   keptKeys: Set<string>,
-): Promise<number> {
+): Promise<{ count: number; ids: string[] }> {
   const byId = new Map(legs.map((l) => [l.id, l]));
   const linked = impliedFromLinks(legs);
   const sane = linked
     .filter((p) => inSanityBand(p.rate, p.foreign.currency))
     .map((p) => ({ date: p.date, currency: p.foreign.currency, rate: p.rate }));
+  const ids: string[] = [];
   let n = 0;
   for (const p of linked) {
     if (keptKeys.has(mispairKey(p.debitId, p.creditId))) continue;
@@ -374,21 +375,16 @@ async function sweepBadPairs(
     const credit = byId.get(p.creditId);
     if (!debit || !credit) continue;
     const ref = marketOn(marketRows, p.date, p.foreign.currency) ?? monthlyMedian(sane, p.date, p.foreign.currency);
-    if (shouldNeverPair(debit, credit, owners) || !inSanityBand(p.rate, p.foreign.currency)) {
-      await rememberMispair(userId, p, ref);
-      await unpairOutlier(userId, p.debitId, p.creditId);
-      n++;
-      continue;
-    }
     if (p.foreign.currency === "USD" && looksLikeCadNotUsd(p.rate, marketOn(marketRows, p.date, "USD"), marketOn(marketRows, p.date, "CAD"))) {
-      continue;
+      if (!shouldNeverPair(debit, credit, owners)) continue;
     }
-    if (!isUnusableRate(p.rate, p.foreign.currency, ref)) continue;
+    if (!shouldNeverPair(debit, credit, owners) && inSanityBand(p.rate, p.foreign.currency) && !isUnusableRate(p.rate, p.foreign.currency, ref)) continue;
     await rememberMispair(userId, p, ref);
     await unpairOutlier(userId, p.debitId, p.creditId);
+    ids.push(p.debitId, p.creditId);
     n++;
   }
-  return n;
+  return { count: n, ids };
 }
 
 /**
@@ -418,10 +414,13 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
   const keptKeys = new Set(kept.map((k) => k.pattern));
   await persistExtractedQuotes(loaded);
   const swept = await sweepBadPairs(userId, loaded, owners, marketRows, keptKeys);
-  const legs = swept ? await loadFxLegs(userId) : loaded;
+  const legs = swept.count ? await loadFxLegs(userId) : loaded;
 
   const linked = impliedFromLinks(legs);
-  const taken = new Set(linked.flatMap((p) => [p.debitId, p.creditId, p.foreignId, p.naira.id]));
+  const taken = new Set([
+    ...linked.flatMap((p) => [p.debitId, p.creditId, p.foreignId, p.naira.id]),
+    ...swept.ids,
+  ]);
   const landings = impliedFromLandings(legs, owners, taken, (date, ccy) => marketOn(marketRows, date, ccy));
   for (const p of landings) {
     taken.add(p.debitId);
@@ -456,7 +455,7 @@ export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
   }
 
   const accepted: ImpliedPair[] = [];
-  let rejected = swept;
+  let rejected = swept.count;
   for (const p of candidates) {
     const reference = referenceFor(p.date, p.foreign.currency, marketRows, medians, monthly);
     const keptPair = keptKeys.has(mispairKey(p.debitId, p.creditId));

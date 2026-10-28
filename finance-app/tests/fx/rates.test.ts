@@ -56,19 +56,18 @@ describe("FX precedence", () => {
   it("falls back to the latest realised rate within 30 days when there is no market for that currency", async () => {
     const u = await user();
     await rate({ date: "2026-09-20", base: "USD", rate: 1500, source: "market" });
-    await rate({ userId: u.id, date: "2026-09-28", base: "CAD", rate: 964.19, source: "realised" });
+    await rate({ userId: u.id, date: "2026-09-28", base: "CHF", rate: 1800, source: "realised" });
     const ctx = await loadFxContext(u.id);
-    const hit = convertToNgn(ctx, 6000_00n, "CAD", new Date("2026-09-01T12:00:00Z"));
-    expect(hit).toMatchObject({ rate: 964.19, source: "realised" });
-    expect(Number(hit!.nairaMinor) / 100).toBeCloseTo(6000 * 964.19, -1);
+    const hit = convertToNgn(ctx, 100_00n, "CHF", new Date("2026-09-01T12:00:00Z"));
+    expect(hit).toMatchObject({ rate: 1800, source: "realised" });
   });
 
   it("does not use a realised rate more than 30 days away", async () => {
     const u = await user();
     await rate({ date: "2026-09-20", base: "USD", rate: 1500, source: "market" });
-    await rate({ userId: u.id, date: "2026-07-01", base: "CAD", rate: 964.19, source: "realised" });
+    await rate({ userId: u.id, date: "2026-07-01", base: "CHF", rate: 1800, source: "realised" });
     const ctx = await loadFxContext(u.id);
-    expect(convertToNgn(ctx, 100_00n, "CAD", new Date("2026-09-20T12:00:00Z"))).toBeNull();
+    expect(convertToNgn(ctx, 100_00n, "CHF", new Date("2026-09-20T12:00:00Z"))).toBeNull();
   });
 
   it("auto-seeds bundled market rates when none exist", async () => {

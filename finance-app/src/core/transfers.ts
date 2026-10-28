@@ -269,8 +269,7 @@ export async function pairOwnTransfers(userId: string): Promise<number> {
     let linked = 0;
     for (const p of pairs) {
       if (await isBlockedMispair(userId, p.debit.id, p.credit.id)) continue;
-      // Link both legs. The user's own labels are kept (e.g. "Salary"): totals skip linked legs, so the
-      // label stays meaningful without double counting. Unlabelled legs show as an own transfer.
+      // Both legs become Own transfer. A landing left as Income would recreate income if later unpaired.
       const data = (_leg: Leg, other: string) => ({
         transferPairId: other,
         category: OWN_TRANSFER,
