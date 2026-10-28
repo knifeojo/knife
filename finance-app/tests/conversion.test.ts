@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { importStatement } from "@/core/statement-import";
 import { answerQuestion, buildQuestions } from "@/core/review";
 import { monthPeriod, summary } from "@/core/analytics";
+import { convertToNgn, loadFxContext } from "@/core/fx/rates";
 
 const CAD = Buffer.from(["Pesa Account Statement", "Wallet: CA001234561723", "Date,Transaction Details,Amount,Balance",
   "\"Sep 1, 2026\",PESAPEER INC / Payroll for Sep 2026,\"6,000.00\",\"6,000.00\"",
@@ -29,9 +30,10 @@ describe("salary moved between currencies", () => {
     // All three naira receipts are linked to the CAD sends, and still say Salary
     const naira = await db.transaction.findMany({ where: { userId, reference: { in: ["P1", "P2", "P3"] } } });
     expect(naira.every((t) => t.transferPairId && t.category === "Income" && t.subcategory === "Salary")).toBe(true);
-    // Income = the CAD payroll once, converted at the median of the user's own conversions (~964 per CAD)
+    // Income = the CAD payroll once, converted at the rate that applies on that day.
     const s = await summary(userId, monthPeriod(new Date("2026-09-15T12:00:00Z")));
-    expect(Number(s.income) / 100).toBeCloseTo(6000 * 964.19, -1);
+    const conv = convertToNgn(await loadFxContext(userId), 6000_00n, "CAD", new Date("2026-09-01T12:00:00Z"));
+    expect(s.income).toBe(conv!.nairaMinor);
     expect(s.ratesUsed.map((r) => r.currency)).toEqual(["CAD"]);
     expect(s.unconverted).toEqual([]);
   });
@@ -43,14 +45,16 @@ describe("salary moved between currencies", () => {
     const p1 = await db.transaction.findFirstOrThrow({ where: { userId: u.id, reference: "P1" } });
     expect(p1).toMatchObject({ category: "Own transfer", subcategory: "Currency conversion" });
     const s = await summary(u.id, monthPeriod(new Date("2026-09-15T12:00:00Z")));
-    expect(Number(s.income) / 100).toBeCloseTo(6000 * 964.19, -1);
+    const conv = convertToNgn(await loadFxContext(u.id), 6000_00n, "CAD", new Date("2026-09-01T12:00:00Z"));
+    expect(s.income).toBe(conv!.nairaMinor);
   });
 
-  it("foreign income without any conversion history is reported, not silently mixed into naira", async () => {
+  it("foreign income uses a seeded market rate when the owner has no realised conversion yet", async () => {
     const u = await db.user.create({ data: { email: "conv3@test.dev" } });
     await importStatement(u.id, { name: "cad.csv", bytes: CAD });
     const s = await summary(u.id, monthPeriod(new Date("2026-09-15T12:00:00Z")));
-    expect(s.income).toBe(0n);
-    expect(s.unconverted.find((x) => x.currencyAndType === "CAD CREDIT")?.totalMinor).toBe(600_000n);
+    expect(s.income).toBeGreaterThan(0n);
+    expect(s.unconverted).toEqual([]);
+    expect(s.ratesUsed.map((r) => r.currency)).toEqual(["CAD"]);
   });
 });

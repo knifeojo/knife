@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { logout } from "../../(auth)/actions";
-import { askAgainAction, clearManualRateAction, deleteMyData, dismissForwardingNotice, importMarketRatesAction, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAiConsentAction, setAiRoutesAction, setFxPreferenceAction, setManualRateAction } from "../actions";
+import { askAgainAction, clearManualRateAction, deleteMyData, dismissForwardingNotice, importMarketRatesAction, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAccountCurrencyAction, setAiConsentAction, setAiRoutesAction, setFxPreferenceAction, setManualRateAction } from "../actions";
 import { ensureUserTokens, inboundAddress } from "@/core/alerts/tokens";
 import { defaultSyncMinutes } from "@/core/alerts/secrets";
 import { relativeTime } from "@/components/ui";
@@ -21,7 +21,7 @@ export default async function Settings() {
   const user = await requireUser();
   const tokens = await ensureUserTokens(user.id);
   const inbound = inboundAddress(tokens.inboundEmailToken);
-  const [txCount, learned, history, status, connections, notices, fx] = await Promise.all([
+  const [txCount, learned, history, status, connections, notices, fx, accounts] = await Promise.all([
     db.transaction.count({ where: { userId: user.id } }),
     db.merchantAlias.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 20 }),
     scoreHistory(user.id, 8),
@@ -29,6 +29,7 @@ export default async function Settings() {
     db.financialConnection.findMany({ where: { userId: user.id, status: { not: "revoked" } } }),
     db.forwardingNotice.findMany({ where: { userId: user.id, status: "new" }, orderBy: { receivedAt: "desc" }, take: 5 }),
     listFxForSettings(user.id),
+    db.account.findMany({ where: { userId: user.id }, orderBy: { institution: "asc" } }),
   ]);
   const lastSync = connections.reduce<Date | null>((acc, c) => (!c.lastSyncedAt ? acc : !acc || c.lastSyncedAt > acc ? c.lastSyncedAt : acc), null);
   const ready = status.reachable && status.modelInstalled;
@@ -82,10 +83,29 @@ export default async function Settings() {
       <Card title="Exchange rates">
         <p className="text-sm text-ink-2">
           Official (interbank) and street naira rates differ. Ledger uses a <strong>realised</strong> rate
-          from your own wallet-to-bank conversions when one is within 7 days of the transaction.
-          Otherwise it uses the daily public market feed, or your street override if you choose that.
-          A realised rate for its own pair always wins over a manual override.
+          from your own wallet-to-bank conversions when one is within 7 days of the transaction:
+          a quoted payout rate on the wallet line, a Deel withdrawal matched to the same- or next-day
+          naira credit, or a linked pair (same-day withdrawals are averaged by amount). A pair more
+          than 20% off the typical rate is ignored and flagged in Review. Market is only a fallback.
+          A seed from months earlier is labelled approximate.
         </p>
+        {accounts.some((a) => a.currency !== "NGN") && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs text-ink-3">Wallet currency override — confirm if a wallet was stored as the wrong currency.</p>
+            {accounts.filter((a) => a.currency !== "NGN").map((a) => (
+              <form key={a.id} action={setAccountCurrencyAction} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="accountId" value={a.id} />
+                <div className="flex-1 min-w-40">
+                  <label className="label" htmlFor={`ccy-${a.id}`}>{a.institution} {a.maskedAccountNumber}</label>
+                  <select id={`ccy-${a.id}`} name="currency" defaultValue={a.currency} className="input mt-1" disabled={user.isDemo}>
+                    {["USD", "CAD", "GBP", "EUR", "NGN"].map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <button className="btn btn-secondary" disabled={user.isDemo}>Save currency</button>
+              </form>
+            ))}
+          </div>
+        )}
         <form action={setFxPreferenceAction} className="mt-3 flex flex-wrap items-end gap-2">
           <div>
             <label className="label" htmlFor="fx-preference">Naira rate to prefer</label>

@@ -73,6 +73,16 @@ describe("parseStatementRows", () => {
     const r = parseStatementRows([["hello", "world"]], { institution: "GTBank" });
     expect(r.errors[0].reason).toMatch(/header row/);
   });
+
+  it("captures a quoted payout rate on an unpaired USD wallet row", () => {
+    const rows = [
+      ["Date", "Transaction Details", "Amount", "Balance"],
+      ["Oct 4, 2026", "USD wallet payout @ 1550 NGN / Guaranty Trust Bank", "(100.00)", "400.00"],
+    ];
+    const r = parseStatementRows(rows, { institution: "Pesa", currency: "USD" });
+    expect(r.transactions).toHaveLength(1);
+    expect(r.transactions[0]).toMatchObject({ fxQuoteCurrency: "NGN", fxQuoteMinor: 155_000_00n });
+  });
 });
 
 describe("detectStatementMeta", () => {
@@ -93,6 +103,13 @@ describe("detectStatementMeta", () => {
 
   it("falls back to the file name", () => {
     expect(detectStatementMeta([["Date", "Narration", "Debit", "Credit"]], "access-bank-aug.csv").institution).toBe("Access Bank");
+  });
+
+  it("reads a Pesa CAD wallet id even when the amount column is labelled $", () => {
+    const cad = [["Pesa Account Statement"], ["Wallet: CAOO123456789"], ["Date", "Transaction Details", "Amount", "Balance"]];
+    expect(detectStatementMeta(cad)).toEqual({ institution: "Pesa", currency: "CAD" });
+    const usd = [["Pesa Account Statement"], ["Wallet: USOO123456789"], ["Date", "Transaction Details", "Amount", "Balance"]];
+    expect(detectStatementMeta(usd)).toEqual({ institution: "Pesa", currency: "USD" });
   });
 });
 

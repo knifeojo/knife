@@ -13,7 +13,7 @@ DOE
 Email: jane@example.com
 Date Issued: Oct 20, 2026
 Period: Oct 20, 2025 - Oct 20, 2026
-Wallet: CAOO123456789
+Wallet: USOO123456789
 Balance: $100.00
 Date Transaction Details Amount($) Balance($)
 Oct 25,
@@ -46,7 +46,7 @@ DOE
 Email: jane@example.com
 Date Issued: Oct 20, 2026
 Period: Oct 20, 2025 - Oct 20, 2026
-Wallet: CAOO123456789
+Wallet: USOO123456789
 Balance: $1.23
 Date Transaction Details Amount
 ($)
@@ -101,10 +101,30 @@ describe("Pesa wallet text", () => {
     expect(parsed!.result.transactions[4].description).toContain("reversed");
   });
 
-  it("does not treat a CA-letter wallet id as Canadian dollars", () => {
-    expect(pesaCurrency("Wallet: CAOO123456789\nBalance: $1.23", "CAOO123456789")).toBe("USD");
+  it("treats a CA-letter wallet id as Canadian dollars, not USD", () => {
+    expect(pesaCurrency("Wallet: CAOO123456789\nBalance: $1.23", "CAOO123456789")).toBe("CAD");
     expect(pesaCurrency("Wallet: CA001234561723", "CA001234561723")).toBe("CAD");
+    expect(pesaCurrency("Wallet: USOO123456789\nBalance: $1.23", "USOO123456789")).toBe("USD");
     expect(pesaCurrency("Currency: GBP\nWallet: CAOO123456789", "CAOO123456789")).toBe("GBP");
+  });
+
+  it("parses a CAD wallet statement whose id uses letters after CA", () => {
+    const text = `Account Statement
+JANE ADA
+DOE
+Email: jane@example.com
+Date Issued: Oct 20, 2026
+Period: Sep 1, 2026 - Oct 20, 2026
+Wallet: CAOO123456789
+Balance: $50.00
+Date Transaction Details Amount($) Balance($)
+Sep 24, 2026 Money transfer to ADA EZE / 0001234533 / Guaranty Trust Bank (40.00) 10.00
+`;
+    const parsed = parsePesaStatement(text);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.currency).toBe("CAD");
+    expect(parsed!.result.transactions).toHaveLength(1);
+    expect(parsed!.result.transactions[0]).toMatchObject({ currency: "CAD", type: "DEBIT", amountMinor: 40_00n });
   });
 
   it("ignores a bank statement that is not a Pesa wallet", () => {
@@ -190,7 +210,7 @@ DOE
 Email: jane@example.com
 Date Issued: Oct 20, 2026
 Period: Oct 20, 2025 - Oct 20, 2026
-Wallet: CAOO123456789
+Wallet: USOO123456789
 Balance: $0.00
 Date Transaction Details Amount($) Balance($)
 Oct 25, 2025 ACME INC / Payroll for Oct 2025 10,300.00 10,300.00

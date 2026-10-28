@@ -1,52 +1,592 @@
 import { db } from "@/lib/db";
+import { log } from "@/lib/log";
+import { formatMoney } from "@/lib/money";
+import { hardNeverPair, recategorizeUnpaired, shouldNeverPair } from "./pairing-rules";
+import { scanUnmatchedAdvances } from "./advance-flags";
+import { scanDuplicateFlags } from "./duplicates";
+import {
+  OUTLIER_TOLERANCE,
+  inSanityBand,
+  isOutlierRate,
+  isUnusableRate,
+  looksLikeCadNotUsd,
+  median,
+  monthlyMedian,
+  nearMarket,
+} from "./guard";
+import { aggregateUnmatchedLandings, matchPayoutLandings, type LandingLeg } from "./landings";
+import { backfillMarketDates } from "./provider";
+import { extractPayoutQuote } from "./quotes";
 import { lagosDay } from "./rates";
+import { scanWalletCurrencyGuesses } from "./wallet-currency";
 
 const BASE = "NGN";
+export { OUTLIER_TOLERANCE, isOutlierRate, looksLikeCadNotUsd };
+export const MISPAIR_PREFIX = "fx-mispair:";
+export const MISPAIR_PENDING = "likely mis-pair";
+export const MISPAIR_KEPT = "kept conversion";
+export const MISPAIR_CONFIRMED = "confirmed mis-pair";
 
-/** Same or next Lagos calendar day: the window the owner’s own wallet-to-bank payouts settle in. */
-function sameOrNextDay(a: Date, b: Date): boolean {
-  const da = lagosDay(a);
-  const db_ = lagosDay(b);
-  const gap = Math.abs(Date.parse(`${da}T00:00:00Z`) - Date.parse(`${db_}T00:00:00Z`)) / 86400_000;
-  return gap <= 1;
+export interface FxRebuildResult {
+  realised: number;
+  rejected: number;
+  retagged: number;
+  marketFetched: number;
+  marketFailed: number;
+}
+
+export interface FxMispair {
+  key: string;
+  debitId: string;
+  creditId: string;
+  date: string;
+  sent: string;
+  received: string;
+  impliedRate: number;
+  referenceRate?: number;
+  examples: string[];
+  totalMinor: bigint;
+}
+
+interface FxLeg {
+  id: string;
+  type: string;
+  amountMinor: bigint;
+  currency: string;
+  transactionDate: Date;
+  description: string;
+  counterparty: string | null;
+  category: string;
+  classificationSource: string;
+  transferPairId: string | null;
+  fxQuoteCurrency: string | null;
+  fxQuoteMinor: bigint | null;
+}
+
+interface ImpliedPair {
+  debitId: string;
+  creditId: string;
+  foreignId: string;
+  foreign: FxLeg;
+  naira: FxLeg;
+  date: string;
+  rate: number;
+  foreignMinor: bigint;
+  nairaMinor: bigint;
+  quoted?: boolean;
+}
+
+export function mispairKey(a: string, b: string): string {
+  return a < b ? `${MISPAIR_PREFIX}${a}:${b}` : `${MISPAIR_PREFIX}${b}:${a}`;
+}
+
+export function parseMispairKey(key: string): { a: string; b: string } | null {
+  if (!key.startsWith(MISPAIR_PREFIX)) return null;
+  const rest = key.slice(MISPAIR_PREFIX.length);
+  const cut = rest.indexOf(":");
+  if (cut <= 0 || cut === rest.length - 1) return null;
+  return { a: rest.slice(0, cut), b: rest.slice(cut + 1) };
+}
+
+function marketOn(
+  rows: { date: string; base: string; quote: string; rate: number; source?: string }[],
+  date: string,
+  base: string,
+): { rate: number; source: string } | undefined {
+  const hits = rows.filter((r) => r.base === base && r.quote === BASE && r.date <= date).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const hit = hits[0];
+  return hit ? { rate: hit.rate, source: hit.source ?? "market" } : undefined;
+}
+
+function liveMarketRate(
+  rows: { date: string; base: string; quote: string; rate: number; source?: string }[],
+  date: string,
+  base: string,
+): number | undefined {
+  const hits = rows
+    .filter((r) => r.base === base && r.quote === BASE && r.date <= date && r.source === "market")
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  return hits[0]?.rate;
+}
+
+function asPair(a: FxLeg, b: FxLeg): ImpliedPair | undefined {
+  if (a.amountMinor <= 0n || b.amountMinor <= 0n) return undefined;
+  const foreign = a.currency !== BASE ? a : b.currency !== BASE ? b : undefined;
+  const naira = a.currency === BASE ? a : b.currency === BASE ? b : undefined;
+  if (!foreign || !naira || foreign.currency === naira.currency) return undefined;
+  const rate = Number(naira.amountMinor) / Number(foreign.amountMinor);
+  if (!Number.isFinite(rate) || rate <= 0) return undefined;
+  const debit = a.type === "DEBIT" ? a : b.type === "DEBIT" ? b : a;
+  const credit = a.type === "CREDIT" ? a : b.type === "CREDIT" ? b : b;
+  return {
+    debitId: debit.id,
+    creditId: credit.id,
+    foreignId: foreign.id,
+    foreign,
+    naira,
+    date: lagosDay(naira.transactionDate),
+    rate,
+    foreignMinor: foreign.amountMinor,
+    nairaMinor: naira.amountMinor,
+  };
+}
+
+async function loadFxLegs(userId: string): Promise<FxLeg[]> {
+  return db.transaction.findMany({
+    where: { userId },
+    select: {
+      id: true, type: true, amountMinor: true, currency: true, transactionDate: true,
+      description: true, counterparty: true, category: true, classificationSource: true, transferPairId: true,
+      fxQuoteCurrency: true, fxQuoteMinor: true,
+    },
+  });
+}
+
+function impliedFromLinks(legs: FxLeg[]): ImpliedPair[] {
+  const byId = new Map(legs.map((l) => [l.id, l]));
+  const seen = new Set<string>();
+  const out: ImpliedPair[] = [];
+  for (const leg of legs) {
+    if (!leg.transferPairId || seen.has(leg.id)) continue;
+    const partner = byId.get(leg.transferPairId);
+    if (!partner || partner.transferPairId !== leg.id) continue;
+    seen.add(leg.id);
+    seen.add(partner.id);
+    const pair = asPair(leg, partner);
+    if (pair) out.push(pair);
+  }
+  return out;
+}
+
+function impliedFromQuotes(legs: FxLeg[], skipIds: Set<string>): ImpliedPair[] {
+  const out: ImpliedPair[] = [];
+  for (const tx of legs) {
+    if (skipIds.has(tx.id)) continue;
+    if (!tx.fxQuoteMinor || tx.fxQuoteMinor <= 0n || tx.amountMinor <= 0n) continue;
+    if (tx.fxQuoteCurrency !== BASE || tx.currency === BASE) continue;
+    if (tx.transferPairId && skipIds.has(tx.transferPairId)) continue;
+    const rate = Number(tx.fxQuoteMinor) / Number(tx.amountMinor);
+    if (!Number.isFinite(rate) || rate <= 0) continue;
+    out.push({
+      debitId: tx.id,
+      creditId: tx.id,
+      foreignId: tx.id,
+      foreign: tx,
+      naira: { ...tx, currency: BASE, amountMinor: tx.fxQuoteMinor },
+      date: lagosDay(tx.transactionDate),
+      rate,
+      foreignMinor: tx.amountMinor,
+      nairaMinor: tx.fxQuoteMinor,
+      quoted: true,
+    });
+  }
+  return out;
+}
+
+async function persistExtractedQuotes(legs: FxLeg[]): Promise<void> {
+  for (const tx of legs) {
+    if (tx.type !== "DEBIT" || tx.currency === BASE || tx.amountMinor <= 0n) continue;
+    if (tx.fxQuoteMinor && tx.fxQuoteMinor > 0n) continue;
+    const q = extractPayoutQuote(tx.description, tx.amountMinor);
+    if (!q) continue;
+    await db.transaction.update({
+      where: { id: tx.id },
+      data: { fxQuoteCurrency: BASE, fxQuoteMinor: q.ngnMinor },
+    });
+    tx.fxQuoteCurrency = BASE;
+    tx.fxQuoteMinor = q.ngnMinor;
+  }
+}
+
+function asLanding(leg: FxLeg): LandingLeg {
+  return {
+    id: leg.id,
+    type: leg.type,
+    amountMinor: leg.amountMinor,
+    currency: leg.currency,
+    transactionDate: leg.transactionDate,
+    description: leg.description,
+    counterparty: leg.counterparty,
+    category: leg.category,
+    transferPairId: leg.transferPairId,
+  };
+}
+
+function pairFromLanding(
+  match: { debit: LandingLeg; credit: LandingLeg; rate: number; date: string; foreignMinor: bigint; nairaMinor: bigint },
+  byId: Map<string, FxLeg>,
+  quoted = false,
+): ImpliedPair | undefined {
+  const debit = byId.get(match.debit.id);
+  const credit = byId.get(match.credit.id);
+  if (!debit || !credit) return undefined;
+  const pair = asPair(debit, credit);
+  if (!pair) return undefined;
+  return { ...pair, date: match.date, rate: match.rate, foreignMinor: match.foreignMinor, nairaMinor: match.nairaMinor, quoted };
+}
+
+function impliedFromLandings(
+  legs: FxLeg[],
+  owners: string[],
+  skipIds: Set<string>,
+  referenceForDate: (date: string, currency: string) => { rate: number; kind?: "market" | "median" } | number | undefined,
+): ImpliedPair[] {
+  const byId = new Map(legs.map((l) => [l.id, l]));
+  const free = legs.filter((l) => !skipIds.has(l.id) && !l.transferPairId).map(asLanding);
+  const matched = matchPayoutLandings(free, owners, referenceForDate);
+  const pairs: ImpliedPair[] = [];
+  const used = new Set<string>();
+  for (const m of matched) {
+    const pair = pairFromLanding(m, byId);
+    if (!pair) continue;
+    pairs.push(pair);
+    used.add(m.debit.id);
+    used.add(m.credit.id);
+  }
+  const leftover = free.filter((l) => !used.has(l.id));
+  for (const m of aggregateUnmatchedLandings(leftover, owners, [], referenceForDate)) {
+    const pair = pairFromLanding(m, byId, true);
+    if (pair) pairs.push(pair);
+  }
+  return pairs;
+}
+
+async function loadOwners(userId: string): Promise<string[]> {
+  const [accounts, user] = await Promise.all([
+    db.account.findMany({ where: { userId, holderName: { not: null } }, select: { holderName: true } }),
+    db.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
+  return [...new Set([...accounts.map((a) => a.holderName!), ...(user?.name ? [user.name] : [])])];
+}
+
+export async function isBlockedMispair(userId: string, a: string, b: string): Promise<boolean> {
+  const row = await db.merchantAlias.findFirst({
+    where: { userId, pattern: mispairKey(a, b), subcategory: { in: [MISPAIR_PENDING, MISPAIR_CONFIRMED] } },
+    select: { id: true },
+  });
+  return !!row;
+}
+
+async function rememberMispair(userId: string, pair: ImpliedPair, reference?: number): Promise<void> {
+  const pattern = mispairKey(pair.debitId, pair.creditId);
+  const existing = await db.merchantAlias.findFirst({ where: { userId, pattern }, select: { subcategory: true } });
+  if (existing?.subcategory === MISPAIR_KEPT || existing?.subcategory === MISPAIR_CONFIRMED) return;
+  const label = `${pair.foreign.currency}→NGN ${pair.rate.toFixed(2)} vs ${reference?.toFixed(2) ?? "typical"}`;
+  await db.merchantAlias.upsert({
+    where: { userId_pattern: { userId, pattern } },
+    update: { subcategory: MISPAIR_PENDING, canonicalName: label.slice(0, 80) },
+    create: { userId, pattern, canonicalName: label.slice(0, 80), category: null, subcategory: MISPAIR_PENDING },
+  });
+}
+
+async function unpairOutlier(userId: string, debitId: string, creditId: string, owners: string[]): Promise<void> {
+  const legs = await db.transaction.findMany({ where: { userId, id: { in: [debitId, creditId] } } });
+  for (const leg of legs) {
+    if (leg.classificationSource === "pair") {
+      const c = recategorizeUnpaired({
+        description: leg.description,
+        type: leg.type as "DEBIT" | "CREDIT",
+        counterparty: leg.counterparty,
+        owners,
+      });
+      await db.transaction.update({
+        where: { id: leg.id },
+        data: {
+          transferPairId: null,
+          category: c.category,
+          subcategory: c.subcategory ?? null,
+          classificationSource: c.source,
+          classificationConfidence: c.confidence,
+        },
+      });
+    } else {
+      await db.transaction.update({ where: { id: leg.id }, data: { transferPairId: null } });
+    }
+  }
+}
+
+export async function listPendingMispairs(userId: string): Promise<FxMispair[]> {
+  const aliases = await db.merchantAlias.findMany({
+    where: { userId, pattern: { startsWith: MISPAIR_PREFIX }, subcategory: MISPAIR_PENDING },
+  });
+  const out: FxMispair[] = [];
+  for (const alias of aliases) {
+    const ids = parseMispairKey(alias.pattern);
+    if (!ids) continue;
+    const legs = await db.transaction.findMany({
+      where: { userId, id: { in: [ids.a, ids.b] } },
+      select: { id: true, type: true, amountMinor: true, currency: true, transactionDate: true, description: true },
+    });
+    if (legs.length < 1) continue;
+    const debit = legs.find((l) => l.type === "DEBIT") ?? legs[0];
+    const credit = legs.find((l) => l.type === "CREDIT") ?? legs[legs.length - 1];
+    const foreign = debit.currency !== BASE ? debit : credit.currency !== BASE ? credit : debit;
+    const naira = debit.currency === BASE ? debit : credit.currency === BASE ? credit : credit;
+    const rate = naira.amountMinor > 0n && foreign.amountMinor > 0n ? Number(naira.amountMinor) / Number(foreign.amountMinor) : 0;
+    out.push({
+      key: alias.pattern,
+      debitId: debit.id,
+      creditId: credit.id,
+      date: lagosDay(naira.transactionDate),
+      sent: formatMoney(foreign.amountMinor, foreign.currency),
+      received: formatMoney(naira.amountMinor, naira.currency),
+      impliedRate: rate,
+      examples: [...new Set(legs.map((l) => l.description.replace(/\s+/g, " ").trim()))].slice(0, 4),
+      totalMinor: naira.currency === BASE ? naira.amountMinor : 0n,
+    });
+  }
+  return out;
+}
+
+export async function resolveMispair(userId: string, key: string, value: "unpair" | "keep"): Promise<number> {
+  const ids = parseMispairKey(key);
+  if (!ids) return 0;
+  const pattern = mispairKey(ids.a, ids.b);
+  if (value === "keep") {
+    const legs = await db.transaction.findMany({ where: { userId, id: { in: [ids.a, ids.b] } } });
+    if (legs.length === 2) {
+      await db.$transaction([
+        db.transaction.update({ where: { id: legs[0].id }, data: { transferPairId: legs[1].id } }),
+        db.transaction.update({ where: { id: legs[1].id }, data: { transferPairId: legs[0].id } }),
+      ]);
+    }
+    await db.merchantAlias.upsert({
+      where: { userId_pattern: { userId, pattern } },
+      update: { subcategory: MISPAIR_KEPT },
+      create: { userId, pattern, canonicalName: pattern, category: null, subcategory: MISPAIR_KEPT },
+    });
+    await rebuildUserFx(userId);
+    return legs.length;
+  }
+  await unpairOutlier(userId, ids.a, ids.b, await loadOwners(userId));
+  await db.merchantAlias.upsert({
+    where: { userId_pattern: { userId, pattern } },
+    update: { subcategory: MISPAIR_CONFIRMED },
+    create: { userId, pattern, canonicalName: pattern, category: null, subcategory: MISPAIR_CONFIRMED },
+  });
+  await rebuildUserFx(userId);
+  return 2;
+}
+
+function referenceFor(
+  date: string,
+  base: string,
+  market: { date: string; base: string; quote: string; rate: number; source?: string }[],
+  medians: Map<string, number>,
+  monthly?: { date: string; currency: string; rate: number }[],
+): { rate: number; kind: "market" | "median" } | undefined {
+  const live = liveMarketRate(market, date, base);
+  if (live !== undefined) return { rate: live, kind: "market" };
+  const any = marketOn(market, date, base)?.rate;
+  const med = monthlyMedian(monthly ?? [], date, base) ?? medians.get(base);
+  const rate = any ?? med;
+  return rate !== undefined ? { rate, kind: "median" } : undefined;
+}
+
+async function sweepBadPairs(
+  userId: string,
+  legs: FxLeg[],
+  owners: string[],
+  marketRows: { date: string; base: string; quote: string; rate: number; source?: string }[],
+  keptKeys: Set<string>,
+): Promise<{ count: number; ids: string[] }> {
+  const byId = new Map(legs.map((l) => [l.id, l]));
+  const linked = impliedFromLinks(legs);
+  const sane = linked
+    .filter((p) => inSanityBand(p.rate, p.foreign.currency))
+    .map((p) => ({ date: p.date, currency: p.foreign.currency, rate: p.rate }));
+  const ids: string[] = [];
+  let n = 0;
+  for (const p of linked) {
+    if (keptKeys.has(mispairKey(p.debitId, p.creditId))) continue;
+    const debit = byId.get(p.debitId);
+    const credit = byId.get(p.creditId);
+    if (!debit || !credit) continue;
+    const live = liveMarketRate(marketRows, p.date, p.foreign.currency);
+    const any = marketOn(marketRows, p.date, p.foreign.currency)?.rate;
+    const med = monthlyMedian(sane, p.date, p.foreign.currency);
+    const ref = live ?? any ?? med;
+    const kind = live !== undefined ? "market" as const : "median" as const;
+    if (hardNeverPair(debit)) {
+      await rememberMispair(userId, p, ref);
+      await unpairOutlier(userId, p.debitId, p.creditId, owners);
+      ids.push(p.debitId, p.creditId);
+      n++;
+      continue;
+    }
+    if (nearMarket(p.rate, live)) continue;
+    if (p.foreign.currency === "USD" && looksLikeCadNotUsd(p.rate, liveMarketRate(marketRows, p.date, "USD") ?? marketOn(marketRows, p.date, "USD")?.rate, liveMarketRate(marketRows, p.date, "CAD") ?? marketOn(marketRows, p.date, "CAD")?.rate)) {
+      continue;
+    }
+    if (inSanityBand(p.rate, p.foreign.currency) && !isUnusableRate(p.rate, p.foreign.currency, ref, kind) && !shouldNeverPair(debit, credit, owners)) continue;
+    await rememberMispair(userId, p, ref);
+    await unpairOutlier(userId, p.debitId, p.creditId, owners);
+    ids.push(p.debitId, p.creditId);
+    n++;
+  }
+  return { count: n, ids };
 }
 
 /**
- * When a foreign debit is paired with an NGN credit (the owner’s own conversion), store
- * rate = NGN received / foreign sent (fees included) as source "realised".
+ * Derives realised NGN rates from linked pairs, quoted payout lines, and Deel-style
+ * same/next-day landings. First re-evaluates existing pairs against the pairing rules
+ * and unpairs the bad ones. Market is only a fallback when no realised rate exists.
  */
-export async function storeRealisedRates(userId: string, pairIds: { debitId: string; creditId: string }[]): Promise<number> {
-  if (!pairIds.length) return 0;
-  const ids = pairIds.flatMap((p) => [p.debitId, p.creditId]);
-  const rows = await db.transaction.findMany({
-    where: { userId, id: { in: ids } },
-    select: { id: true, type: true, amountMinor: true, currency: true, transactionDate: true },
+export async function rebuildUserFx(userId: string): Promise<FxRebuildResult> {
+  const foreignDays = await db.transaction.findMany({
+    where: { userId, currency: { not: BASE } },
+    select: { transactionDate: true },
   });
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  let stored = 0;
-  for (const p of pairIds) {
-    const debit = byId.get(p.debitId);
-    const credit = byId.get(p.creditId);
-    if (!debit || !credit || debit.amountMinor <= 0n || credit.amountMinor <= 0n) continue;
-    if (!sameOrNextDay(debit.transactionDate, credit.transactionDate)) continue;
-    const foreign = debit.currency !== BASE ? debit : credit.currency !== BASE ? credit : undefined;
-    const naira = debit.currency === BASE ? debit : credit.currency === BASE ? credit : undefined;
-    if (!foreign || !naira || foreign.currency === naira.currency) continue;
-    const rate = Number(naira.amountMinor) / Number(foreign.amountMinor);
+  const marketResult = await backfillMarketDates([...new Set(foreignDays.map((r) => lagosDay(r.transactionDate)))]);
+
+  const [loaded, marketRows, kept, owners] = await Promise.all([
+    loadFxLegs(userId),
+    db.fxRate.findMany({
+      where: { quote: BASE, source: { in: ["market", "seed"] }, userId: "" },
+      select: { date: true, base: true, quote: true, rate: true, source: true },
+    }),
+    db.merchantAlias.findMany({
+      where: { userId, pattern: { startsWith: MISPAIR_PREFIX }, subcategory: MISPAIR_KEPT },
+      select: { pattern: true },
+    }),
+    loadOwners(userId),
+  ]);
+  const keptKeys = new Set(kept.map((k) => k.pattern));
+  await persistExtractedQuotes(loaded);
+  const swept = await sweepBadPairs(userId, loaded, owners, marketRows, keptKeys);
+  const legs = swept.count ? await loadFxLegs(userId) : loaded;
+
+  const linked = impliedFromLinks(legs);
+  const taken = new Set([
+    ...linked.flatMap((p) => [p.debitId, p.creditId, p.foreignId, p.naira.id]),
+    ...swept.ids,
+  ]);
+  const landings = impliedFromLandings(legs, owners, taken, (date, ccy) => {
+    const live = liveMarketRate(marketRows, date, ccy);
+    if (live !== undefined) return { rate: live, kind: "market" };
+    const any = marketOn(marketRows, date, ccy);
+    return any ? { rate: any.rate, kind: "median" } : undefined;
+  });
+  for (const p of landings) {
+    taken.add(p.debitId);
+    taken.add(p.creditId);
+    taken.add(p.foreignId);
+    taken.add(p.naira.id);
+  }
+  const quotes = impliedFromQuotes(legs, taken);
+  const pairs = [...linked, ...landings, ...quotes];
+  const usdMonthly = liveMarketRate(marketRows, "9999-12-31", "USD")
+    ?? marketOn(marketRows, "9999-12-31", "USD")?.rate
+    ?? median(pairs.filter((p) => p.foreign.currency === "USD" && inSanityBand(p.rate, "USD")).map((p) => p.rate));
+  const cadMonthly = liveMarketRate(marketRows, "9999-12-31", "CAD")
+    ?? marketOn(marketRows, "9999-12-31", "CAD")?.rate
+    ?? median(pairs.filter((p) => p.foreign.currency === "CAD" && inSanityBand(p.rate, "CAD")).map((p) => p.rate));
+  const retagged = await scanWalletCurrencyGuesses(userId, usdMonthly, cadMonthly);
+  await scanDuplicateFlags(userId);
+  await scanUnmatchedAdvances(userId);
+
+  const candidates = pairs;
+  const monthly = candidates
+    .filter((p) => inSanityBand(p.rate, p.foreign.currency))
+    .map((p) => ({ date: p.date, currency: p.foreign.currency, rate: p.rate }));
+
+  const byCurrency = new Map<string, number[]>();
+  for (const p of monthly) {
+    const list = byCurrency.get(p.currency) ?? [];
+    list.push(p.rate);
+    byCurrency.set(p.currency, list);
+  }
+  const medians = new Map<string, number>();
+  for (const [ccy, rates] of byCurrency) {
+    const m = median(rates);
+    if (m !== undefined) medians.set(ccy, m);
+  }
+
+  const accepted: ImpliedPair[] = [];
+  let rejected = swept.count;
+  for (const p of candidates) {
+    const reference = referenceFor(p.date, p.foreign.currency, marketRows, medians, monthly);
+    const keptPair = keptKeys.has(mispairKey(p.debitId, p.creditId));
+    const live = liveMarketRate(marketRows, p.date, p.foreign.currency);
+    if (!keptPair && nearMarket(p.rate, live)) {
+      accepted.push(p);
+      continue;
+    }
+    if (!keptPair && isUnusableRate(p.rate, p.foreign.currency, reference?.rate, reference?.kind ?? "median")) {
+      if (p.foreign.currency === "USD" && looksLikeCadNotUsd(p.rate, usdMonthly, cadMonthly)) {
+        continue;
+      }
+      rejected++;
+      if (!p.quoted) {
+        const debit = legs.find((l) => l.id === p.debitId);
+        if (debit?.transferPairId === p.creditId) {
+          await rememberMispair(userId, p, reference?.rate);
+          await unpairOutlier(userId, p.debitId, p.creditId, owners);
+        }
+      }
+      continue;
+    }
+    accepted.push(p);
+  }
+
+  const buckets = new Map<string, { date: string; base: string; foreignMinor: bigint; nairaMinor: bigint }>();
+  for (const p of accepted) {
+    const key = `${p.date}|${p.foreign.currency}`;
+    const cur = buckets.get(key) ?? { date: p.date, base: p.foreign.currency, foreignMinor: 0n, nairaMinor: 0n };
+    cur.foreignMinor += p.foreignMinor;
+    cur.nairaMinor += p.nairaMinor;
+    buckets.set(key, cur);
+  }
+
+  const nextKeys = new Set<string>();
+  for (const b of buckets.values()) {
+    if (b.foreignMinor <= 0n) continue;
+    const rate = Number(b.nairaMinor) / Number(b.foreignMinor);
     if (!Number.isFinite(rate) || rate <= 0) continue;
-    const date = lagosDay(naira.transactionDate);
+    nextKeys.add(`${b.date}|${b.base}`);
     await db.fxRate.upsert({
-      where: {
-        userId_date_base_quote_source: {
-          userId, date, base: foreign.currency, quote: BASE, source: "realised",
-        },
-      },
-      create: { userId, date, base: foreign.currency, quote: BASE, rate, source: "realised" },
+      where: { userId_date_base_quote_source: { userId, date: b.date, base: b.base, quote: BASE, source: "realised" } },
+      create: { userId, date: b.date, base: b.base, quote: BASE, rate, source: "realised" },
       update: { rate },
     });
-    stored++;
   }
-  return stored;
+
+  const stale = await db.fxRate.findMany({
+    where: { userId, source: "realised" },
+    select: { id: true, date: true, base: true },
+  });
+  const staleIds = stale.filter((r) => !nextKeys.has(`${r.date}|${r.base}`)).map((r) => r.id);
+  if (staleIds.length) await db.fxRate.deleteMany({ where: { id: { in: staleIds } } });
+
+  if (retagged || rejected || nextKeys.size) {
+    log.info("fx.rebuilt", { userId, realised: nextKeys.size, rejected, retagged, ...marketResult });
+  }
+  return {
+    realised: nextKeys.size,
+    rejected,
+    retagged,
+    marketFetched: marketResult.fetched,
+    marketFailed: marketResult.failed,
+  };
+}
+
+export async function rebuildAllUsersFx(): Promise<FxRebuildResult> {
+  const users = await db.user.findMany({ select: { id: true } });
+  const total: FxRebuildResult = { realised: 0, rejected: 0, retagged: 0, marketFetched: 0, marketFailed: 0 };
+  for (const u of users) {
+    const r = await rebuildUserFx(u.id);
+    total.realised += r.realised;
+    total.rejected += r.rejected;
+    total.retagged += r.retagged;
+    total.marketFetched += r.marketFetched;
+    total.marketFailed += r.marketFailed;
+  }
+  return total;
+}
+
+/** Rebuilds realised rates for the user. Pair ids are ignored: every existing link is scanned. */
+export async function storeRealisedRates(userId: string, _pairIds?: { debitId: string; creditId: string }[]): Promise<number> {
+  return (await rebuildUserFx(userId)).realised;
 }
 
 /** A source-quoted NGN proceeds (Deel withdrawal) becomes a realised rate before the bank credit arrives. */
@@ -59,6 +599,13 @@ export async function storeQuotedRate(
   const rate = Number(tx.fxQuoteMinor) / Number(tx.amountMinor);
   if (!Number.isFinite(rate) || rate <= 0) return;
   const date = lagosDay(tx.transactionDate);
+  const market = await db.fxRate.findMany({
+    where: { quote: BASE, base: tx.currency, source: { in: ["market", "seed"] }, userId: "" },
+    select: { date: true, base: true, quote: true, rate: true, source: true },
+  });
+  const live = liveMarketRate(market, date, tx.currency);
+  const any = marketOn(market, date, tx.currency)?.rate;
+  if (isUnusableRate(rate, tx.currency, live ?? any, live !== undefined ? "market" : "median")) return;
   await db.fxRate.upsert({
     where: { userId_date_base_quote_source: { userId, date, base: tx.currency, quote: BASE, source: "realised" } },
     create: { userId, date, base: tx.currency, quote: BASE, rate, source: "realised" },

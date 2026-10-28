@@ -39,7 +39,7 @@ export async function makePesaPdf(): Promise<Buffer> {
     { y: 748, parts: [["Email: jane@example.com", 40]] },
     { y: 734, parts: [["Date Issued: Oct 20, 2026", 40]] },
     { y: 720, parts: [["Period: Oct 20, 2025 - Oct 20, 2026", 40]] },
-    { y: 706, parts: [["Wallet: CAOO123456789", 40]] },
+    { y: 706, parts: [["Wallet: USOO123456789", 40]] },
     { y: 692, parts: [["Balance: $1.23", 40]] },
     { y: 660, parts: [["Date", 40, true], ["Transaction Details", 120, true], ["Amount", 400, true], ["Balance", 480, true]] },
     { y: 648, parts: [["($)", 400], ["($)", 480]] },

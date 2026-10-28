@@ -198,6 +198,8 @@ Schema: `Person`, `PersonAlias` and `PeopleBatch` (undo) tables and a nullable `
 
 **Re-apply categories to existing data.** Rows imported before this change keep their old categories until re-applied. Web: **Settings → Re-apply categories**. CLI: `npm run recategorize -- --email you@example.com`. It also moves old Other / Giving, Tithe, Offering and Charity labels (including hand-made ones and merchant aliases) to the Giving category. Hand-labelled rows otherwise keep their label.
 
+**Rebuild exchange rates.** After deploying FX fixes, restart the app or run `npm run fx:rebuild -- --email you@example.com` (omit `--email` for every user). That backfills realised rates from quoted wallet payouts, Deel-style same/next-day landings, and existing linked pairs; re-evaluates and unpairs bad links (debt, wallet-fund, third-party, out-of-band rates); fetches missing daily market rates; and asks in Review before treating a USD-labelled wallet as CAD.
+
 ## AI: hybrid local + cloud routing
 
 Ledger uses two models. A small local model through [Ollama](https://ollama.com) does the bulk categorization on your own Mac. A cloud model (Anthropic Claude) gives second opinions and handles Insights phrasing and chat, and it only ever sees **redacted** data. Each user must also turn AI on in Settings. The routing is set by `AI_PROVIDER`:

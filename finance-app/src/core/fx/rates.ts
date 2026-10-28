@@ -1,10 +1,14 @@
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
+import { inSanityBand, isUnusableRate } from "./guard";
+import bundledSeed from "./seed.json";
 
 const BASE = "NGN";
 
 export const REALISED_WINDOW_DAYS = 7;
-export type FxSourceKind = "realised" | "market" | "manual";
+/** A cached seed/market rate older than this is still used, but labelled approximate. */
+export const APPROXIMATE_AFTER_DAYS = 30;
+export type FxSourceKind = "realised" | "market" | "manual" | "approximate";
 export type FxNgnPreference = "official" | "street";
 
 export interface RateRow {
@@ -62,20 +66,38 @@ function latest(rows: RateRow[], base: string, quote: string): RateRow | undefin
   return hits[0];
 }
 
-function asKind(source: string): FxSourceKind {
+function asKind(source: string, rateDate: string, txDate: string): FxSourceKind {
   if (source === "realised") return "realised";
   if (source === "manual") return "manual";
+  if (source === "approximate") return "approximate";
+  if (daysBetween(rateDate, txDate) > APPROXIMATE_AFTER_DAYS) return "approximate";
   return "market";
 }
 
 export async function loadFxContext(userId: string): Promise<FxContext> {
-  const [user, rows] = await Promise.all([
+  const [user, initial] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { fxNgnPreference: true } }),
     db.fxRate.findMany({
       where: { OR: [{ userId }, { userId: "" }] },
       select: { date: true, base: true, quote: true, rate: true, source: true, userId: true },
     }),
   ]);
+  let rows = initial;
+  // A single fetched market day must not block the bundled history. Seed when no seed rows exist.
+  if (!rows.some((r) => r.source === "seed")) {
+    for (const r of bundledSeed) {
+      if (!Number.isFinite(r.rate) || r.rate <= 0) continue;
+      await db.fxRate.upsert({
+        where: { userId_date_base_quote_source: { userId: "", date: r.date, base: r.base, quote: r.quote, source: "seed" } },
+        create: { ...r, source: "seed", userId: "" },
+        update: { rate: r.rate },
+      });
+    }
+    rows = await db.fxRate.findMany({
+      where: { OR: [{ userId }, { userId: "" }] },
+      select: { date: true, base: true, quote: true, rate: true, source: true, userId: true },
+    });
+  }
   const preferManual = user?.fxNgnPreference === "street";
   return {
     userId,
@@ -86,22 +108,39 @@ export async function loadFxContext(userId: string): Promise<FxContext> {
   };
 }
 
-function pickPair(ctx: FxContext, date: string, base: string, quote: string): RateRow | undefined {
-  const realisedNear = nearestWithin(ctx.realised, date, base, quote, REALISED_WINDOW_DAYS);
-  if (realisedNear) return realisedNear;
-  const market = nearestOnOrBefore(ctx.market, date, base, quote);
-  const manual = latest(ctx.manual, base, quote);
-  if (ctx.preferManual) return manual ?? market ?? latest(ctx.realised, base, quote);
-  return market ?? manual ?? latest(ctx.realised, base, quote);
+function liveMarket(ctx: FxContext, date: string, base: string, quote: string): RateRow | undefined {
+  return nearestOnOrBefore(ctx.market.filter((r) => r.source === "market"), date, base, quote);
 }
 
-function toConversion(row: RateRow, foreignMinor: bigint): Conversion | null {
+/** A stored realised rate that fails the outlier guard vs market/seed must not convert anything. */
+function realisedUsable(ctx: FxContext, row: RateRow, date: string, base: string, quote: string): boolean {
+  const mkt = liveMarket(ctx, date, base, quote);
+  const seed = nearestOnOrBefore(ctx.market, date, base, quote);
+  const ref = mkt ?? seed;
+  if (!ref) return inSanityBand(row.rate, base);
+  return !isUnusableRate(row.rate, base, ref.rate, mkt ? "market" : "median");
+}
+
+function pickPair(ctx: FxContext, date: string, base: string, quote: string): RateRow | undefined {
+  const realisedNear = nearestWithin(ctx.realised, date, base, quote, REALISED_WINDOW_DAYS);
+  if (realisedNear && realisedUsable(ctx, realisedNear, date, base, quote)) return realisedNear;
+  const market = nearestOnOrBefore(ctx.market, date, base, quote);
+  const manual = latest(ctx.manual, base, quote);
+  const oldRealised = latest(ctx.realised, base, quote);
+  const realisedOk = oldRealised && daysBetween(oldRealised.date, date) <= APPROXIMATE_AFTER_DAYS && realisedUsable(ctx, oldRealised, date, base, quote)
+    ? oldRealised
+    : undefined;
+  if (ctx.preferManual) return manual ?? market ?? realisedOk;
+  return market ?? manual ?? realisedOk;
+}
+
+function toConversion(row: RateRow, foreignMinor: bigint, txDate: string): Conversion | null {
   if (!Number.isFinite(row.rate) || row.rate <= 0) return null;
   return {
     nairaMinor: BigInt(Math.round(Number(foreignMinor) * row.rate)),
     rate: row.rate,
     rateDate: row.date,
-    source: asKind(row.source),
+    source: asKind(row.source, row.date, txDate),
   };
 }
 
@@ -115,7 +154,7 @@ export function convertToNgn(ctx: FxContext, minor: bigint, currency: string, da
   }
   const day = lagosDay(date);
   const direct = pickPair(ctx, day, currency, BASE);
-  if (direct) return toConversion(direct, minor);
+  if (direct) return toConversion(direct, minor, day);
   // Cross via USD when we have both legs.
   if (currency !== "USD") {
     const toUsd = pickPair(ctx, day, currency, "USD");
@@ -128,7 +167,7 @@ export function convertToNgn(ctx: FxContext, minor: bigint, currency: string, da
         rate: toUsd.rate * usdToNgn.rate,
         source: usdToNgn.source === "realised" || toUsd.source === "realised" ? "realised" : usdToNgn.source,
       };
-      return toConversion(via, minor);
+      return toConversion(via, minor, day);
     }
   }
   return null;
@@ -139,7 +178,7 @@ export function nairaOf(ctx: FxContext, minor: bigint, currency: string, date: D
   return convertToNgn(ctx, minor, currency, date)?.nairaMinor ?? null;
 }
 
-/** "converted at ₦1,550.00 per $ (realised) on 24 Sep 2026" */
+/** "converted at ₦1,550.00 per $ (realised) on 24 Sep 2026" — source may be approximate. */
 export function conversionLabel(c: Conversion, currency: string): string {
   if (currency === BASE) return "";
   const per = formatMoney(BigInt(Math.round(c.rate * 100)), BASE);
