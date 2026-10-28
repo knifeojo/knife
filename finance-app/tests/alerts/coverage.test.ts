@@ -88,8 +88,10 @@ describe("statement coverage backfill and SMS link cleanup", () => {
     expect(await applySmsStatementLinks(planned)).toBe(1);
     const rows = await db.transaction.findMany({ where: { userId: user.id }, include: { sources: true } });
     expect(rows).toHaveLength(2);
-    const merged = rows.find((r) => r.id === sms.id);
+    const merged = rows.find((r) => r.id === statement.id);
+    expect(merged?.source).toBe("statement");
     expect(merged?.sources.map((s) => s.source).sort()).toEqual(["sms", "statement"]);
+    expect(rows.find((r) => r.id === sms.id)).toBeUndefined();
     expect(await planSmsStatementLinks(user.id)).toEqual([]);
     expect(await applySmsStatementLinks(planned)).toBe(0);
   });
@@ -121,5 +123,62 @@ describe("statement coverage backfill and SMS link cleanup", () => {
     await backfillStatementCoverage();
     expect(await planSmsStatementLinks(user.id)).toEqual([]);
     expect(await db.transaction.count({ where: { userId: user.id } })).toBe(3);
+  });
+
+  it("keeps the statement row's category, person, transfer pair and fee when the SMS is merged in", async () => {
+    const user = await db.user.create({ data: { email: "link-keep-stmt@test.dev" } });
+    const account = await db.account.create({
+      data: { userId: user.id, institution: "GTBank", accountName: "GTBank ••2468", maskedAccountNumber: "****2468", currency: "NGN" },
+    });
+    const person = await db.person.create({ data: { userId: user.id, displayName: "Ada Boateng", relationship: "friend" } });
+    const day = new Date("2026-10-04T12:00:00.000Z");
+    const partner = await db.transaction.create({
+      data: {
+        userId: user.id, accountId: account.id, source: "statement", sourceTransactionId: "keep-partner", fingerprint: "keep-partner",
+        transactionDate: day, type: "CREDIT", amountMinor: 500_000n, currency: "NGN",
+        description: "Incoming pair", category: "Own transfer", classificationSource: "pair", classificationConfidence: 1,
+      },
+    });
+    const statement = await db.transaction.create({
+      data: {
+        userId: user.id, accountId: account.id, source: "statement", sourceTransactionId: "keep-stmt", fingerprint: "keep-stmt",
+        transactionDate: day, type: "DEBIT", amountMinor: 500_000n, currency: "NGN",
+        description: "ATM WITHDRAWAL", category: "Food", subcategory: "Groceries", classificationSource: "user", classificationConfidence: 1,
+        personId: person.id, transferPairId: partner.id,
+        sources: { create: { userId: user.id, source: "statement", sourceTransactionId: "keep-stmt", matchType: "created" } },
+      },
+    });
+    await db.transaction.update({ where: { id: partner.id }, data: { transferPairId: statement.id } });
+    const fee = await db.transaction.create({
+      data: {
+        userId: user.id, accountId: account.id, source: "statement", sourceTransactionId: "keep-fee", fingerprint: "keep-fee",
+        transactionDate: day, type: "DEBIT", amountMinor: 1_000n, currency: "NGN",
+        description: "Commission on NIP Transfer", category: "Fees", classificationSource: "rule", classificationConfidence: 1,
+        feeOfId: statement.id,
+      },
+    });
+    const sms = await db.transaction.create({
+      data: {
+        userId: user.id, accountId: account.id, source: "sms", sourceTransactionId: "keep-sms", fingerprint: "keep-sms",
+        transactionDate: new Date("2026-10-04T17:00:00.000Z"), type: "DEBIT", amountMinor: 500_000n, currency: "NGN",
+        description: "POS ACME MART", category: "Other", classificationSource: "rule", classificationConfidence: 1,
+        sources: { create: { userId: user.id, source: "sms", sourceTransactionId: "keep-sms", matchType: "created" } },
+      },
+    });
+    await backfillStatementCoverage();
+    const planned = await planSmsStatementLinks(user.id);
+    expect(planned.map((link) => link.statementId)).toEqual([statement.id]);
+    expect(await applySmsStatementLinks(planned)).toBe(1);
+
+    const kept = await db.transaction.findUniqueOrThrow({ where: { id: statement.id }, include: { sources: true } });
+    expect(kept.category).toBe("Food");
+    expect(kept.subcategory).toBe("Groceries");
+    expect(kept.personId).toBe(person.id);
+    expect(kept.transferPairId).toBe(partner.id);
+    expect(kept.classificationSource).toBe("user");
+    expect(kept.sources.map((s) => s.source).sort()).toEqual(["sms", "statement"]);
+    expect(await db.transaction.findUnique({ where: { id: sms.id } })).toBeNull();
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: partner.id } })).transferPairId).toBe(statement.id);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: fee.id } })).feeOfId).toBe(statement.id);
   });
 });

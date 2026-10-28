@@ -67,32 +67,38 @@ export async function planSmsStatementLinks(userId?: string): Promise<SmsStateme
   return links;
 }
 
-/** Moves the statement observation onto the SMS row and deletes the extra ledger row. */
+/**
+ * Records the SMS on the statement row, the same way live dedup does when the statement already
+ * exists, then deletes the extra SMS row. Category, person, transfer pair and fee links on the
+ * statement row are left as they are.
+ */
 export async function applySmsStatementLinks(links: SmsStatementLink[]): Promise<number> {
   let applied = 0;
   for (const link of links) {
-    const still = await db.transaction.findUnique({ where: { id: link.smsId }, include: { sources: { select: { source: true } } } });
-    const statement = await db.transaction.findUnique({ where: { id: link.statementId } });
-    if (!still || !statement || hasSource(still, "statement")) continue;
+    const sms = await db.transaction.findUnique({ where: { id: link.smsId }, include: { sources: { select: { source: true } } } });
+    const statement = await db.transaction.findUnique({ where: { id: link.statementId }, include: { sources: { select: { source: true } } } });
+    if (!sms || !statement || hasSource(statement, "sms") || hasSource(sms, "statement")) continue;
     await db.$transaction(async (tx) => {
-      await tx.transactionSource.updateMany({ where: { transactionId: statement.id }, data: { transactionId: still.id, matchType: "fuzzy" } });
+      await tx.transactionSource.updateMany({ where: { transactionId: sms.id }, data: { transactionId: statement.id, matchType: "fuzzy" } });
       const marker = await tx.transactionSource.findFirst({
-        where: { userId: link.userId, source: "statement", sourceTransactionId: statement.sourceTransactionId },
+        where: { userId: link.userId, source: "sms", sourceTransactionId: sms.sourceTransactionId },
       });
       if (!marker) {
         await tx.transactionSource.create({
           data: {
             userId: link.userId,
-            transactionId: still.id,
-            source: "statement",
-            sourceTransactionId: statement.sourceTransactionId,
+            transactionId: statement.id,
+            source: "sms",
+            sourceTransactionId: sms.sourceTransactionId,
             matchType: "fuzzy",
           },
         });
-      } else if (marker.transactionId !== still.id) {
-        await tx.transactionSource.update({ where: { id: marker.id }, data: { transactionId: still.id, matchType: "fuzzy" } });
+      } else if (marker.transactionId !== statement.id) {
+        await tx.transactionSource.update({ where: { id: marker.id }, data: { transactionId: statement.id, matchType: "fuzzy" } });
       }
-      await tx.transaction.delete({ where: { id: statement.id } });
+      await tx.transaction.updateMany({ where: { feeOfId: sms.id, NOT: { id: statement.id } }, data: { feeOfId: statement.id } });
+      await tx.transaction.updateMany({ where: { transferPairId: sms.id, NOT: { id: statement.id } }, data: { transferPairId: statement.id } });
+      await tx.transaction.delete({ where: { id: sms.id } });
     });
     applied++;
   }
