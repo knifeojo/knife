@@ -151,6 +151,38 @@ describe("cross-currency own transfers", () => {
     expect(findPairs([d, other], ["Ada Eze"])).toHaveLength(0);
   });
 
+  it("treats a glued PAYMENTDEEL credit as a Deel landing", () => {
+    const d = leg({
+      id: "glue-d", accountId: "usd", institution: "Deel", currency: "USD", amountMinor: 100_00n,
+      transactionDate: new Date("2026-10-20T12:00:00Z"),
+      description: "Money transfer to Ada Eze / Deel withdrawal", category: "Own transfer",
+    });
+    const c = leg({
+      id: "glue-c", accountId: "gtb", institution: "GTBank", type: "CREDIT", currency: "NGN", amountMinor: 154_000_00n,
+      transactionDate: new Date("2026-10-21T09:00:00Z"),
+      description: "PAYMENTDEEL INC-WRAMFB-GRP", counterparty: "PAYMENTDEEL INC",
+    });
+    expect(findPairs([d, c], ["Ada Eze"])).toHaveLength(1);
+  });
+
+  it("treats Kora, dLocal, Moniepoint and VFD as payout rails, not third parties", () => {
+    const d = cad(100, "2026-09-24");
+    d.category = "Own transfer";
+    d.currency = "USD";
+    d.counterparty = "Ada Eze";
+    for (const [name, desc] of [
+      ["Kora", "NIP CREDIT KORA"],
+      ["dLocal", "NIP FROM DLOCAL"],
+      ["Moniepoint", "W5WM-MONIE MFB-PAYOUT"],
+      ["VFD", "NIP CREDIT VFD MFB"],
+    ] as const) {
+      const c = ngn(155000, "2026-09-24");
+      c.counterparty = name;
+      c.description = desc;
+      expect(findPairs([d, c], ["Ada Eze"]).length, name).toBeGreaterThanOrEqual(1);
+    }
+  });
+
   it("rejects a cross-currency pair outside the sanity band even without a market rate", () => {
     const d = cad(100, "2026-09-24");
     d.category = "Own transfer";

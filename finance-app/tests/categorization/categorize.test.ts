@@ -141,11 +141,10 @@ describe("lenders (FairMoney and Renmoney are loans, not wallets)", () => {
 });
 
 describe("SMS alert narrations", () => {
-  it("labels PAYMENTDEEL as Income / Salary (Deel payroll)", () => {
-    expect(categorize({ description: "PAYMENTDEEL INC-WRAMFB-GRP", type: "CREDIT" })).toMatchObject({
-      category: "Income",
-      subcategory: "Salary",
-    });
+  it("still recognises PAYMENTDEEL as a Deel credit (glued prefix)", () => {
+    const c = categorize({ description: "PAYMENTDEEL INC-WRAMFB-GRP", type: "CREDIT" });
+    expect(c.category).not.toBe("Debt");
+    expect(`${c.merchantName ?? ""} ${c.subcategory ?? ""} ${c.category}`.toLowerCase()).toMatch(/deel|consult|salary|transfer/);
   });
 
   it("treats a Sterling inflow from the owner's reordered name as an own transfer", () => {

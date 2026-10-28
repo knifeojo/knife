@@ -78,6 +78,15 @@ describe("FX precedence", () => {
     expect(hit?.rate).toBe(1540);
   });
 
+  it("does not convert at a realised rate that is an outlier vs market", async () => {
+    const u = await user("official");
+    await rate({ userId: u.id, date: "2026-09-24", base: "USD", rate: 1172.7, source: "realised" });
+    await rate({ date: "2026-09-24", base: "USD", rate: 1430, source: "market" });
+    const ctx = await loadFxContext(u.id);
+    const hit = convertToNgn(ctx, 100_00n, "USD", new Date("2026-09-26T12:00:00Z"));
+    expect(hit).toMatchObject({ rate: 1430, source: "market" });
+  });
+
   it("does not treat a realised rate more than 7 days away as nearby", async () => {
     expect(REALISED_WINDOW_DAYS).toBe(7);
     const u = await user("official");

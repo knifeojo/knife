@@ -178,7 +178,7 @@ export default async function Review() {
                   </form>
                 ))}
               </div>
-              {q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "mispair" && q.kind !== "duplicate" && q.kind !== "currency" && (
+              {q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "mispair" && q.kind !== "duplicate" && q.kind !== "currency" && q.kind !== "advance" && (
                 <form action={answerQuestionAction} className="mt-2">
                   <input type="hidden" name="kind" value={q.kind} />
                   <input type="hidden" name="key" value={q.key} />
@@ -186,7 +186,7 @@ export default async function Review() {
                   <button className="btn btn-ghost h-8 px-2 text-sm">Can&rsquo;t remember</button>
                 </form>
               )}
-              {q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "mispair" && q.kind !== "duplicate" && q.kind !== "currency" && (
+              {q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "mispair" && q.kind !== "duplicate" && q.kind !== "currency" && q.kind !== "advance" && (
                 <details className="mt-3 group">
                   <summary className="cursor-pointer text-sm text-accent font-medium list-none">Other… type your own answer</summary>
                   <form action={answerQuestionAction} className="mt-3 flex flex-wrap items-end gap-2">

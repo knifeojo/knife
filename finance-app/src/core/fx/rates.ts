@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { formatMoney } from "@/lib/money";
+import { inSanityBand, isUnusableRate } from "./guard";
 import bundledSeed from "./seed.json";
 
 const BASE = "NGN";
@@ -107,13 +108,28 @@ export async function loadFxContext(userId: string): Promise<FxContext> {
   };
 }
 
+function liveMarket(ctx: FxContext, date: string, base: string, quote: string): RateRow | undefined {
+  return nearestOnOrBefore(ctx.market.filter((r) => r.source === "market"), date, base, quote);
+}
+
+/** A stored realised rate that fails the outlier guard vs market/seed must not convert anything. */
+function realisedUsable(ctx: FxContext, row: RateRow, date: string, base: string, quote: string): boolean {
+  const mkt = liveMarket(ctx, date, base, quote);
+  const seed = nearestOnOrBefore(ctx.market, date, base, quote);
+  const ref = mkt ?? seed;
+  if (!ref) return inSanityBand(row.rate, base);
+  return !isUnusableRate(row.rate, base, ref.rate, mkt ? "market" : "median");
+}
+
 function pickPair(ctx: FxContext, date: string, base: string, quote: string): RateRow | undefined {
   const realisedNear = nearestWithin(ctx.realised, date, base, quote, REALISED_WINDOW_DAYS);
-  if (realisedNear) return realisedNear;
+  if (realisedNear && realisedUsable(ctx, realisedNear, date, base, quote)) return realisedNear;
   const market = nearestOnOrBefore(ctx.market, date, base, quote);
   const manual = latest(ctx.manual, base, quote);
   const oldRealised = latest(ctx.realised, base, quote);
-  const realisedOk = oldRealised && daysBetween(oldRealised.date, date) <= APPROXIMATE_AFTER_DAYS ? oldRealised : undefined;
+  const realisedOk = oldRealised && daysBetween(oldRealised.date, date) <= APPROXIMATE_AFTER_DAYS && realisedUsable(ctx, oldRealised, date, base, quote)
+    ? oldRealised
+    : undefined;
   if (ctx.preferManual) return manual ?? market ?? realisedOk;
   return market ?? manual ?? realisedOk;
 }

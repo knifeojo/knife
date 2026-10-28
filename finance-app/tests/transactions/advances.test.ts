@@ -103,6 +103,52 @@ describe("advance / repayment pairing", () => {
     expect((await db.transaction.findUniqueOrThrow({ where: { id: a2.id } })).transferPairId).toBe(r2.id);
   });
 
+  it("pairs a Deel salary advance that straddles a month end", async () => {
+    const { userId, acct } = await setup();
+    const credit = await row(userId, acct.id, {
+      type: "CREDIT", amountMinor: 1_500_00n, date: "2026-03-31",
+      description: "Deel salary advance", category: "Debt", subcategory: "Loan proceeds", currency: "USD",
+    });
+    const debit = await row(userId, acct.id, {
+      type: "DEBIT", amountMinor: 1_500_00n, date: "2026-04-01",
+      description: "Deel advance repayment", category: "Debt", subcategory: "Loan repayment", currency: "USD",
+    });
+    expect(await pairAdvances(userId)).toBe(1);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: credit.id } })).transferPairId).toBe(debit.id);
+  });
+
+  it("pairs a Deel advance when the repayment is dated the day before the credit", async () => {
+    const { userId, acct } = await setup();
+    const debit = await row(userId, acct.id, {
+      type: "DEBIT", amountMinor: 1_500_00n, date: "2026-04-30",
+      description: "Deel advance repayment", category: "Debt", subcategory: "Loan repayment", currency: "USD",
+    });
+    const credit = await row(userId, acct.id, {
+      type: "CREDIT", amountMinor: 1_500_00n, date: "2026-05-01",
+      description: "Deel salary advance", category: "Debt", subcategory: "Loan proceeds", currency: "USD",
+    });
+    expect(await pairAdvances(userId)).toBe(1);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: credit.id } })).transferPairId).toBe(debit.id);
+  });
+
+  it("sends leftover unmatched Deel advances to Review and does not count them as income or spending", async () => {
+    const { userId, acct } = await setup();
+    await row(userId, acct.id, {
+      type: "CREDIT", amountMinor: 1_500_00n, date: "2026-05-15",
+      description: "Deel salary advance", category: "Debt", subcategory: "Loan proceeds", currency: "USD",
+    });
+    expect(await pairOwnTransfers(userId)).toBe(0);
+    const leftover = await db.transaction.findFirstOrThrow({ where: { userId, description: "Deel salary advance" } });
+    expect(leftover.transferPairId).toBeNull();
+    expect(leftover.category).toBe("Own transfer");
+    const { buildQuestions } = await import("@/core/review");
+    const qs = await buildQuestions(userId);
+    expect(qs.some((q) => q.kind === "advance")).toBe(true);
+    const s = await summary(userId, monthPeriod(new Date("2026-05-20T12:00:00Z")));
+    expect(s.income).toBe(0n);
+    expect(s.expenses).toBe(0n);
+  });
+
   it("does not treat a paired repayment as a recurring obligation", async () => {
     const { userId, acct } = await setup();
     for (const [creditDay, debitDay] of [["2026-01-05", "2026-01-20"], ["2026-02-05", "2026-02-18"], ["2026-03-05", "2026-03-19"]] as const) {

@@ -58,7 +58,7 @@ const BETTING = /bet9ja|sportybet|betking|1xbet|nairabet|merrybet|\bmsport\b|ban
 // Ordered: first match wins. Patterns run against the lowercased description.
 const RULES: Rule[] = [
   // Income
-  { match: /salary|payroll|\bsal\b|paymentdeel/, category: INCOME_CATEGORY, subcategory: "Salary", only: "CREDIT" },
+  { match: /salary|payroll|\bsal\b/, category: INCOME_CATEGORY, subcategory: "Salary", only: "CREDIT" },
   { match: /\bper ?diem\b|\breimburs/, category: INCOME_CATEGORY, subcategory: "Reimbursement", only: "CREDIT" },
   { match: /upwork/, merchant: "Upwork", category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
   { match: /deel|remote\.com|payoneer|fiverr|toptal/, category: INCOME_CATEGORY, subcategory: "Consulting", only: "CREDIT" },
@@ -639,13 +639,14 @@ function categorizeRules(
     return { category: "Debt", subcategory: "Loan proceeds", merchantName: lender, counterparty: lender, source: "rule", confidence: 0.9 };
   }
   // Deel earned-wage advances: the advance is a loan in, the fee is an expense, repayment goes out.
-  if (/\bdeel advance fee\b/.test(desc)) {
+  // "deel" may be glued to a prefix (PAYMENTDEEL) and "salary advance" may sit between the words.
+  if (/deel/.test(desc) && /advance fee/.test(desc)) {
     return { category: "Fees", subcategory: "Advance fee", merchantName: "Deel", counterparty, source: "rule", confidence: 0.95 };
   }
-  if (/\bdeel advance repayment\b/.test(desc)) {
+  if (/deel/.test(desc) && /repay/.test(desc)) {
     return { category: "Debt", subcategory: "Loan repayment", merchantName: "Deel", counterparty, source: "rule", confidence: 0.95 };
   }
-  if (input.type === "CREDIT" && /\bdeel advance\b/.test(desc)) {
+  if (input.type === "CREDIT" && /deel/.test(desc) && /advance/.test(desc) && !/fee|repay/.test(desc)) {
     return { category: "Debt", subcategory: "Loan proceeds", merchantName: "Deel", counterparty, source: "rule", confidence: 0.95 };
   }
 

@@ -1,12 +1,10 @@
 import { isSelf } from "../categorize";
-import { inSanityBand, isUnusableRate, median } from "./guard";
-import { isInternalWalletFund } from "./pairing-rules";
+import { inSanityBand, isUnusableRate, median, type RateKind } from "./guard";
+import { isInternalWalletFund, looksLikeDeel, looksLikeLandingNarration } from "./pairing-rules";
 import { lagosDay } from "./rates";
 
 const BASE = "NGN";
 const PAYOUT_DEBIT = /deel withdrawal|money transfer to/i;
-const LANDING_PARTNER = /\bdeel\b|pesapeer|\bpesa\b|payoneer/i;
-const DEEL = /\bdeel\b/i;
 
 export interface LandingLeg {
   id: string;
@@ -42,7 +40,7 @@ function hay(leg: LandingLeg): string {
 }
 
 export function mentionsDeel(leg: LandingLeg): boolean {
-  return DEEL.test(hay(leg));
+  return looksLikeDeel(hay(leg));
 }
 
 export function isPayoutDebit(leg: LandingLeg, owners: string[]): boolean {
@@ -54,7 +52,7 @@ export function isPayoutDebit(leg: LandingLeg, owners: string[]): boolean {
 
 export function isLandingCredit(leg: LandingLeg, owners: string[]): boolean {
   if (leg.type !== "CREDIT" || leg.currency !== BASE || leg.amountMinor <= 0n) return false;
-  if (LANDING_PARTNER.test(hay(leg))) return true;
+  if (looksLikeLandingNarration(hay(leg))) return true;
   return isSelf(leg.counterparty ?? undefined, owners) || mentionsOwner(leg.description, owners);
 }
 
@@ -65,16 +63,24 @@ function sameOrNextDay(a: Date, b: Date): boolean {
 }
 
 
+export type LandingRateLookup = (date: string, currency: string) => { rate: number; kind?: RateKind } | number | undefined;
+
+function unwrapRef(v: { rate: number; kind?: RateKind } | number | undefined): { rate: number; kind: RateKind } | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "number") return { rate: v, kind: "median" };
+  return { rate: v.rate, kind: v.kind ?? "median" };
+}
+
 /**
  * Deel / wallet payouts landing as NGN bank credits: same or next Lagos day, credit
- * names Deel / the payout partner / the owner, implied rate within ±20% of the
- * rolling median or a supplied market rate. Greedy closest-rate matching.
- * Same-day near-ties are left unmatched so the day's weighted aggregate can be used.
+ * names Deel / a payout rail / the owner. Implied rate within ±10% of market or
+ * ±15% of the rolling median. Greedy closest-rate matching. Same-day near-ties
+ * are left unmatched so the day's weighted aggregate can be used.
  */
 export function matchPayoutLandings(
   legs: LandingLeg[],
   owners: string[],
-  referenceFor?: (date: string, currency: string) => number | undefined,
+  referenceFor?: LandingRateLookup,
 ): LandingMatch[] {
   const debits = legs.filter((l) => isPayoutDebit(l, owners));
   const credits = legs.filter((l) => isLandingCredit(l, owners));
@@ -102,12 +108,13 @@ export function matchPayoutLandings(
 
   const cluster = median(raw.map((r) => r.rate));
   for (const r of raw) {
-    const ref = referenceFor?.(r.date, r.debit.currency) ?? cluster;
+    const ref = unwrapRef(referenceFor?.(r.date, r.debit.currency))?.rate ?? cluster;
     r.score = ref ? Math.abs(r.rate - ref) / ref : r.gap / 86400_000;
   }
   const plausible = raw.filter((r) => {
-    const ref = referenceFor?.(r.date, r.debit.currency) ?? cluster;
-    return !isUnusableRate(r.rate, r.debit.currency, ref);
+    const looked = unwrapRef(referenceFor?.(r.date, r.debit.currency));
+    const ref = looked?.rate ?? cluster;
+    return !isUnusableRate(r.rate, r.debit.currency, ref, looked?.kind ?? "median");
   });
   const pool = plausible.length ? plausible : raw.length === 1 && inSanityBand(raw[0].rate, raw[0].debit.currency) ? raw : [];
   pool.sort((a, b) => a.score - b.score || a.gap - b.gap);
@@ -144,7 +151,7 @@ export function aggregateUnmatchedLandings(
   legs: LandingLeg[],
   owners: string[],
   matched: LandingMatch[],
-  referenceFor?: (date: string, currency: string) => number | undefined,
+  referenceFor?: LandingRateLookup,
 ): LandingMatch[] {
   const used = new Set(matched.flatMap((m) => [m.debit.id, m.credit.id]));
   const debits = legs.filter((l) => !used.has(l.id) && !l.transferPairId && isPayoutDebit(l, owners));
@@ -171,8 +178,8 @@ export function aggregateUnmatchedLandings(
     const nairaMinor = g.credits.reduce((s, c) => s + c.amountMinor, 0n);
     if (foreignMinor <= 0n) continue;
     const rate = Number(nairaMinor) / Number(foreignMinor);
-    const ref = referenceFor?.(g.date, g.currency);
-    if (!Number.isFinite(rate) || rate <= 0 || isUnusableRate(rate, g.currency, ref)) continue;
+    const looked = unwrapRef(referenceFor?.(g.date, g.currency));
+    if (!Number.isFinite(rate) || rate <= 0 || isUnusableRate(rate, g.currency, looked?.rate, looked?.kind ?? "median")) continue;
     out.push({
       debit: g.debits[0],
       credit: g.credits[0],

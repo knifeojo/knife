@@ -19,7 +19,7 @@ export const TAXONOMY: Readonly<Record<string, readonly string[]>> = {
   Fees: ["Refund", "Advance fee"],
   Other: ["Cash", "Betting"],
   [INCOME_CATEGORY]: [...INCOME_SUBCATEGORIES, "Gifts received", "From family & friends"],
-  [OWN_TRANSFER]: ["Between own accounts", "Savings", "Wallet top-up", "Between your wallets", "Currency conversion"],
+  [OWN_TRANSFER]: ["Between own accounts", "Savings", "Wallet top-up", "Between your wallets", "Currency conversion", "Unpaired conversion", "Unpaired advance"],
 };
 
 /**

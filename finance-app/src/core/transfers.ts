@@ -2,14 +2,15 @@ import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { formatMoney } from "@/lib/money";
 import { OWN_TRANSFER, isSelf } from "./categorize";
-import { isUnusableRate, monthlyMedian } from "./fx/guard";
+import { isUnusableRate, monthlyMedian, type RateKind } from "./fx/guard";
 import { matchPayoutLandings, mentionsDeel } from "./fx/landings";
 import { recategorizeUnpaired, shouldNeverPair } from "./fx/pairing-rules";
+import { scanUnmatchedAdvances } from "./fx/advance-flags";
 import { lagosDay } from "./fx/rates";
 import { isBlockedMispair, rebuildUserFx } from "./fx/realised";
 import { BANKS } from "./statements";
 
-export type FxRateLookup = (date: Date, currency: string) => number | undefined;
+export type FxRateLookup = (date: Date, currency: string) => { rate: number; kind: RateKind } | undefined;
 
 // Pairs money moving between two of the user's own accounts, so it is neither spending (on the
 // sending account) nor income (on the receiving one). Runs after every import.
@@ -124,7 +125,8 @@ function fxAllowed(d: Leg, c: Leg, owners: string[], rateFor?: FxRateLookup): bo
   if (shouldNeverPair(d, c, owners)) return false;
   const rate = Number(c.amountMinor) / Number(d.amountMinor);
   const ccy = foreignOf(d, c);
-  return !isUnusableRate(rate, ccy, rateFor?.(c.transactionDate, ccy));
+  const ref = rateFor?.(c.transactionDate, ccy);
+  return !isUnusableRate(rate, ccy, ref?.rate, ref?.kind ?? "median");
 }
 
 function crossCurrencyOptions(debits: Leg[], credits: Leg[], owners: string[], rateFor?: FxRateLookup): (PairCandidate & { gap: number })[] {
@@ -226,7 +228,7 @@ async function loadPairRateLookup(userId: string): Promise<FxRateLookup> {
   const [market, linked] = await Promise.all([
     db.fxRate.findMany({
       where: { quote: "NGN", source: { in: ["market", "seed"] }, userId: "" },
-      select: { date: true, base: true, rate: true },
+      select: { date: true, base: true, rate: true, source: true },
     }),
     db.transaction.findMany({
       where: { userId, transferPairId: { not: null }, currency: { not: "NGN" } },
@@ -247,9 +249,11 @@ async function loadPairRateLookup(userId: string): Promise<FxRateLookup> {
   return (date, currency) => {
     const day = lagosDay(date);
     const month = monthlyMedian(monthly, day, currency);
-    if (month !== undefined) return month;
+    if (month !== undefined) return { rate: month, kind: "median" };
+    const live = market.filter((r) => r.base === currency && r.date <= day && r.source === "market").sort((a, b) => (a.date < b.date ? 1 : -1));
+    if (live[0]) return { rate: live[0].rate, kind: "market" };
     const hits = market.filter((r) => r.base === currency && r.date <= day).sort((a, b) => (a.date < b.date ? 1 : -1));
-    return hits[0]?.rate;
+    return hits[0] ? { rate: hits[0].rate, kind: "median" } : undefined;
   };
 }
 
@@ -288,6 +292,7 @@ export async function pairOwnTransfers(userId: string): Promise<number> {
   }
   paired += await pairReversals(userId);
   paired += await pairAdvances(userId);
+  await scanUnmatchedAdvances(userId);
   // Always rebuild: pairs made before the FX migration never wrote a rate, and same-day
   // pairs must become an amount-weighted average rather than the last write.
   await rebuildUserFx(userId);
@@ -344,11 +349,23 @@ export async function pairReversals(userId: string): Promise<number> {
 }
 
 const ADVANCE_WINDOW_MS = 35 * 86400_000;
+const ADVANCE_NEAR_DAYS = 2;
+
+function lagosDaysApart(a: Date, b: Date): number {
+  return Math.abs(Date.parse(`${lagosDay(a)}T00:00:00Z`) - Date.parse(`${lagosDay(b)}T00:00:00Z`)) / 86400_000;
+}
+
+function advanceDatesMatch(credit: Date, debit: Date): boolean {
+  const after = debit.getTime() >= credit.getTime() && debit.getTime() <= credit.getTime() + ADVANCE_WINDOW_MS;
+  const near = lagosDaysApart(credit, debit) <= ADVANCE_NEAR_DAYS;
+  return after || near;
+}
 
 /**
  * A lender advance and its repayment of the same amount on the same account (same or next
- * ~35 days) cancel out: they are neither income nor spending. Greedy oldest-first.
- * Unmatched repayments stay as debt. Advance fees are left as real Fees expenses.
+ * ~35 days, or 1–2 days either side including a month-end straddle) cancel out: they are
+ * neither income nor spending. Greedy oldest-first.
+ * Unmatched Deel advances are flagged in Review and excluded from totals.
  */
 export async function pairAdvances(userId: string): Promise<number> {
   const [credits, debits] = await Promise.all([
@@ -367,14 +384,12 @@ export async function pairAdvances(userId: string): Promise<number> {
   const used = new Set<string>();
   let paired = 0;
   for (const credit of credits) {
-    const until = credit.transactionDate.getTime() + ADVANCE_WINDOW_MS;
     const debit = debits.find((d) =>
       !used.has(d.id)
       && d.accountId === credit.accountId
       && d.currency === credit.currency
       && d.amountMinor === credit.amountMinor
-      && d.transactionDate.getTime() >= credit.transactionDate.getTime()
-      && d.transactionDate.getTime() <= until
+      && advanceDatesMatch(credit.transactionDate, d.transactionDate)
     );
     if (!debit) continue;
     used.add(debit.id);
@@ -439,13 +454,21 @@ export async function suspectedConversions(userId: string): Promise<ConversionEv
  * question will then show the evidence and let the user settle it.
  */
 export async function unpairContradicted(userId: string, ids: string[]): Promise<void> {
+  const accounts = await db.account.findMany({ where: { userId, holderName: { not: null } }, select: { holderName: true } });
+  const user = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
+  const owners = [...new Set([...accounts.map((a) => a.holderName!), ...(user?.name ? [user.name] : [])])];
   const legs = (await db.transaction.findMany({ where: { userId, id: { in: ids }, transferPairId: { not: null }, category: { not: OWN_TRANSFER } } }))
     .filter((l) => !(l.type === "CREDIT" && l.category === "Income")); // income labels don't contradict a link
   for (const leg of legs) {
     const partner = await db.transaction.findFirst({ where: { userId, id: leg.transferPairId! } });
     await db.transaction.update({ where: { id: leg.id }, data: { transferPairId: null } });
     if (partner && partner.classificationSource === "pair") {
-      const c = recategorizeUnpaired({ description: partner.description, type: partner.type as "DEBIT" | "CREDIT" });
+      const c = recategorizeUnpaired({
+        description: partner.description,
+        type: partner.type as "DEBIT" | "CREDIT",
+        counterparty: partner.counterparty,
+        owners,
+      });
       await db.transaction.update({
         where: { id: partner.id },
         data: { transferPairId: null, category: c.category, subcategory: c.subcategory ?? null, classificationSource: c.source, classificationConfidence: c.confidence },

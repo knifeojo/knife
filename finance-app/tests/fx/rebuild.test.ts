@@ -285,6 +285,67 @@ describe("FX rebuild from existing pairs", () => {
     expect(qs.filter((q) => q.kind === "mispair").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("keeps an existing pair within 8% of market even when the credit names a third party", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-18", "USD", 1500);
+    const kept = await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 138_000_00n, date: "2026-10-18" });
+    await db.transaction.update({ where: { id: kept.credit.id }, data: { counterparty: "Acme Payroll Ltd", description: "NIP FROM ACME PAYROLL LTD" } });
+    const r = await rebuildUserFx(userId);
+    expect(r.rejected).toBe(0);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: kept.debit.id } })).transferPairId).toBe(kept.credit.id);
+    const fx = await db.fxRate.findFirstOrThrow({ where: { userId, source: "realised" } });
+    expect(fx.rate).toBeCloseTo(1380, 5);
+  });
+
+  it("keeps a rail-delivered payout paired", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-19", "USD", 1500);
+    const rail = await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 154_500_00n, date: "2026-10-19" });
+    await db.transaction.update({ where: { id: rail.credit.id }, data: { counterparty: "Kora", description: "NIP CREDIT KORA" } });
+    await rebuildUserFx(userId);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: rail.debit.id } })).transferPairId).toBe(rail.credit.id);
+  });
+
+  it("rejects a pair 12% from market and does not store it as a rate", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-20", "USD", 1500);
+    const bad = await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 132_000_00n, date: "2026-10-20" });
+    const r = await rebuildUserFx(userId);
+    expect(r.rejected).toBeGreaterThanOrEqual(1);
+    expect(await db.fxRate.count({ where: { userId, source: "realised" } })).toBe(0);
+    expect((await db.transaction.findUniqueOrThrow({ where: { id: bad.debit.id } })).transferPairId).toBeNull();
+  });
+
+  it("does not classify an own-name unpaired naira credit as Income", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-21", "USD", 1500);
+    const pair = await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 132_000_00n, date: "2026-10-21" });
+    await db.transaction.update({
+      where: { id: pair.credit.id },
+      data: { counterparty: "Ada Eze", description: "TRANSFER FROM ADA EZE / PROVIDUS" },
+    });
+    await rebuildUserFx(userId);
+    const leftover = await db.transaction.findUniqueOrThrow({ where: { id: pair.credit.id } });
+    expect(leftover.transferPairId).toBeNull();
+    expect(leftover.category).toBe("Own transfer");
+    expect(leftover.category).not.toBe("Income");
+  });
+
+  it("classifies an unpaired loan-provider credit as Debt, not Income", async () => {
+    const { userId, usd, ngn } = await setup();
+    await market("2026-10-22", "USD", 1500);
+    const pair = await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 132_000_00n, date: "2026-10-22" });
+    await db.transaction.update({
+      where: { id: pair.credit.id },
+      data: { counterparty: "Renmoney", description: "NIP FROM RENMONEY MFB" },
+    });
+    await rebuildUserFx(userId);
+    const leftover = await db.transaction.findUniqueOrThrow({ where: { id: pair.credit.id } });
+    expect(leftover.transferPairId).toBeNull();
+    expect(leftover.category).toBe("Debt");
+    expect(leftover.subcategory).toBe("Loan proceeds");
+  });
+
   it("does not let a poisoned median bless a rate outside the sanity band", async () => {
     const { userId, usd, ngn } = await setup();
     await linkPair(userId, usd.id, ngn.id, { usdMinor: 100_00n, ngnMinor: 4_000_00n, date: "2026-10-14" });

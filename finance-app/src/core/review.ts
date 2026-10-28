@@ -9,6 +9,7 @@ import { createPerson, updatePerson } from "./people";
 import { familySurnames, guessFor, type PeopleGuess } from "./people-guess";
 import { RELATIONSHIPS, labelFor, mappingFor, matchPeople, relationshipInfo, sameIndividual, type KnownPerson } from "./people-match";
 import { listPendingDuplicates, resolveDuplicate } from "./fx/duplicates";
+import { listPendingAdvances, resolveAdvance } from "./fx/advance-flags";
 import { rebuildUserFx, listPendingMispairs, resolveMispair } from "./fx/realised";
 import { listPendingWalletGuesses, resolveWalletGuess } from "./fx/wallet-currency";
 import { pairOwnTransfers, suspectedConversions, unpairContradicted } from "./transfers";
@@ -19,8 +20,8 @@ void suspectedConversions; // kept for answering legacy conversion questions
 // People come first: "Who is GIFT ADEBAYO OJO to you?" is answered once and labels every payment
 // to and from them through the relationship (core/people).
 
-export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match" | "mispair" | "duplicate" | "currency";
-export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion", "match", "mispair", "duplicate", "currency"];
+export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match" | "mispair" | "duplicate" | "currency" | "advance";
+export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion", "match", "mispair", "duplicate", "currency", "advance"];
 
 export interface Option {
   value: string;
@@ -158,6 +159,11 @@ export const CURRENCY_OPTIONS: Option[] = [
   { value: "keep", label: "No, leave it as it is", category: "" },
 ];
 
+export const ADVANCE_OPTIONS: Option[] = [
+  { value: "hold", label: "Leave uncounted until a matching repayment lands", category: OWN_TRANSFER, subcategory: "Unpaired advance" },
+  { value: "debt", label: "This is a real loan — count it as debt", category: "Debt", subcategory: "Loan proceeds" },
+];
+
 const HOLDER_OPTIONS: Option[] = [
   { value: "yes", label: "Yes, that's me", category: OWN_TRANSFER, subcategory: "Between own accounts" },
   { value: "no", label: "No", category: "" },
@@ -170,6 +176,7 @@ export function optionsFor(kind: QuestionKind): Option[] {
     : kind === "mispair" ? MISPAIR_OPTIONS
     : kind === "duplicate" ? DUPLICATE_OPTIONS
     : kind === "currency" ? CURRENCY_OPTIONS
+    : kind === "advance" ? ADVANCE_OPTIONS
     : PERSON_OPTIONS;
 }
 
@@ -427,6 +434,19 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   const { answered, accounts, tx, people, found, surnames, ctx } = await reviewData(userId);
   const questions: Question[] = [];
 
+  for (const a of await listPendingAdvances(userId)) {
+    questions.push({
+      kind: "advance",
+      key: a.key,
+      title: "Unmatched Deel salary advance",
+      prompt: `${a.amount} on ${a.date} looks like a Deel salary advance without a matching repayment (or the other way around). It is not counted as income or spending until it pairs, or you say it is a real loan.`,
+      totalMinor: a.totalMinor,
+      count: 1,
+      examples: a.examples,
+      options: ADVANCE_OPTIONS,
+    });
+  }
+
   for (const g of await listPendingWalletGuesses(userId)) {
     questions.push({
       kind: "currency",
@@ -462,7 +482,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
       kind: "mispair",
       key: m.key,
       title: "Likely mismatched currency conversion",
-      prompt: `A linked pair on ${m.date} sent ${m.sent} and received ${m.received} (${per}). That is more than 20% from the market or typical rate for that currency, so it was not used as a rate and the pair was unpaired.`,
+      prompt: `A linked pair on ${m.date} sent ${m.sent} and received ${m.received} (${per}). That is more than 10% from the market rate (or 15% from the typical rate) for that currency, so it was not used as a rate and the pair was unpaired.`,
       totalMinor: m.totalMinor,
       totalCurrency: "NGN",
       count: 2,
@@ -579,7 +599,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
   const weight = (q: Question) => (/around the \d+(st|nd|rd|th)/.test(q.prompt) ? q.totalMinor * 2n : q.totalMinor);
   // People questions are ranked by the unlabelled money they fix, then by everything with them.
   const impact = (q: Question) => (q.impactMinor ?? 0n) * 4n + q.totalMinor;
-  const rank = (q: Question) => (q.kind === "holder" ? 0 : q.kind === "currency" || q.kind === "mispair" || q.kind === "duplicate" ? 1 : q.person ? 2 : q.kind === "conversion" ? 3 : 4);
+  const rank = (q: Question) => (q.kind === "holder" ? 0 : q.kind === "currency" || q.kind === "mispair" || q.kind === "duplicate" || q.kind === "advance" ? 1 : q.person ? 2 : q.kind === "conversion" ? 3 : 4);
   questions.sort((a, b) => {
     const r = rank(a) - rank(b);
     if (r) return r;
@@ -694,6 +714,11 @@ export async function answerQuestion(
     const n = await resolveWalletGuess(userId, key, value);
     if (value === "cad") await rebuildUserFx(userId);
     return n;
+  }
+
+  if (kind === "advance") {
+    if (value !== "hold" && value !== "debt") throw new Error("unknown answer");
+    return resolveAdvance(userId, key, value);
   }
 
   if (kind === "conversion") {
