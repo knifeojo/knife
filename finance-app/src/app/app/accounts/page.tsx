@@ -17,7 +17,7 @@ const NOTICES: Record<string, { tone: "accent" | "warn"; text: string }> = {
 };
 
 const EXTRA_NOTICES: Record<string, { tone: "accent" | "warn"; text: string }> = {
-  saved: { tone: "accent", text: "IMAP settings saved. Put the app password in IMAP_PASSWORD or ~/.ledger/secrets.env — it is never stored here." },
+  saved: { tone: "accent", text: "IMAP settings saved. Put the app password in IMAP_PASSWORD or ~/.ledger/secrets.env. It is never stored here." },
   demo: { tone: "warn", text: "Demo accounts cannot connect IMAP." },
   error: { tone: "warn", text: "Check the IMAP host, port and username." },
 };
@@ -102,7 +102,7 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
 
       <Card title="Yahoo Mail and other IMAP" className="mt-4">
         <p className="text-sm text-ink-2 mb-3">
-          Read-only IMAP with an app password. Host, port and username are stored here. The password stays in <code>IMAP_PASSWORD</code> or <code>~/.ledger/secrets.env</code> on this Mac — never in the database, never in the repo, never returned by the API.
+          Read-only IMAP with an app password. Host, port and username are stored here. The password stays in <code>IMAP_PASSWORD</code> or <code>~/.ledger/secrets.env</code> on this Mac. It is never in the database, never in the repo, never returned by the API.
         </p>
         {imap && (
           <p className="text-sm mb-3">Last synced {relativeTime(imap.lastSyncedAt)}{imap.lastError ? ` · ${imap.lastError}` : ""}</p>

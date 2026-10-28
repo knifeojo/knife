@@ -9,7 +9,6 @@ import '../widgets/common.dart';
 import 'category_screen.dart';
 import 'income_sources_screen.dart';
 import 'review_screen.dart';
-import 'transactions_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -191,7 +190,7 @@ class HomeBody extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        '${overview.reviewCount} payment${overview.reviewCount == 1 ? '' : 's'} need${overview.reviewCount == 1 ? 's' : ''} a purpose',
+                        '${overview.reviewCount} question${overview.reviewCount == 1 ? '' : 's'} to review',
                       ),
                     ),
                     Text('Review', style: TextStyle(color: ledgerBlue, fontWeight: FontWeight.w600)),

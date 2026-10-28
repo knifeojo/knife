@@ -10,6 +10,8 @@ import { GET as overview } from "@/app/api/v1/overview/route";
 import { GET as categoryGet } from "@/app/api/v1/categories/[category]/route";
 import { GET as reviewGet } from "@/app/api/v1/review/route";
 import { decodeTxCursor, encodeTxCursor, periodFromYearMonth, previousCalendarMonth, specificMonth } from "@/core/analytics";
+import { pairOwnTransfers } from "@/core/transfers";
+import { ADVANCE_OPTIONS, buildQuestions } from "@/core/review";
 
 const SAMPLE = readFileSync("public/sample-gtbank-statement.csv");
 const N = (naira: number) => BigInt(naira) * 100n;
@@ -51,6 +53,8 @@ async function addTx(
     merchant: string;
     at?: Date;
     transferPairId?: string;
+    currency?: string;
+    description?: string;
   },
 ) {
   return db.transaction.create({
@@ -63,8 +67,8 @@ async function addTx(
       transactionDate: data.at ?? new Date(`${data.date}T12:00:00Z`),
       type: data.type,
       amountMinor: data.amount,
-      currency: "NGN",
-      description: data.merchant,
+      currency: data.currency ?? "NGN",
+      description: data.description ?? data.merchant,
       merchantName: data.merchant,
       category: data.category,
       subcategory: data.subcategory ?? null,
@@ -244,5 +248,60 @@ describe("GET /api/v1/review cursor", () => {
     expect(page.questions).toEqual([]);
     expect(page.nextCursor).toBeNull();
     expect((await reviewGet(authed("/api/v1/review?cursor=nope", token))).status).toBe(400);
+  });
+});
+
+describe("review badge count", () => {
+  it("counts pending questions even when unlabelled spending is below 30%", async () => {
+    const { user, account, token } = await seed();
+    await addTx(user.id, account.id, {
+      date: "2026-05-15",
+      type: "CREDIT",
+      amount: 1500_00n,
+      category: "Debt",
+      subcategory: "Loan proceeds",
+      merchant: "Example Deel Advance",
+      description: "Deel salary advance",
+      currency: "USD",
+    });
+    await pairOwnTransfers(user.id);
+    const qs = await buildQuestions(user.id);
+    const advance = qs.find((q) => q.kind === "advance");
+    expect(advance).toMatchObject({ totalCurrency: "USD", totalMinor: 1500_00n });
+    expect(advance?.prompt).toContain("$1,500.00");
+    expect(advance?.prompt).not.toContain("₦");
+    expect(ADVANCE_OPTIONS.every((o) => !o.label.includes("—"))).toBe(true);
+
+    const ov = await bodyOf(await overview(authed("/api/v1/overview?month=2026-05", token)));
+    expect(ov.reviewCount).toBe(qs.length);
+    expect(ov.reviewCount).toBeGreaterThan(0);
+  });
+
+  it("returns the true question total past the old 12-item cap", async () => {
+    const { user, account, token } = await seed();
+    for (let i = 0; i < 13; i++) {
+      await addTx(user.id, account.id, {
+        date: "2026-05-15",
+        type: "CREDIT",
+        amount: BigInt(100_00 + i),
+        category: "Debt",
+        subcategory: "Loan proceeds",
+        merchant: `Example Deel Advance ${i}`,
+        description: `Deel salary advance ${i}`,
+        currency: "USD",
+      });
+    }
+    await pairOwnTransfers(user.id);
+    const qs = await buildQuestions(user.id);
+    expect(qs.filter((q) => q.kind === "advance")).toHaveLength(13);
+    expect(qs.length).toBeGreaterThanOrEqual(13);
+    const ov = await bodyOf(await overview(authed("/api/v1/overview?month=2026-05", token)));
+    expect(ov.reviewCount).toBe(qs.length);
+
+    const page = await bodyOf(await reviewGet(authed("/api/v1/review?limit=10", token)));
+    expect((page.questions as unknown[]).length).toBe(10);
+    expect(page.nextCursor).toEqual(expect.any(String));
+    const rest = await bodyOf(await reviewGet(authed(`/api/v1/review?limit=10&cursor=${encodeURIComponent(String(page.nextCursor))}`, token)));
+    expect((rest.questions as unknown[]).length).toBeGreaterThanOrEqual(3);
   });
 });

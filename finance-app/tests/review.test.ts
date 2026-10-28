@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { importStatement } from "@/core/statement-import";
 import { ingestTransaction } from "@/core/ledger";
-import { answerQuestion, askAgain, buildQuestions, inferFromText, memoOf } from "@/core/review";
+import { ADVANCE_OPTIONS, DUPLICATE_OPTIONS, MISPAIR_OPTIONS, answerQuestion, askAgain, buildQuestions, inferFromText, memoOf } from "@/core/review";
 import { nameHint, sameName } from "@/core/categorize";
 import { assessAffordability, loadAffordabilityData } from "@/core/affordability";
 
@@ -16,6 +16,14 @@ const STATEMENT = Buffer.from([
   "06-Sep-2026,R6,250000.00,,550000.00,Instant Payment Outward 0905 MONTHLY TO",
   "07-Sep-2026,R7,50000.00,,500000.00,Instant Payment Outward 0906 X FROM EZE ADA BELLO TO WEMA - EZE ADA BELLO",
 ].join("\n"));
+
+describe("review copy", () => {
+  it("has no em dashes in option labels", () => {
+    for (const opt of [...MISPAIR_OPTIONS, ...DUPLICATE_OPTIONS, ...ADVANCE_OPTIONS]) {
+      expect(opt.label).not.toContain("—");
+    }
+  });
+});
 
 describe("name helpers", () => {
   it("treats the same words in any order as one person", () => {

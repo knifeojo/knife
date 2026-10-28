@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:ledger_mobile/api/models.dart';
 import 'package:ledger_mobile/screens/home_screen.dart';
 import 'package:ledger_mobile/screens/home_shell.dart';
+import 'package:ledger_mobile/screens/review_screen.dart';
 import 'package:ledger_mobile/state/ledger_controller.dart';
 import 'package:ledger_mobile/storage/settings_store.dart';
 import 'package:ledger_mobile/theme.dart';
@@ -77,7 +78,7 @@ void main() {
     expect(find.text('43% of Out'), findsOneWidget);
     expect(find.text('All 6 categories'), findsOneWidget);
     expect(find.text('+₦105k'), findsOneWidget);
-    expect(find.text('4 payments need a purpose'), findsOneWidget);
+    expect(find.text('4 questions to review'), findsOneWidget);
     expect(find.text('Review'), findsOneWidget);
     expect(find.textContaining('rent spread'), findsNothing);
   });
@@ -166,5 +167,39 @@ void main() {
     expect(find.text('Bank alerts'), findsOneWidget);
     expect(find.text('4'), findsWidgets);
     controller.dispose();
+  });
+
+  testWidgets('Deel advance review card uses the row currency, not naira', (tester) async {
+    final question = ReviewQuestion.fromJson({
+      'kind': 'advance',
+      'key': 'fx-advance:t1',
+      'title': 'Unmatched Deel salary advance',
+      'prompt': r'$1,500.00 on 2026-05-15 looks like a Deel salary advance without a matching repayment (or the other way around). It is not counted as income or spending until it pairs, or you say it is a real loan.',
+      'totalMinor': '150000',
+      'totalCurrency': 'USD',
+      'count': 1,
+      'examples': ['Deel salary advance'],
+      'options': [
+        {'value': 'hold', 'label': 'Leave uncounted until a matching repayment lands', 'category': 'Own transfer'},
+        {'value': 'debt', 'label': 'This is a real loan - count it as debt', 'category': 'Debt'},
+      ],
+      'allowsOther': false,
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ledgerTheme(Brightness.light),
+        home: Scaffold(
+          body: ListView(
+            children: [
+              ReviewQuestionCard(question: question, index: 0, total: 1, busy: false, onAnswer: (_, {otherText, otherCategory, vendorCategory, vendorSubcategory}) {}, onOther: () {}),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.textContaining(r'$1,500.00'), findsWidgets);
+    expect(find.textContaining('₦'), findsNothing);
+    expect(find.textContaining('—'), findsNothing);
+    expect(find.text('This is a real loan - count it as debt'), findsOneWidget);
   });
 }
