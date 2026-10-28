@@ -82,7 +82,8 @@ export async function loadFxContext(userId: string): Promise<FxContext> {
     }),
   ]);
   let rows = initial;
-  if (!rows.some((r) => r.source === "market" || r.source === "seed")) {
+  // A single fetched market day must not block the bundled history. Seed when no seed rows exist.
+  if (!rows.some((r) => r.source === "seed")) {
     for (const r of bundledSeed) {
       if (!Number.isFinite(r.rate) || r.rate <= 0) continue;
       await db.fxRate.upsert({
