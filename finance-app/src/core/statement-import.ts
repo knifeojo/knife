@@ -9,7 +9,7 @@ import { parseAmountToMinor } from "@/lib/money";
 import { formatMoney } from "@/lib/money";
 import { PdfStatementError, pdfToPlainText, pdfToSections } from "./pdf-statement";
 import { pairOwnTransfers } from "./transfers";
-import { markStatementDuplicate, recordImportedStatement, replaySummary, statementHash } from "./statements/files";
+import { markStatementDuplicate, periodAlreadyCovered, recordImportedStatement, replaySummary, statementHash } from "./statements/files";
 import { passwordsForInstitution } from "./statements/passwords";
 
 export const MAX_STATEMENT_BYTES = 5 * 1024 * 1024;
@@ -167,17 +167,28 @@ async function importStatementOnce(
     summaries.push(await persistParsed(userId, parsed, { institution, currency, fileName: file.name }));
     periods.push(periodOf(parsed));
   }
-  const linked = await pairOwnTransfers(userId);
-  if (linked) {
-    const last = await db.syncRun.findFirst({ where: { userId }, orderBy: { startedAt: "desc" } });
-    if (last) await db.syncRun.update({ where: { id: last.id }, data: { linked } });
-  }
-  const { reconcileAfterStatement } = await import("./alerts/after-statement");
-  await reconcileAfterStatement(userId);
   const [first, ...others] = summaries;
   const summary = others.length ? { ...first, others } : first;
   const timesFrom = periods.map((p) => p.from?.getTime()).filter((t): t is number => t !== undefined);
   const timesTo = periods.map((p) => p.to?.getTime()).filter((t): t is number => t !== undefined);
+  const createdTotal = summaries.reduce((sum, item) => sum + item.created, 0);
+  const alreadyCovered = createdTotal === 0 && await periodAlreadyCovered(userId, summaries.map((item, index) => ({
+    institution: item.institution,
+    last4: item.accountLast4,
+    currency: item.currency,
+    from: periods[index]?.from,
+    to: periods[index]?.to,
+  })));
+  // A re-read that adds nothing inside coverage must not re-pair transfers or open new flags.
+  if (!alreadyCovered) {
+    const linked = await pairOwnTransfers(userId);
+    if (linked) {
+      const last = await db.syncRun.findFirst({ where: { userId }, orderBy: { startedAt: "desc" } });
+      if (last) await db.syncRun.update({ where: { id: last.id }, data: { linked } });
+    }
+    const { reconcileAfterStatement } = await import("./alerts/after-statement");
+    await reconcileAfterStatement(userId);
+  }
   const fileStatus = await recordImportedStatement(userId, {
     contentHash,
     fileName: file.name,
@@ -189,6 +200,7 @@ async function importStatementOnce(
     messageId: opts.messageId,
     sender: opts.sender,
     subject: opts.subject,
+    alreadyCovered,
   });
   return { ...summary, fileStatus };
 }

@@ -57,7 +57,7 @@ export async function ImportStatus({ userId }: { userId: string }) {
                   <span className="font-medium truncate max-w-[60vw]">{r.label ?? "Statement"}</span>
                   <span className={r.status === "failed" || r.status === "unrecognised" ? "text-danger" : "text-ink-2"}>
                     {r.status === "needs_password"
-                      ? "Needs a password. Enter it in Review — it stays on this machine."
+                      ? "Needs a password. Enter it in Review. It stays on this machine."
                       : r.status === "unrecognised"
                         ? `Unrecognised layout. ${r.error ?? ""}`
                         : r.status === "duplicate"

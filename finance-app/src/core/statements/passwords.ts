@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { log } from "@/lib/log";
@@ -60,13 +60,24 @@ function emptyStore(): Store {
 }
 
 function readStore(): Store {
+  let raw: string;
   try {
-    const parsed = JSON.parse(readFileSync(statementPasswordFile(), "utf8")) as Store;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.entries)) return emptyStore();
-    return parsed;
-  } catch {
-    return emptyStore();
+    raw = readFileSync(statementPasswordFile(), "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return emptyStore();
+    throw e;
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Statement password file is corrupt and was not overwritten.");
+  }
+  const store = parsed as Store;
+  if (!store || store.version !== 1 || !Array.isArray(store.entries)) {
+    throw new Error("Statement password file is corrupt and was not overwritten.");
+  }
+  return store;
 }
 
 function writeStore(store: Store) {
@@ -121,6 +132,45 @@ export function forgetStatementPassword(userId: string, institution: string): vo
   if (next.length === store.entries.length) return;
   writeStore({ version: 1, entries: next });
   log.info("statement.password_removed", { userId, institution });
+}
+
+/** Locked statement PDFs. Ciphertext on disk, mode 0600. Never a database column. */
+export function pendingStatementDir(): string {
+  return process.env.STATEMENT_PENDING_DIR ?? join(homedir(), ".ledger", "pending-statements");
+}
+
+function pendingPath(userId: string, contentHash: string): string {
+  return join(pendingStatementDir(), userId, contentHash);
+}
+
+export function writePendingStatement(userId: string, contentHash: string, bytes: Buffer): void {
+  const path = pendingPath(userId, contentHash);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, sealBytes(bytes), { mode: 0o600 });
+  renameSync(tmp, path);
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Created mode 0600.
+  }
+}
+
+export function readPendingStatement(userId: string, contentHash: string): Buffer | null {
+  try {
+    return openBytes(readFileSync(pendingPath(userId, contentHash), "utf8"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw e;
+  }
+}
+
+export function deletePendingStatement(userId: string, contentHash: string): void {
+  try {
+    unlinkSync(pendingPath(userId, contentHash));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
 }
 
 export function forgetAllStatementPasswords(userId: string): void {

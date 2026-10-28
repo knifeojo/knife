@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseAmountToMinor } from "@/lib/money";
+import { lagosDay } from "./dedup";
 import { extractPayoutQuote } from "./fx/quotes";
 import { parseBankDate } from "./parsers/text";
 import type { CanonicalTransaction, TransactionType } from "./types";
@@ -82,7 +83,7 @@ export function moneyCell(v: Cell): bigint | null {
   let s = String(v).trim();
   if (!s || s === "-" || s === "--") return null;
   const negative = /^\(.*\)$/.test(s) || s.startsWith("-") || /\bdr\b/i.test(s);
-  s = s.replace(/[()₦$£€,\s]|NGN|USD|GBP|EUR|CR|DR/gi, "").replace(/^-/, "");
+  s = s.replace(/[()₦$£€,\s]|NGN|USD|CAD|GBP|EUR|CR|DR/gi, "").replace(/^-/, "").replace(/^CA(?=\d)/i, "");
   const minor = parseAmountToMinor(s);
   if (minor === null) return null;
   return negative ? -minor : minor;
@@ -271,7 +272,7 @@ export function parseStatementRows(
     const reference = cols.reference !== undefined ? String(r[cols.reference] ?? "").trim() || undefined : undefined;
 
     // Stable id per row content, so re-uploading the same or an overlapping statement is a no-op.
-    const key = [opts.institution, accountLast4 ?? "", date.toISOString().slice(0, 10), description, type, amount, bal ?? "", reference ?? ""].join("|");
+    const key = [opts.institution, accountLast4 ?? "", lagosDay(date), description, type, amount, bal ?? "", reference ?? ""].join("|");
     const n = (seen.get(key) ?? 0) + 1;
     seen.set(key, n);
     const sourceTransactionId = createHash("sha256").update(`${key}#${n}`).digest("hex").slice(0, 32);

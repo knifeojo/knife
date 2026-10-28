@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { LEGACY_GIVING_SUBCATEGORIES, categorize, inferHolderName, type UserRule } from "./categorize";
-import { accountKey, computeFingerprint, findFuzzyMatch, pickStatementAmountMatch, statementCoversDate } from "./dedup";
+import { accountKey, amountsMatch, computeFingerprint, findFuzzyMatch, pickStatementAmountMatch, pickStatementReplay, statementCoversDate } from "./dedup";
 import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
 import { emailSearchQueries } from "./alerts/statement-mail";
@@ -161,13 +161,16 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
   // Wide enough for ±1 Lagos day (a statement value date at UTC midnight vs an evening SMS in WAT).
   // Description fuzzy matching still requires 36h; see isFuzzyMatch.
   const window = 3 * 86_400_000;
+  const foreign = tx.source === "statement" && tx.currency !== "NGN";
   const candidates = await db.transaction.findMany({
     where: {
       userId,
       accountId: account.id,
-      amountMinor: tx.amountMinor,
       type: tx.type,
-      currency: tx.currency,
+      // A wallet re-read can be one cent off, or labelled CAD where the stored row says USD.
+      ...(foreign
+        ? { amountMinor: { gte: tx.amountMinor > 0n ? tx.amountMinor - 1n : 0n, lte: tx.amountMinor + 1n } }
+        : { amountMinor: tx.amountMinor, currency: tx.currency }),
       transactionDate: { gte: new Date(tx.transactionDate.getTime() - window), lte: new Date(tx.transactionDate.getTime() + window) },
     },
     include: { sources: { select: { source: true } } },
@@ -177,8 +180,10 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
     accountKey: accountKey(tx.institution, tx.accountLast4),
     sources: [...new Set([c.source, ...c.sources.map((s) => s.source)])],
   }));
-  const fuzzy = findFuzzyMatch(tx, mapped);
+  const fuzzy = findFuzzyMatch(tx, mapped.filter((c) => c.currency === tx.currency && amountsMatch(c.amountMinor, tx.amountMinor, "NGN")));
   if (fuzzy) return link(fuzzy.id, "fuzzy");
+  const replay = tx.source === "statement" ? pickStatementReplay(tx, mapped) : undefined;
+  if (replay) return link(replay.id, "fuzzy");
   const covered = statementCoversDate(account.statementCoveredFrom, account.statementCoveredTo, tx.transactionDate);
   const byDay = pickStatementAmountMatch(tx, mapped, covered);
   if (byDay) return link(byDay.id, "fuzzy");

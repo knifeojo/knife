@@ -112,7 +112,9 @@ Detection is per sender plus a subject or filename pattern: GTBank, First Bank, 
 
 The same file (email or a manual upload) is hashed and not imported twice. A different file whose dates overlap a statement already imported for that account adds only new rows; if it adds none, it is marked duplicate. Row fingerprints still apply.
 
-Password-protected PDFs: Settings → **Statement passwords**. The password is sealed with `STATEMENT_PASSWORD_KEY` or `ENCRYPTION_KEY` in `STATEMENT_PASSWORD_FILE` (default `~/.ledger/statement-passwords.json`, mode 0600). It is not stored in the database, not logged, and not sent to the cloud AI. If none is saved, the file waits in Review as **needs password**; type it once and optionally remember it for that bank. Other outcomes shown on Accounts → Sync history: **imported**, **unrecognised layout**, **duplicate**.
+Password-protected PDFs: Settings → **Statement passwords**. The password is sealed with `STATEMENT_PASSWORD_KEY` or `ENCRYPTION_KEY` in `STATEMENT_PASSWORD_FILE` (default `~/.ledger/statement-passwords.json`, mode 0600). It is not stored in the database, not logged, and not sent to the cloud AI. A corrupt password file is an error and is not replaced. If none is saved, the PDF waits on disk (`STATEMENT_PENDING_DIR`, default `~/.ledger/pending-statements`, mode 0600) and Review shows **needs password**. Other outcomes on Accounts → Sync history: **imported**, **unrecognised layout**, **duplicate**.
+
+Statements imported before this tracking get a `StatementFile` row at server startup, or with `npm run statements:backfill`. That is idempotent and does not re-parse. A re-import that adds no rows inside coverage already on the account is **duplicate** and does not re-pair transfers or open new flags. Reconciliation only flags rows on or after that account's first alert.
 
 After pulling this change, from `finance-app`:
 

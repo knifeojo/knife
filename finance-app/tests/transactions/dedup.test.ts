@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountKey, computeFingerprint, isFuzzyMatch, pickStatementAmountMatch, statementCoversDate, type LedgerCandidate } from "@/core/dedup";
+import { accountKey, computeFingerprint, isFuzzyMatch, pickStatementAmountMatch, pickStatementReplay, statementCoversDate, type LedgerCandidate } from "@/core/dedup";
 import type { CanonicalTransaction } from "@/core/types";
 
 const base: CanonicalTransaction = {
@@ -201,5 +201,37 @@ describe("fuzzy cross-source matching", () => {
       transactionDate: new Date("2026-10-07T00:00:00Z"),
     });
     expect(isFuzzyMatch(sms, statement)).toBe(true);
+  });
+});
+
+describe("statement re-read of a wallet row", () => {
+  it("matches a CAD row stored as USD across the Lagos/UTC date boundary", () => {
+    const incoming: CanonicalTransaction = {
+      ...base,
+      source: "statement",
+      institution: "Pesa",
+      currency: "CAD",
+      amountMinor: 500n,
+      reference: undefined,
+      description: "5.00 CAD debited from CAD wallet to fund GBP wallet",
+      accountLast4: "6789",
+      balanceAfterMinor: 361_550n,
+      transactionDate: new Date("2025-10-28T11:00:00.000Z"),
+      sourceTransactionId: "new-cad",
+    };
+    const stored = {
+      ...asCandidate({
+        ...incoming,
+        currency: "USD",
+        sourceTransactionId: "old-cad",
+        transactionDate: new Date("2025-10-28T23:30:00.000Z"),
+      }),
+      balanceAfterMinor: incoming.balanceAfterMinor,
+    };
+    expect(pickStatementReplay(incoming, [stored])?.id).toBe(stored.id);
+    const otherBalance = { ...stored, id: "other-bal", balanceAfterMinor: 1n };
+    expect(pickStatementReplay(incoming, [otherBalance])).toBeUndefined();
+    const otherDay = asCandidate({ ...incoming, currency: "USD", transactionDate: new Date("2025-11-02T11:00:00.000Z"), sourceTransactionId: "other" });
+    expect(pickStatementReplay(incoming, [otherDay])).toBeUndefined();
   });
 });

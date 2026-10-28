@@ -490,9 +490,9 @@ model ProcessedAlert {
   @@unique([userId, channel, sourceId])
 }
 
-// One row per statement file (email attachment or upload). The file bytes are not kept after a
-// successful import. While a PDF is waiting for its password, `encryptedBytes` holds ciphertext
-// sealed with STATEMENT_PASSWORD_KEY or ENCRYPTION_KEY. The password itself is never stored here.
+// One row per statement file (email attachment or upload). File bytes are not stored here.
+// A locked PDF waits on disk under ~/.ledger/pending-statements (mode 0600), sealed with
+// STATEMENT_PASSWORD_KEY or ENCRYPTION_KEY. The password itself is never stored here.
 model StatementFile {
   id               String    @id @default(cuid())
   userId           String
@@ -517,9 +517,7 @@ model StatementFile {
   balanceBreaks    Int       @default(0)
   gap              String?
   complete         Boolean   @default(false)
-  // Ciphertext only, and only while status is needs_password.
-  encryptedBytes   String?
-  // True when encryptedBytes is set, so Review can list locked files without loading the ciphertext.
+  // True while a sealed copy of the PDF is on disk for Review. The bytes are not in this row.
   bytesStored      Boolean   @default(false)
   // StatementImportSummary JSON from the first successful read, so a repeat can report duplicates
   // without parsing again. Never contains a password.

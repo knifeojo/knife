@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
 import type { StatementImportSummary } from "../statement-import";
-import { openBytes, sealBytes } from "./passwords";
+import { deletePendingStatement, readPendingStatement, writePendingStatement } from "./passwords";
 
 // Idempotency for statement files: the same bytes are never imported twice, and a different
 // file whose dates sit inside an already-imported statement for the same account is a duplicate
@@ -26,9 +26,32 @@ export function periodOverlap(nextFrom: Date, nextTo: Date, existingFrom: Date, 
   return "overlap";
 }
 
-export function statementFileStatus(input: { created: number; overlap: PeriodOverlap }): "imported" | "duplicate" {
-  if (input.created === 0 && input.overlap !== "none") return "duplicate";
+export function statementFileStatus(input: { created: number; overlap: PeriodOverlap; alreadyCovered?: boolean }): "imported" | "duplicate" {
+  if (input.created === 0 && (input.overlap !== "none" || input.alreadyCovered)) return "duplicate";
   return "imported";
+}
+
+/** True when every dated section sits inside statement coverage already on the account or a prior file. */
+export async function periodAlreadyCovered(
+  userId: string,
+  sections: { institution: string; last4?: string; currency?: string; from?: Date; to?: Date }[],
+): Promise<boolean> {
+  if (!sections.length || sections.some((section) => !section.from || !section.to)) return false;
+  for (const section of sections) {
+    const key = accountKeyOf(section.institution, section.last4, section.currency);
+    const overlap = await overlapWithImported(userId, "", key, section.from, section.to);
+    if (overlap === "contained") continue;
+    const accounts = await db.account.findMany({ where: { userId, institution: section.institution } });
+    const hit = accounts.some((account) => {
+      if (!account.statementCoveredFrom || !account.statementCoveredTo) return false;
+      if (section.currency && account.currency !== section.currency) return false;
+      const digits = account.maskedAccountNumber.replace(/\D/g, "");
+      if (section.last4 && digits && !digits.endsWith(section.last4) && !section.last4.endsWith(digits)) return false;
+      return periodOverlap(section.from!, section.to!, account.statementCoveredFrom, account.statementCoveredTo) === "contained";
+    });
+    if (!hit) return false;
+  }
+  return true;
 }
 
 export function strongestOverlap(kinds: PeriodOverlap[]): PeriodOverlap {
@@ -98,12 +121,13 @@ async function statementConnection(userId: string) {
 }
 
 export async function markStatementDuplicate(id: string, touch: { source?: string; messageId?: string; sender?: string; subject?: string }) {
+  const row = await db.statementFile.findUnique({ where: { id }, select: { userId: true, contentHash: true } });
+  if (row) deletePendingStatement(row.userId, row.contentHash);
   await db.statementFile.update({
     where: { id },
     data: {
       status: "duplicate",
       occurrences: { increment: 1 },
-      encryptedBytes: null,
       bytesStored: false,
       ...(touch.source ? { source: touch.source } : {}),
       ...(touch.messageId ? { messageId: touch.messageId.slice(0, 200) } : {}),
@@ -124,6 +148,7 @@ export async function recordImportedStatement(userId: string, input: {
   messageId?: string;
   sender?: string;
   subject?: string;
+  alreadyCovered?: boolean;
 }): Promise<Exclude<StatementFileStatus, "needs_password">> {
   const institution = input.summary.institution;
   const accountKey = accountKeyOf(institution, input.summary.accountLast4, input.summary.currency);
@@ -133,7 +158,7 @@ export async function recordImportedStatement(userId: string, input: {
   const duplicates = sections.reduce((sum, item) => sum + item.duplicates, 0);
   const errorCount = sections.reduce((sum, item) => sum + item.errors.length, 0);
   const layoutFailed = input.transactionCount === 0 && created === 0 && duplicates === 0 && errorCount > 0;
-  const status = layoutFailed ? "unrecognised" : statementFileStatus({ created, overlap });
+  const status = layoutFailed ? "unrecognised" : statementFileStatus({ created, overlap, alreadyCovered: input.alreadyCovered });
   const replay = JSON.stringify({ ...input.summary, fileStatus: status });
   const data = {
     fileName: input.fileName.slice(0, 160),
@@ -150,10 +175,10 @@ export async function recordImportedStatement(userId: string, input: {
     balanceBreaks: input.summary.balanceBreaks,
     gap: input.summary.gap,
     complete: input.summary.complete,
-    encryptedBytes: null,
     bytesStored: false,
     replayJson: replay,
   };
+  deletePendingStatement(userId, input.contentHash);
   const source = input.source && input.source !== "review" ? input.source : undefined;
   const origin = {
     ...(input.messageId ? { messageId: input.messageId.slice(0, 200) } : {}),
@@ -194,14 +219,17 @@ export async function queueStatementFile(userId: string, input: {
     });
     return;
   }
-  let encryptedBytes: string | null = null;
+  let bytesStored = false;
   let detail = input.detail.slice(0, 300);
   if (input.status === "needs_password" && input.bytes) {
     try {
-      encryptedBytes = sealBytes(input.bytes);
+      writePendingStatement(userId, input.contentHash, input.bytes);
+      bytesStored = true;
     } catch {
       detail = "This statement needs a password, but it could not be saved on this machine. Set STATEMENT_PASSWORD_KEY or ENCRYPTION_KEY and send it again.";
     }
+  } else {
+    deletePendingStatement(userId, input.contentHash);
   }
   await db.statementFile.upsert({
     where: { userId_contentHash: { userId, contentHash: input.contentHash } },
@@ -216,8 +244,7 @@ export async function queueStatementFile(userId: string, input: {
       subject: input.subject?.slice(0, 200) ?? null,
       status: input.status,
       detail,
-      encryptedBytes,
-      bytesStored: !!encryptedBytes,
+      bytesStored,
     },
     update: {
       fileName: input.fileName.slice(0, 160),
@@ -225,8 +252,7 @@ export async function queueStatementFile(userId: string, input: {
       source: input.source,
       status: input.status,
       detail,
-      encryptedBytes,
-      bytesStored: !!encryptedBytes,
+      bytesStored,
       messageId: input.messageId?.slice(0, 200) ?? null,
       sender: input.sender?.slice(0, 200) ?? null,
       subject: input.subject?.slice(0, 200) ?? null,
@@ -247,6 +273,8 @@ export async function queueStatementFile(userId: string, input: {
 
 export async function readQueuedStatement(userId: string, id: string): Promise<{ id: string; institution: string | null; bytes: Buffer; fileName: string } | null> {
   const row = await db.statementFile.findFirst({ where: { id, userId, status: "needs_password" } });
-  if (!row?.encryptedBytes) return null;
-  return { id: row.id, institution: row.institution, fileName: row.fileName, bytes: openBytes(row.encryptedBytes) };
+  if (!row?.bytesStored) return null;
+  const bytes = readPendingStatement(userId, row.contentHash);
+  if (!bytes) return null;
+  return { id: row.id, institution: row.institution, fileName: row.fileName, bytes };
 }

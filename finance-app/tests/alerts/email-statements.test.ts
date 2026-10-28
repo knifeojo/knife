@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -10,15 +10,24 @@ import { syncEmailSource } from "@/core/ledger";
 import { FixtureEmailSource } from "@/core/providers/fixture";
 import { importStatement } from "@/core/statement-import";
 import { periodOverlap, statementFileStatus } from "@/core/statements/files";
-import { passwordsForInstitution, saveStatementPassword } from "@/core/statements/passwords";
+import { reconcileAlertsVsStatement } from "@/core/alerts/reconcile";
+import { backfillStatementFiles } from "@/core/statements/backfill";
+import { passwordsForInstitution, pendingStatementDir, saveStatementPassword } from "@/core/statements/passwords";
+import { ingestTransaction } from "@/core/ledger";
+import { makePesaPdf } from "../fixtures/pesa-pdf";
 
 const previousPasswordFile = process.env.STATEMENT_PASSWORD_FILE;
-const passwordFile = join(mkdtempSync(join(tmpdir(), "stmt-pw-")), "passwords.json");
+const previousPendingDir = process.env.STATEMENT_PENDING_DIR;
+const passwordDir = mkdtempSync(join(tmpdir(), "stmt-pw-"));
+const passwordFile = join(passwordDir, "passwords.json");
 process.env.STATEMENT_PASSWORD_FILE = passwordFile;
+process.env.STATEMENT_PENDING_DIR = join(passwordDir, "pending");
 
 afterAll(() => {
   if (previousPasswordFile === undefined) delete process.env.STATEMENT_PASSWORD_FILE;
   else process.env.STATEMENT_PASSWORD_FILE = previousPasswordFile;
+  if (previousPendingDir === undefined) delete process.env.STATEMENT_PENDING_DIR;
+  else process.env.STATEMENT_PENDING_DIR = previousPendingDir;
 });
 
 const PDF_PASSWORD = "test1234";
@@ -105,7 +114,7 @@ describe("email statement import", () => {
     const row = await db.statementFile.findFirstOrThrow({ where: { userId: user.id, fileName: "e-statement.csv" } });
     expect(row.status).toBe("duplicate");
     expect(row.occurrences).toBeGreaterThan(1);
-    expect(row.encryptedBytes).toBeNull();
+    expect(row.bytesStored).toBe(false);
   });
 
   it("does not import an ordinary alert attachment", async () => {
@@ -136,8 +145,11 @@ describe("email statement import", () => {
     expect(queued[0].status).toBe("needs_password");
     const row = await db.statementFile.findFirstOrThrow({ where: { userId: user.id } });
     expect(row.status).toBe("needs_password");
-    expect(row.encryptedBytes).toBeTruthy();
+    expect(row.bytesStored).toBe(true);
     expect(JSON.stringify(row)).not.toContain(PDF_PASSWORD);
+    const sealed = readFileSync(join(pendingStatementDir(), user.id, row.contentHash), "utf8");
+    expect(sealed).not.toContain(PDF_PASSWORD);
+    expect(sealed).not.toContain(enc.toString("base64").slice(0, 40));
     expect(existsSync(passwordFile) && readFileSync(passwordFile, "utf8").includes(PDF_PASSWORD)).toBe(false);
 
     const wrong = await unlockStatement(user.id, row.id, "not-the-password");
@@ -148,7 +160,8 @@ describe("email statement import", () => {
     const opened = await unlockStatement(user.id, row.id, PDF_PASSWORD, { remember: true });
     expect(opened).toMatchObject({ ok: true, summary: { created: 4, institution: "GTBank" } });
     expect((await db.statementFile.findFirstOrThrow({ where: { id: row.id } })).status).toBe("imported");
-    expect((await db.statementFile.findFirstOrThrow({ where: { id: row.id } })).encryptedBytes).toBeNull();
+    expect((await db.statementFile.findFirstOrThrow({ where: { id: row.id } })).bytesStored).toBe(false);
+    expect(existsSync(join(pendingStatementDir(), user.id, row.contentHash))).toBe(false);
     expect(await db.transaction.count({ where: { userId: user.id } })).toBe(4);
 
     const stored = readFileSync(passwordFile, "utf8");
@@ -184,7 +197,7 @@ describe("email statement import", () => {
     expect(result[0].status).toBe("unrecognised");
     const row = await db.statementFile.findFirstOrThrow({ where: { userId: user.id } });
     expect(row.status).toBe("unrecognised");
-    expect(row.encryptedBytes).toBeNull();
+    expect(row.bytesStored).toBe(false);
     expect(await db.transaction.count({ where: { userId: user.id } })).toBe(0);
   });
 
@@ -246,5 +259,123 @@ describe("forwarding inbox imports the attachment", () => {
     const again = await second.json();
     expect(again.statements[0].status).toBe("duplicate");
     expect(await db.transaction.count({ where: { userId: user.id } })).toBe(2);
+  });
+});
+
+describe("re-import does not change the ledger", () => {
+  it("re-imports a multi-currency wallet statement as zero new rows when a CAD row was stored under USD", async () => {
+    const user = await db.user.create({ data: { email: "stmt-cad@test.dev" } });
+    const pdf = await makePesaPdf();
+    const first = await importStatement(user.id, { name: "wallet.pdf", bytes: pdf });
+    expect(first.created).toBeGreaterThan(0);
+    const before = await db.transaction.count({ where: { userId: user.id } });
+    const cad = await db.transaction.findFirstOrThrow({ where: { userId: user.id, currency: "CAD" } });
+    await db.statementFile.deleteMany({ where: { userId: user.id } });
+    await db.transactionSource.updateMany({ where: { transactionId: cad.id }, data: { sourceTransactionId: "old-cad-source" } });
+    await db.transaction.update({
+      where: { id: cad.id },
+      data: {
+        currency: "USD",
+        sourceTransactionId: "old-cad-source",
+        fingerprint: "old-cad-fingerprint",
+        // 23:30 UTC is the next Lagos morning, the shift a UTC-midnight reading makes.
+        transactionDate: new Date("2025-10-28T23:30:00.000Z"),
+        balanceAfterMinor: cad.balanceAfterMinor,
+      },
+    });
+    const again = await importStatement(user.id, { name: "wallet-reread.pdf", bytes: pdf });
+    expect(again.created).toBe(0);
+    expect(again.fileStatus).toBe("duplicate");
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(before);
+  });
+
+  it("keeps totals, transfer pairs and flags unchanged for the same file and an overlap", async () => {
+    const user = await db.user.create({ data: { email: "stmt-e2e@test.dev" } });
+    const csv = Buffer.from([
+      "Guaranty Trust Bank",
+      "Account No,0123499911",
+      "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
+      "01-Nov-2025,OLD1,1000.00,,9000.00,TRANSFER TO ADA OKAFOR",
+      "15-Mar-2026,MID1,2000.00,,7000.00,SHOPRITE LEKKI",
+      "01-May-2026,NEW1,,5000.00,12000.00,SALARY FROM ACME",
+      "03-Sep-2026,A2,100000.00,,900000.00,Instant Payment Outward 01 X FROM EZE SEUN SAMUEL TO KUDA - EZE SEUN SAMUEL",
+    ].join("\n"));
+    const kuda = Buffer.from([
+      "Kuda Microfinance Bank",
+      "Account Number,2001119876",
+      "Date,Description,Money Out,Money In,Balance",
+      "03/09/2026,TRANSFER FROM EZE SEUN SAMUEL,,100000,100000",
+    ].join("\n"));
+    const overlap = Buffer.from([
+      "Guaranty Trust Bank",
+      "Account No,0123499911",
+      "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
+      "15-Mar-2026,MID1,2000.00,,7000.00,SHOPRITE LEKKI",
+      "01-May-2026,NEW1,,5000.00,12000.00,SALARY FROM ACME",
+      "",
+    ].join("\n"));
+    await importStatement(user.id, { name: "gtb.csv", bytes: csv });
+    await importStatement(user.id, { name: "kuda.csv", bytes: kuda });
+    await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "sms",
+      sourceTransactionId: "sms-old",
+      type: "DEBIT",
+      amountMinor: 50_000n,
+      currency: "NGN",
+      transactionDate: new Date("2026-03-15T18:00:00Z"),
+      description: "POS DIFFERENT SHOP",
+      accountLast4: "9911",
+      confidence: 1,
+    });
+
+    const snapshot = async () => {
+      const rows = await db.transaction.findMany({
+        where: { userId: user.id },
+        select: { id: true, type: true, amountMinor: true, currency: true, transferPairId: true, description: true },
+      });
+      const inflow = rows.filter((row) => row.type === "CREDIT").reduce((sum, row) => sum + row.amountMinor, 0n);
+      const outflow = rows.filter((row) => row.type === "DEBIT").reduce((sum, row) => sum + row.amountMinor, 0n);
+      const pairs = rows.map((row) => row.transferPairId ?? "").sort();
+      const flags = await db.reconFlag.count({ where: { userId: user.id } });
+      return { count: rows.length, inflow, outflow, pairs, flags };
+    };
+    const account = await db.account.findFirstOrThrow({ where: { userId: user.id, institution: "GTBank" } });
+    await reconcileAlertsVsStatement(user.id, account.id, new Date("2025-11-01T00:00:00Z"), new Date("2026-09-30T00:00:00Z"));
+    const early = await db.transaction.findFirstOrThrow({ where: { userId: user.id, reference: "OLD1" } });
+    const later = await db.transaction.findFirstOrThrow({ where: { userId: user.id, reference: "NEW1" } });
+    expect(await db.reconFlag.findFirst({ where: { userId: user.id, transactionId: early.id } })).toBeNull();
+    expect(await db.reconFlag.findFirst({ where: { userId: user.id, transactionId: later.id, kind: "statement_without_alert" } })).not.toBeNull();
+    const before = await snapshot();
+
+    await db.statementFile.deleteMany({ where: { userId: user.id } });
+    const filled = await backfillStatementFiles();
+    expect(filled.created).toBeGreaterThan(0);
+    const again = await backfillStatementFiles();
+    expect(again.created).toBe(0);
+
+    const same = await importEmailAttachments(user.id, statementEmail(csv, "gtb.csv"));
+    expect(same[0].status).toBe("duplicate");
+    expect(same[0].created).toBe(0);
+    const overlapped = await importEmailAttachments(user.id, {
+      ...statementEmail(overlap, "overlap.csv"),
+      messageId: "overlap-1",
+    });
+    expect(overlapped[0].status).toBe("duplicate");
+    expect(overlapped[0].created).toBe(0);
+    expect(await snapshot()).toEqual(before);
+  });
+});
+
+describe("statement password file", () => {
+  it("refuses to treat a corrupt password file as empty", () => {
+    const junk = "{not json";
+    writeFileSync(passwordFile, junk);
+    try {
+      expect(() => saveStatementPassword("user-1", "GTBank", "synthetic-pdf-pass")).toThrow(/corrupt/);
+      expect(readFileSync(passwordFile, "utf8")).toBe(junk);
+    } finally {
+      writeFileSync(passwordFile, JSON.stringify({ version: 1, entries: [] }));
+    }
   });
 });
