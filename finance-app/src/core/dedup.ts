@@ -10,6 +10,10 @@ import type { CanonicalTransaction } from "./types";
 // 3. Fuzzy match, only across DIFFERENT sources (email vs statement vs open banking): same account,
 //    currency, type and amount, dates within 36h, and a matching reference or similar description.
 //    Fuzzy matching is never applied within one source, where it would merge real repeat purchases.
+// 4. Statement coverage: one statement row and one alert (SMS or email) with the same account,
+//    amount and direction, on Lagos days at most one apart, while a statement covers that day.
+//    Narration is not required. Two rows of the same amount on that day stay separate, and a
+//    repeat a week later does not match.
 
 const NOISE = /\b(TRF|NIP|FIP|POS|WEB|PURCHASE|TRANSFER|TO|FROM|FRM|FOR|REF|NG|LAGOS|LTD|LIMITED|THE|AND|VIA|MOB|MOBILE|APP)\b/g;
 
@@ -30,8 +34,30 @@ export function normalizeReference(ref?: string): string | undefined {
   return r && r.length >= 4 ? r : undefined;
 }
 
+const LAGOS_OFFSET_MS = 3600_000;
+const DAY_MS = 86_400_000;
+
 export function lagosDay(d: Date): string {
-  return new Date(d.getTime() + 3600_000).toISOString().slice(0, 10);
+  return new Date(d.getTime() + LAGOS_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Whole Lagos days since the epoch. Statement value dates and SMS times are both read in WAT (UTC+1). */
+export function lagosDayIndex(d: Date): number {
+  return Math.floor((d.getTime() + LAGOS_OFFSET_MS) / DAY_MS);
+}
+
+export function lagosDayDelta(a: Date, b: Date): number {
+  return Math.abs(lagosDayIndex(a) - lagosDayIndex(b));
+}
+
+/**
+ * True when [date] falls in the account's imported statement span, with one Lagos day of slack
+ * so an evening SMS (or a value date stored at UTC midnight) still counts as covered.
+ */
+export function statementCoversDate(from: Date | null | undefined, to: Date | null | undefined, date: Date): boolean {
+  if (!from || !to) return false;
+  const day = lagosDayIndex(date);
+  return day >= lagosDayIndex(from) - 1 && day <= lagosDayIndex(to) + 1;
 }
 
 /**
@@ -106,4 +132,27 @@ export function isFuzzyMatch(tx: CanonicalTransaction, c: LedgerCandidate): bool
 
 export function findFuzzyMatch(tx: CanonicalTransaction, candidates: LedgerCandidate[]): LedgerCandidate | undefined {
   return candidates.find((c) => isFuzzyMatch(tx, c));
+}
+
+/**
+ * Amount-and-day match between a statement row and an alert. Used when the narrations do not
+ * look alike. Returns a row only when exactly one candidate is the closest Lagos day (0, else 1),
+ * so two ₦10,000 payments on the same day are not glued together, and a payment a week later is not either.
+ */
+export function pickStatementAmountMatch(
+  tx: CanonicalTransaction,
+  candidates: LedgerCandidate[],
+  covered: boolean,
+): LedgerCandidate | undefined {
+  if (tx.source !== "statement" && !covered) return undefined;
+  const hits = candidates.filter((c) => {
+    if (c.source === tx.source) return false;
+    if (tx.source !== "statement" && c.source !== "statement") return false;
+    if (c.currency !== tx.currency || c.type !== tx.type || c.amountMinor !== tx.amountMinor) return false;
+    if (c.accountKey !== accountKey(tx.institution, tx.accountLast4) && !c.accountKey.endsWith(":PRIMARY") && tx.accountLast4) return false;
+    return lagosDayDelta(c.transactionDate, tx.transactionDate) <= 1;
+  });
+  const sameDay = hits.filter((c) => lagosDayDelta(c.transactionDate, tx.transactionDate) === 0);
+  const pool = sameDay.length ? sameDay : hits;
+  return pool.length === 1 ? pool[0] : undefined;
 }
