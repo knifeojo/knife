@@ -39,10 +39,7 @@ export async function reconcileAlertsVsStatement(
   let alertOnly = 0;
   let statementOnly = 0;
   if (!alertFrom) {
-    await db.account.update({
-      where: { id: accountId },
-      data: { statementCoveredFrom: from, statementCoveredTo: to },
-    });
+    await extendStatementCoverage(accountId, from, to);
     return { alertOnly: 0, statementOnly: 0 };
   }
   for (const row of rows) {
@@ -84,11 +81,19 @@ export async function reconcileAlertsVsStatement(
       }
     }
   }
-  await db.account.update({
-    where: { id: accountId },
-    data: { statementCoveredFrom: from, statementCoveredTo: to },
-  });
+  await extendStatementCoverage(accountId, from, to);
   return { alertOnly, statementOnly };
+}
+
+/** Widen coverage. A later, shorter file must not erase dates already covered. */
+async function extendStatementCoverage(accountId: string, from: Date, to: Date): Promise<void> {
+  const account = await db.account.findUnique({
+    where: { id: accountId },
+    select: { statementCoveredFrom: true, statementCoveredTo: true },
+  });
+  const statementCoveredFrom = !account?.statementCoveredFrom || from < account.statementCoveredFrom ? from : account.statementCoveredFrom;
+  const statementCoveredTo = !account?.statementCoveredTo || to > account.statementCoveredTo ? to : account.statementCoveredTo;
+  await db.account.update({ where: { id: accountId }, data: { statementCoveredFrom, statementCoveredTo } });
 }
 
 export async function dismissReconFlag(userId: string, id: string): Promise<void> {

@@ -367,6 +367,113 @@ describe("re-import does not change the ledger", () => {
   });
 });
 
+describe("statements without a running balance", () => {
+  function noBalance(lines: string[]): Buffer {
+    return Buffer.from(["Date,Description,Amount", ...lines].join("\n"));
+  }
+
+  it("does not merge different narrations that share an amount and a day", async () => {
+    const user = await db.user.create({ data: { email: "stmt-nobal-diff@test.dev" } });
+    const file = noBalance([
+      "05/03/2026,Deel advance fee,25.00",
+      "05/03/2026,Deel card withdrawal,25.00",
+    ]);
+    const imported = await importStatement(user.id, { name: "deel.csv", bytes: file }, { institution: "Deel", currency: "USD" });
+    expect(imported.created).toBe(2);
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(2);
+  });
+
+  it("keeps identical no-balance rows as a multiset", async () => {
+    const user = await db.user.create({ data: { email: "stmt-nobal-multi@test.dev" } });
+    const one = noBalance(["05/03/2026,Deel advance fee,25.00"]);
+    const two = noBalance([
+      "05/03/2026,Deel advance fee,25.00",
+      "05/03/2026,Deel advance fee,25.00",
+    ]);
+    expect((await importStatement(user.id, { name: "one.csv", bytes: one }, { institution: "Deel", currency: "USD" })).created).toBe(1);
+    await db.statementFile.deleteMany({ where: { userId: user.id } });
+    const second = await importStatement(user.id, { name: "two.csv", bytes: two }, { institution: "Deel", currency: "USD" });
+    expect(second.created).toBe(1);
+    expect(second.duplicates).toBe(1);
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(2);
+    await db.statementFile.deleteMany({ where: { userId: user.id } });
+    const again = await importStatement(user.id, { name: "two-again.csv", bytes: two }, { institution: "Deel", currency: "USD" });
+    expect(again.created).toBe(0);
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(2);
+  });
+});
+
+describe("import scope and a corrupt password file", () => {
+  it("imports a CSV while the password file is corrupt, and reports that only on a locked PDF", async () => {
+    const junk = "{not json";
+    writeFileSync(passwordFile, junk);
+    try {
+      const user = await db.user.create({ data: { email: "stmt-corrupt-csv@test.dev" } });
+      const csv = Buffer.from([
+        "Guaranty Trust Bank",
+        "Account No,0123499911",
+        "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
+        "02-Sep-2026,SYN9,1500.00,,8500.00,TRANSFER TO ADA OKAFOR",
+      ].join("\n"));
+      const imported = await importStatement(user.id, { name: "open.csv", bytes: csv });
+      expect(imported.created).toBe(1);
+      await expect(importStatement(user.id, { name: "locked.pdf", bytes: readFileSync("tests/fixtures/encrypted-statement.pdf") })).rejects.toThrow(/corrupt/);
+      expect(readFileSync(passwordFile, "utf8")).toBe(junk);
+      expect(await db.transaction.count({ where: { userId: user.id } })).toBe(1);
+    } finally {
+      writeFileSync(passwordFile, JSON.stringify({ version: 1, entries: [] }));
+    }
+  });
+
+  it("extends statement coverage instead of replacing it when the account has no alerts", async () => {
+    const user = await db.user.create({ data: { email: "stmt-cover@test.dev" } });
+    const account = await db.account.create({
+      data: {
+        userId: user.id,
+        institution: "GTBank",
+        accountName: "GTBank",
+        maskedAccountNumber: "****9911",
+        currency: "NGN",
+        statementCoveredFrom: new Date("2026-01-01T00:00:00Z"),
+        statementCoveredTo: new Date("2026-12-31T00:00:00Z"),
+      },
+    });
+    await reconcileAlertsVsStatement(user.id, account.id, new Date("2026-03-01T00:00:00Z"), new Date("2026-03-31T00:00:00Z"));
+    const after = await db.account.findUniqueOrThrow({ where: { id: account.id } });
+    expect(after.statementCoveredFrom?.toISOString().slice(0, 10)).toBe("2026-01-01");
+    expect(after.statementCoveredTo?.toISOString().slice(0, 10)).toBe("2026-12-31");
+  });
+
+  it("does not reconcile another account when importing this one", async () => {
+    const user = await db.user.create({ data: { email: "stmt-scope@test.dev" } });
+    const other = await db.account.create({
+      data: { userId: user.id, institution: "GTBank", accountName: "GTBank", maskedAccountNumber: "****1111", currency: "NGN" },
+    });
+    await db.transaction.create({
+      data: {
+        userId: user.id, accountId: other.id, source: "statement", sourceTransactionId: "old-stmt", fingerprint: "old-stmt-fp",
+        transactionDate: new Date("2024-06-01T11:00:00Z"), type: "DEBIT", amountMinor: 5_000n, currency: "NGN",
+        description: "OLD SHOP", category: "Other", classificationSource: "rule", classificationConfidence: 1,
+      },
+    });
+    await db.transaction.create({
+      data: {
+        userId: user.id, accountId: other.id, source: "sms", sourceTransactionId: "old-sms", fingerprint: "old-sms-fp",
+        transactionDate: new Date("2024-06-02T11:00:00Z"), type: "DEBIT", amountMinor: 9_000n, currency: "NGN",
+        description: "OLD ALERT", category: "Other", classificationSource: "rule", classificationConfidence: 1,
+      },
+    });
+    const kuda = Buffer.from([
+      "Kuda Microfinance Bank",
+      "Account Number,2001119876",
+      "Date,Description,Money Out,Money In,Balance",
+      "03/09/2026,TRANSFER FROM ADA OKAFOR,1000,,9000",
+    ].join("\n"));
+    await importStatement(user.id, { name: "kuda.csv", bytes: kuda });
+    expect(await db.reconFlag.count({ where: { userId: user.id, accountId: other.id } })).toBe(0);
+  });
+});
+
 describe("statement password file", () => {
   it("refuses to treat a corrupt password file as empty", () => {
     const junk = "{not json";

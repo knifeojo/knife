@@ -120,21 +120,30 @@ export async function importStatement(
     return replaySummary(prior);
   }
 
-  // A password typed for this upload is the only one tried. Otherwise a saved per-bank password
-  // (local ciphertext) is tried after the file refuses to open. It never leaves this process.
-  const saved = opts.password ? [] : passwordsForInstitution(userId, opts.institution);
-  const attempts: (string | undefined)[] = opts.password ? [opts.password] : [undefined, ...saved.filter((value, index, all) => all.indexOf(value) === index)];
-  let lastPasswordError: StatementFormatError | undefined;
-  for (const password of attempts) {
+  // Try the file unlocked first. The password store is read only after a PDF asks for one,
+  // so a corrupt store cannot block a CSV or an unlocked PDF.
+  try {
+    return await importStatementOnce(userId, file, opts, contentHash);
+  } catch (e) {
+    if (!isPasswordError(e) || opts.password) throw e;
+    let saved: string[] = [];
     try {
-      return await importStatementOnce(userId, file, { ...opts, password }, contentHash);
-    } catch (e) {
-      if (!isPasswordError(e)) throw e;
-      lastPasswordError = e;
-      if (opts.password) break;
+      saved = [...new Set(passwordsForInstitution(userId, opts.institution))];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Statement password file is corrupt and was not overwritten.";
+      throw new StatementFormatError(message, "unsupported");
     }
+    let last = e;
+    for (const password of saved) {
+      try {
+        return await importStatementOnce(userId, file, { ...opts, password }, contentHash);
+      } catch (err) {
+        if (!isPasswordError(err)) throw err;
+        last = err;
+      }
+    }
+    throw last;
   }
-  throw lastPasswordError ?? new StatementFormatError("This PDF is password-protected. Enter the statement password and upload again.", "password_required");
 }
 
 async function importStatementOnce(
@@ -148,6 +157,7 @@ async function importStatementOnce(
   const allFooter = sections.map((x) => x.otherText ?? "").join("\n");
   const summaries: StatementImportSummary[] = [];
   const periods: { from?: Date; to?: Date; count: number }[] = [];
+  const accountIds: string[] = [];
   for (const section of sections) {
     const size = section.direct ? section.direct.transactions.length + section.direct.errors.length : section.rows.length;
     if (size > MAX_ROWS) throw new StatementFormatError(`Statement has more than ${MAX_ROWS.toLocaleString()} rows. Split it by date range.`, "unsupported");
@@ -164,7 +174,9 @@ async function importStatementOnce(
       currency = meta.currency ?? opts.currency ?? "NGN";
       parsed = parseStatementRows(section.rows, { institution, currency });
     }
-    summaries.push(await persistParsed(userId, parsed, { institution, currency, fileName: file.name }));
+    const saved = await persistParsed(userId, parsed, { institution, currency, fileName: file.name });
+    summaries.push(saved.summary);
+    if (saved.accountId) accountIds.push(saved.accountId);
     periods.push(periodOf(parsed));
   }
   const [first, ...others] = summaries;
@@ -180,14 +192,16 @@ async function importStatementOnce(
     to: periods[index]?.to,
   })));
   // A re-read that adds nothing inside coverage must not re-pair transfers or open new flags.
-  if (!alreadyCovered) {
-    const linked = await pairOwnTransfers(userId);
+  // Pairing and reconcile stay on the accounts and dates this file actually touched.
+  if (!alreadyCovered && accountIds.length && timesFrom.length && timesTo.length) {
+    const scope = { accountIds: [...new Set(accountIds)], from: new Date(Math.min(...timesFrom)), to: new Date(Math.max(...timesTo)) };
+    const linked = await pairOwnTransfers(userId, scope);
     if (linked) {
       const last = await db.syncRun.findFirst({ where: { userId }, orderBy: { startedAt: "desc" } });
       if (last) await db.syncRun.update({ where: { id: last.id }, data: { linked } });
     }
     const { reconcileAfterStatement } = await import("./alerts/after-statement");
-    await reconcileAfterStatement(userId);
+    await reconcileAfterStatement(userId, scope);
   }
   const fileStatus = await recordImportedStatement(userId, {
     contentHash,
@@ -210,7 +224,7 @@ function periodOf(parsed: StatementParseResult): { from?: Date; to?: Date; count
   return { count: parsed.transactions.length, from: times.length ? new Date(Math.min(...times)) : undefined, to: times.length ? new Date(Math.max(...times)) : undefined };
 }
 
-async function persistParsed(userId: string, parsed: StatementParseResult, { institution, currency, fileName }: { institution: string; currency: string; fileName: string }): Promise<StatementImportSummary> {
+async function persistParsed(userId: string, parsed: StatementParseResult, { institution, currency, fileName }: { institution: string; currency: string; fileName: string }): Promise<{ summary: StatementImportSummary; accountId?: string }> {
   const conn = await db.financialConnection.upsert({
     where: { userId_provider: { userId, provider: "statement" } },
     update: { status: "active" },
@@ -222,10 +236,11 @@ async function persistParsed(userId: string, parsed: StatementParseResult, { ins
   let created = 0;
   let duplicates = 0;
   let accountId: string | undefined;
+  const claimed = new Set<string>();
   const rules = await loadUserRules(userId);
   const owners = [...(await loadOwners(userId)), ...(parsed.holder ? [parsed.holder] : [])];
   for (const tx of parsed.transactions) {
-    const r = await ingestTransaction(userId, tx, rules, owners);
+    const r = await ingestTransaction(userId, tx, rules, owners, claimed);
     if (r.status === "created") created++;
     else duplicates++;
     accountId ??= (await db.transaction.findUnique({ where: { id: r.transactionId }, select: { accountId: true } }))?.accountId;
@@ -262,8 +277,11 @@ async function persistParsed(userId: string, parsed: StatementParseResult, { ins
   await db.financialConnection.update({ where: { id: conn.id }, data: { lastSyncedAt: new Date() } });
   log.info("statement.imported", { userId, rows: parsed.rowsRead, created, duplicates, failures: parsed.errors.length });
   return {
-    institution, currency, rowsRead: parsed.rowsRead, created, duplicates, errors: parsed.errors, accountLast4: parsed.accountLast4,
-    balanceBreaks: rec.breaks, gap: rec.breaks ? formatMoney(rec.gapMinor) : null, complete,
+    summary: {
+      institution, currency, rowsRead: parsed.rowsRead, created, duplicates, errors: parsed.errors, accountLast4: parsed.accountLast4,
+      balanceBreaks: rec.breaks, gap: rec.breaks ? formatMoney(rec.gapMinor) : null, complete,
+    },
+    accountId,
   };
 }
 

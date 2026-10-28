@@ -73,6 +73,8 @@ export function computeFingerprint(tx: CanonicalTransaction): string {
   const parts = [accountKey(tx.institution, tx.accountLast4), tx.currency, tx.type, tx.amountMinor.toString()];
   if (ref) parts.push(`REF:${ref}`);
   else parts.push(lagosDay(tx.transactionDate), normalizeDescription(tx.description), tx.balanceAfterMinor?.toString() ?? "");
+  // No running balance (Deel): identical amount/day rows are still different positions in the file.
+  if (tx.balanceAfterMinor === undefined && tx.source === "statement" && !ref) parts.push(`id:${tx.sourceTransactionId}`);
   return createHash("sha256").update(parts.join("|")).digest("hex");
 }
 
@@ -178,7 +180,19 @@ export function statementReplayMatch(tx: CanonicalTransaction, c: LedgerCandidat
   if (!amountsMatch(tx.amountMinor, c.amountMinor, tx.currency) && !amountsMatch(tx.amountMinor, c.amountMinor, c.currency)) return false;
   if (!datesAreSameEvent(tx.transactionDate, c.transactionDate)) return false;
   if (c.currency !== tx.currency && !(FOREIGN_WALLET.has(c.currency) && FOREIGN_WALLET.has(tx.currency))) return false;
+  const balanceAbsent = tx.balanceAfterMinor === undefined || c.balanceAfterMinor == null;
+  if (balanceAbsent && !narrationOrReferenceMatches(tx, c)) return false;
   return true;
+}
+
+/** Without a running balance, amount and day are not enough: the words or the reference must agree. */
+function narrationOrReferenceMatches(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
+  const left = normalizeReference(tx.reference);
+  const right = normalizeReference(c.reference ?? undefined);
+  if (left && right && (left === right || left.includes(right) || right.includes(left))) return true;
+  const a = normalizeDescription(tx.description);
+  const b = normalizeDescription(c.description);
+  return a.length > 0 && a === b;
 }
 
 /**

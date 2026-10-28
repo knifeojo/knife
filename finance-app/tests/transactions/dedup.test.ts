@@ -231,6 +231,21 @@ describe("statement re-read of a wallet row", () => {
     expect(pickStatementReplay(incoming, [stored])?.id).toBe(stored.id);
     const otherBalance = { ...stored, id: "other-bal", balanceAfterMinor: 1n };
     expect(pickStatementReplay(incoming, [otherBalance])).toBeUndefined();
+    const feeTx: CanonicalTransaction = {
+      ...base,
+      source: "statement",
+      institution: "Deel",
+      currency: "USD",
+      amountMinor: 2_500n,
+      reference: undefined,
+      description: "Deel advance fee",
+      transactionDate: new Date("2026-03-05T11:00:00Z"),
+      sourceTransactionId: "deel:fee-1",
+    };
+    const fee = asCandidate(feeTx, "fee");
+    const cardTx: CanonicalTransaction = { ...feeTx, description: "Deel card withdrawal", sourceTransactionId: "deel:card-1" };
+    expect(pickStatementReplay(cardTx, [fee])).toBeUndefined();
+    expect(pickStatementReplay({ ...feeTx, sourceTransactionId: "deel:fee-2" }, [fee])?.id).toBe("fee");
     const otherDay = asCandidate({ ...incoming, currency: "USD", transactionDate: new Date("2025-11-02T11:00:00.000Z"), sourceTransactionId: "other" });
     expect(pickStatementReplay(incoming, [otherDay])).toBeUndefined();
   });

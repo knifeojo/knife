@@ -135,11 +135,14 @@ async function enrich(userId: string, transactionId: string, tx: CanonicalTransa
  * The single entry point into the ledger for every source (email, fixture, demo, and later
  * statements / open banking / SMS). Handles normalization, dedup, categorization and persistence.
  */
-export async function ingestTransaction(userId: string, tx: CanonicalTransaction, userRules?: UserRule[], owners?: string[]): Promise<IngestResult> {
+export async function ingestTransaction(userId: string, tx: CanonicalTransaction, userRules?: UserRule[], owners?: string[], claimed?: Set<string>): Promise<IngestResult> {
   const seen = await db.transactionSource.findUnique({
     where: { userId_source_sourceTransactionId: { userId, source: tx.source, sourceTransactionId: tx.sourceTransactionId } },
   });
-  if (seen) return { status: "duplicate", transactionId: seen.transactionId, matchType: "source" };
+  if (seen) {
+    claimed?.add(seen.transactionId);
+    return { status: "duplicate", transactionId: seen.transactionId, matchType: "source" };
+  }
 
   const account = await upsertAccount(userId, tx);
   if (tx.accountHolder && !account.holderName) {
@@ -148,6 +151,7 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
   const fingerprint = computeFingerprint(tx);
 
   const link = async (transactionId: string, matchType: "exact" | "fuzzy"): Promise<IngestResult> => {
+    claimed?.add(transactionId);
     await db.transactionSource.create({
       data: { userId, transactionId, source: tx.source, sourceTransactionId: tx.sourceTransactionId, matchType },
     });
@@ -156,7 +160,7 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
   };
 
   const exact = await db.transaction.findUnique({ where: { userId_fingerprint: { userId, fingerprint } } });
-  if (exact) return link(exact.id, "exact");
+  if (exact && !claimed?.has(exact.id)) return link(exact.id, "exact");
 
   // Wide enough for ±1 Lagos day (a statement value date at UTC midnight vs an evening SMS in WAT).
   // Description fuzzy matching still requires 36h; see isFuzzyMatch.
@@ -180,9 +184,10 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
     accountKey: accountKey(tx.institution, tx.accountLast4),
     sources: [...new Set([c.source, ...c.sources.map((s) => s.source)])],
   }));
-  const fuzzy = findFuzzyMatch(tx, mapped.filter((c) => c.currency === tx.currency && amountsMatch(c.amountMinor, tx.amountMinor, "NGN")));
+  const open = claimed ? mapped.filter((c) => !claimed.has(c.id)) : mapped;
+  const fuzzy = findFuzzyMatch(tx, open.filter((c) => c.currency === tx.currency && amountsMatch(c.amountMinor, tx.amountMinor, "NGN")));
   if (fuzzy) return link(fuzzy.id, "fuzzy");
-  const replay = tx.source === "statement" ? pickStatementReplay(tx, mapped) : undefined;
+  const replay = tx.source === "statement" ? pickStatementReplay(tx, open) : undefined;
   if (replay) return link(replay.id, "fuzzy");
   const covered = statementCoversDate(account.statementCoveredFrom, account.statementCoveredTo, tx.transactionDate);
   const byDay = pickStatementAmountMatch(tx, mapped, covered);
@@ -243,6 +248,7 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
     if (fxQuoteMinor && fxQuoteCurrency) {
       await storeQuotedRate(userId, { ...tx, fxQuoteCurrency, fxQuoteMinor });
     }
+    claimed?.add(created.id);
     return { status: "created", transactionId: created.id };
   } catch (e) {
     // Concurrent sync inserted the same fingerprint first
