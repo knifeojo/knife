@@ -106,7 +106,7 @@ Read-only against `~/Library/Messages/chat.db`. Only configured bank sender IDs 
 
 ## Dedup and Review
 
-SMS, email alerts and statement rows for the same account / amount / direction / time window / similar narration merge. Statement is the source of truth: it links rather than duplicates. Source badges show every observation.
+SMS, email alerts and statement rows for the same account / amount / direction / time window / similar narration merge. When a statement already covers that day, an alert with the same account, amount and direction also merges with the single statement row on that Lagos day or the next one (WAT value date versus an evening SMS). Two payments of the same amount on that day stay separate, and a repeat a week later does not merge. Statement is the source of truth: it links rather than duplicates. Source badges show every observation.
 
 - **Fees** (`Commission on NIP Transfer`, VAT, stamp duty, …) link to the adjacent transfer (same minute, same account) as category Fees.
 - **Balance gaps**: previous Bal ± Amt ≠ this Bal → “possible missed transaction” in Review.
