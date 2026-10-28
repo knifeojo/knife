@@ -305,8 +305,8 @@ class PersonCard extends StatelessWidget {
                     TableRow(
                       children: [
                         Text(m.month, style: theme.textTheme.bodySmall),
-                        Text(m.outMinor == '0' ? '—' : formatMinor(m.outMinor), style: theme.textTheme.bodySmall, textAlign: TextAlign.right),
-                        Text(m.inMinor == '0' ? '—' : formatMinor(m.inMinor), style: theme.textTheme.bodySmall, textAlign: TextAlign.right),
+                        Text(m.outMinor == '0' ? '-' : formatMinor(m.outMinor), style: theme.textTheme.bodySmall, textAlign: TextAlign.right),
+                        Text(m.inMinor == '0' ? '-' : formatMinor(m.inMinor), style: theme.textTheme.bodySmall, textAlign: TextAlign.right),
                       ],
                     ),
                 ],

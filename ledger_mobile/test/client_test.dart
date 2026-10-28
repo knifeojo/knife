@@ -55,13 +55,62 @@ void main() {
       token: 'session-token-value',
       httpClient: MockClient((request) async {
         seen.add(request.url);
-        return http.Response(jsonEncode({'transactions': [], 'total': 0, 'page': 1, 'pageSize': 50, 'categories': []}), 200);
+        return http.Response(jsonEncode({'transactions': [], 'nextCursor': null, 'dayTotals': [], 'categories': []}), 200);
       }),
     );
     await api.transactions(cadence: 'one_off');
     await api.transactions();
     expect(seen.first.queryParameters['cadence'], 'one_off');
     expect(seen.last.queryParameters.containsKey('cadence'), isFalse);
+    expect(seen.last.queryParameters['limit'], '30');
+  });
+
+  test('asks for a month overview and a category drill-down', () async {
+    late Uri seen;
+    final api = LedgerApi(
+      baseUrl: 'http://100.64.0.8:3000',
+      token: 'session-token-value',
+      httpClient: MockClient((request) async {
+        seen = request.url;
+        if (request.url.path.contains('/categories/')) {
+          return http.Response(
+            jsonEncode({
+              'category': 'Housing',
+              'period': {'label': 'October 2026', 'from': '2026-09-30T23:00:00.000Z', 'to': '2026-10-31T23:00:00.000Z'},
+              'totalMinor': '42000000',
+              'count': 3,
+              'shareBp': 4286,
+              'avg6mMinor': '18666666',
+              'subcategories': [
+                {'name': 'Rent', 'totalMinor': '35000000', 'count': 1},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'period': {'label': 'October 2026', 'month': '2026-10', 'from': '2026-09-30T23:00:00.000Z', 'to': '2026-10-31T23:00:00.000Z'},
+            'inMinor': '125000000',
+            'outMinor': '98000000',
+            'leftMinor': '27000000',
+            'keptBp': 2160,
+            'prevOutMinor': '91000000',
+            'reviewCount': 0,
+            'categories': [],
+            'incomeSources': [],
+          }),
+          200,
+        );
+      }),
+    );
+    final overview = await api.overview(month: '2026-10');
+    expect(seen.path, '/api/v1/overview');
+    expect(seen.queryParameters['month'], '2026-10');
+    expect(overview.leftMinor, '27000000');
+    final detail = await api.categoryMonth(category: 'Housing', month: '2026-10');
+    expect(seen.path, '/api/v1/categories/Housing');
+    expect(detail.subcategories.single.name, 'Rent');
   });
 
   test('turns an error body into a message and uploads a statement with its password field', () async {
@@ -148,7 +197,7 @@ void main() {
       token: 'session-token-value',
       httpClient: MockClient((request) async {
         seen = request.url;
-        return http.Response(jsonEncode({'transactions': [], 'total': 0, 'page': 1, 'pageSize': 50, 'categories': []}), 200);
+        return http.Response(jsonEncode({'transactions': [], 'nextCursor': null, 'dayTotals': [], 'categories': []}), 200);
       }),
     );
     await api.transactions(cadence: 'everyday', payee: 'Chidi Emeka Okeke', type: 'DEBIT', from: '2026-08-01', to: '2026-08-31');
@@ -159,8 +208,7 @@ void main() {
       'type': 'DEBIT',
       'from': '2026-08-01',
       'to': '2026-08-31',
-      'page': '1',
-      'pageSize': '50',
+      'limit': '30',
     });
   });
 

@@ -45,7 +45,7 @@ export default async function Welcome() {
           </div>
           <div>
             <label className="label" htmlFor="supported">Anyone you support regularly</label>
-            <input id="supported" name="supported" maxLength={200} placeholder="Aunts, uncles, others — labelled Family / Black tax" className="input mt-1" />
+            <input id="supported" name="supported" maxLength={200} placeholder="Aunts, uncles, others - labelled Family / Black tax" className="input mt-1" />
           </div>
           <p className="text-xs text-ink-3">{TRUST_NOTE}</p>
           <div className="flex flex-wrap gap-2">

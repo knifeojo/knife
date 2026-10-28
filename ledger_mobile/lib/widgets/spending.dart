@@ -30,7 +30,7 @@ class ReviewCta extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$n payment${n == 1 ? '' : 's'} need${n == 1 ? 's' : ''} a purpose — help Ledger label them', style: theme.textTheme.titleSmall),
+            Text('$n payment${n == 1 ? '' : 's'} need${n == 1 ? 's' : ''} a purpose. Help Ledger label them', style: theme.textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
               '${formatMinor(unlabelled.totalMinor, currency: currency)} went to people or transfers whose narration says who, not what for. '

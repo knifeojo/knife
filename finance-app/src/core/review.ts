@@ -145,13 +145,13 @@ export const CONVERSION_OPTIONS: Option[] = [
 ];
 
 export const MISPAIR_OPTIONS: Option[] = [
-  { value: "unpair", label: "Unpair — this looks like a mismatch", category: "" },
-  { value: "keep", label: "Keep — this was a real conversion", category: OWN_TRANSFER, subcategory: "Currency conversion" },
+  { value: "unpair", label: "Unpair - this looks like a mismatch", category: "" },
+  { value: "keep", label: "Keep - this was a real conversion", category: OWN_TRANSFER, subcategory: "Currency conversion" },
 ];
 
 export const DUPLICATE_OPTIONS: Option[] = [
-  { value: "keep", label: "Keep both — they are different payments", category: "" },
-  { value: "dismiss", label: "Got it — I'll review them myself", category: "" },
+  { value: "keep", label: "Keep both - they are different payments", category: "" },
+  { value: "dismiss", label: "Got it - I'll review them myself", category: "" },
 ];
 
 export const CURRENCY_OPTIONS: Option[] = [
@@ -161,7 +161,7 @@ export const CURRENCY_OPTIONS: Option[] = [
 
 export const ADVANCE_OPTIONS: Option[] = [
   { value: "hold", label: "Leave uncounted until a matching repayment lands", category: OWN_TRANSFER, subcategory: "Unpaired advance" },
-  { value: "debt", label: "This is a real loan — count it as debt", category: "Debt", subcategory: "Loan proceeds" },
+  { value: "debt", label: "This is a real loan - count it as debt", category: "Debt", subcategory: "Loan proceeds" },
 ];
 
 const HOLDER_OPTIONS: Option[] = [
@@ -430,7 +430,8 @@ function guessOf(g: PersonGroup, surnames: string[]): PeopleGuess | undefined {
   return guessFor({ name: g.display, inCount: g.stats.inCount, outCount: g.stats.outCount, regular: regularPattern(g.hits ?? []), surnames });
 }
 
-export async function buildQuestions(userId: string, limit = 12): Promise<Question[]> {
+/** Pending Review questions. Pass `limit` only when a caller wants a truncated page. */
+export async function buildQuestions(userId: string, limit?: number): Promise<Question[]> {
   const { answered, accounts, tx, people, found, surnames, ctx } = await reviewData(userId);
   const questions: Question[] = [];
 
@@ -441,6 +442,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
       title: "Unmatched Deel salary advance",
       prompt: `${a.amount} on ${a.date} looks like a Deel salary advance without a matching repayment (or the other way around). It is not counted as income or spending until it pairs, or you say it is a real loan.`,
       totalMinor: a.totalMinor,
+      totalCurrency: a.currency,
       count: 1,
       examples: a.examples,
       options: ADVANCE_OPTIONS,
@@ -467,7 +469,7 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
       kind: "duplicate",
       key: d.key,
       title: "Possible duplicate bank credit",
-      prompt: `Two ${d.amount} credits on ${d.date} (or the next day) use different narration formats, but the running balance only moved once.${extra} Ledger will not delete either row — mark them so they stop appearing here.`,
+      prompt: `Two ${d.amount} credits on ${d.date} (or the next day) use different narration formats, but the running balance only moved once.${extra} Ledger will not delete either row. Mark them so they stop appearing here.`,
       totalMinor: d.totalMinor,
       totalCurrency: "NGN",
       count: d.creditIds.length + d.debitIds.length,
@@ -607,7 +609,12 @@ export async function buildQuestions(userId: string, limit = 12): Promise<Questi
     return y > x ? 1 : y < x ? -1 : 0;
   });
   // Holder first, then people by money impact, then the rest by money affected.
-  return questions.slice(0, limit);
+  return limit == null ? questions : questions.slice(0, limit);
+}
+
+/** Same number the web nav badge uses: every pending question, not a 12-item slice. */
+export async function pendingReviewCount(userId: string): Promise<number> {
+  return (await buildQuestions(userId)).length;
 }
 
 /** Spellings of a name across the owner's transactions, for saving as aliases. */

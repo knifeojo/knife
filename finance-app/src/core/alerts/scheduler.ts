@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { log } from "@/lib/log";
-import { syncEmailSource } from "../ledger";
+import { syncEmailSource, type SyncSummary } from "../ledger";
 import { GmailEmailSource } from "../providers/gmail";
 import { ImapEmailSource } from "./imap";
 import { defaultSyncMinutes } from "./secrets";
@@ -22,21 +22,16 @@ export function nextBackoffMs(prev = 0): number {
   return Math.min(base, 30 * 60_000);
 }
 
-export async function syncOneConnection(connectionId: string): Promise<void> {
+export async function syncOneConnection(connectionId: string): Promise<SyncSummary | null> {
   const conn = await db.financialConnection.findUniqueOrThrow({ where: { id: connectionId } });
   const running = await db.syncRun.findFirst({
     where: { connectionId, status: "running", startedAt: { gte: new Date(Date.now() - 10 * 60_000) } },
   });
-  if (running) return;
+  if (running) return null;
 
-  if (conn.provider === "gmail") {
-    await syncEmailSource(conn.userId, conn.id, new GmailEmailSource(conn.id));
-    return;
-  }
-  if (conn.provider === "imap") {
-    await syncEmailSource(conn.userId, conn.id, ImapEmailSource.fromConnection(conn));
-    return;
-  }
+  if (conn.provider === "gmail") return syncEmailSource(conn.userId, conn.id, new GmailEmailSource(conn.id));
+  if (conn.provider === "imap") return syncEmailSource(conn.userId, conn.id, ImapEmailSource.fromConnection(conn));
+  return null;
 }
 
 export async function syncDueConnections(now = new Date()): Promise<{ attempted: number; ok: number; failed: number }> {

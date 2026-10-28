@@ -96,17 +96,62 @@ class LedgerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  int reviewBadge = 0;
+
   Future<HomeSummary> summary({int offset = 0, String? span, int? year}) {
     return _guard((api) => api.summary(offset: offset, span: span, year: year));
   }
 
-  Future<AccountList> accounts() => _guard((api) => api.accounts());
-
-  Future<TransactionPage> transactions({String? category, String? query, String? cadence, String? payee, String? type, String? from, String? to}) {
-    return _guard((api) => api.transactions(category: category, query: query, cadence: cadence, payee: payee, type: type, from: from, to: to));
+  Future<MonthOverview> overview({String? month}) async {
+    final data = await _guard((api) => api.overview(month: month));
+    if (reviewBadge != data.reviewCount) {
+      reviewBadge = data.reviewCount;
+      notifyListeners();
+    }
+    return data;
   }
 
-  Future<ReviewQueue> review() => _guard((api) => api.review());
+  Future<CategoryDetail> categoryMonth({required String category, String? month}) {
+    return _guard((api) => api.categoryMonth(category: category, month: month));
+  }
+
+  Future<AccountList> accounts() => _guard((api) => api.accounts());
+
+  Future<TransactionPage> transactions({
+    String? category,
+    String? subcategory,
+    String? query,
+    String? cadence,
+    String? payee,
+    String? type,
+    String? direction,
+    String? from,
+    String? to,
+    String? month,
+    int? page,
+    int limit = 30,
+    String? cursor,
+  }) {
+    return _guard(
+      (api) => api.transactions(
+        category: category,
+        subcategory: subcategory,
+        query: query,
+        cadence: cadence,
+        payee: payee,
+        type: type,
+        direction: direction,
+        from: from,
+        to: to,
+        month: month,
+        page: page,
+        limit: limit,
+        cursor: cursor,
+      ),
+    );
+  }
+
+  Future<ReviewQueue> review({int? limit, String? cursor}) => _guard((api) => api.review(limit: limit, cursor: cursor));
 
   Future<OnboardingState> onboarding() => _guard((api) => api.onboarding());
 

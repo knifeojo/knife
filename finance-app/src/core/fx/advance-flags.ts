@@ -13,6 +13,7 @@ export interface AdvanceFlag {
   txId: string;
   date: string;
   amount: string;
+  currency: string;
   examples: string[];
   totalMinor: bigint;
 }
@@ -80,6 +81,7 @@ export async function listPendingAdvances(userId: string): Promise<AdvanceFlag[]
       txId: tx.id,
       date: tx.transactionDate.toISOString().slice(0, 10),
       amount: formatMoney(tx.amountMinor, tx.currency),
+      currency: tx.currency,
       examples: [tx.description.replace(/\s+/g, " ").trim()],
       totalMinor: tx.amountMinor,
     });

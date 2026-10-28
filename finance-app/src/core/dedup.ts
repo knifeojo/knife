@@ -10,6 +10,10 @@ import type { CanonicalTransaction } from "./types";
 // 3. Fuzzy match, only across DIFFERENT sources (email vs statement vs open banking): same account,
 //    currency, type and amount, dates within 36h, and a matching reference or similar description.
 //    Fuzzy matching is never applied within one source, where it would merge real repeat purchases.
+// 4. Statement coverage: one statement row and one alert (SMS or email) with the same account,
+//    amount and direction, on Lagos days at most one apart, while a statement covers that day.
+//    Narration is not required. Two rows of the same amount on that day stay separate, and a
+//    repeat a week later does not match.
 
 const NOISE = /\b(TRF|NIP|FIP|POS|WEB|PURCHASE|TRANSFER|TO|FROM|FRM|FOR|REF|NG|LAGOS|LTD|LIMITED|THE|AND|VIA|MOB|MOBILE|APP)\b/g;
 
@@ -30,8 +34,30 @@ export function normalizeReference(ref?: string): string | undefined {
   return r && r.length >= 4 ? r : undefined;
 }
 
+const LAGOS_OFFSET_MS = 3600_000;
+const DAY_MS = 86_400_000;
+
 export function lagosDay(d: Date): string {
-  return new Date(d.getTime() + 3600_000).toISOString().slice(0, 10);
+  return new Date(d.getTime() + LAGOS_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Whole Lagos days since the epoch. Statement value dates and SMS times are both read in WAT (UTC+1). */
+export function lagosDayIndex(d: Date): number {
+  return Math.floor((d.getTime() + LAGOS_OFFSET_MS) / DAY_MS);
+}
+
+export function lagosDayDelta(a: Date, b: Date): number {
+  return Math.abs(lagosDayIndex(a) - lagosDayIndex(b));
+}
+
+/**
+ * True when [date] falls in the account's imported statement span, with one Lagos day of slack
+ * so an evening SMS (or a value date stored at UTC midnight) still counts as covered.
+ */
+export function statementCoversDate(from: Date | null | undefined, to: Date | null | undefined, date: Date): boolean {
+  if (!from || !to) return false;
+  const day = lagosDayIndex(date);
+  return day >= lagosDayIndex(from) - 1 && day <= lagosDayIndex(to) + 1;
 }
 
 /**
@@ -76,6 +102,20 @@ export interface LedgerCandidate {
   description: string;
   reference?: string | null;
   balanceAfterMinor?: bigint | null;
+  /** Every source already attached, including [source]. */
+  sources?: string[];
+}
+
+const EMAIL_ALERTS = new Set(["gmail", "imap", "inbound", "fixture"]);
+
+export function alertChannel(source: string): "sms" | "email" | null {
+  if (source === "sms") return "sms";
+  if (EMAIL_ALERTS.has(source)) return "email";
+  return null;
+}
+
+export function linkedSources(c: Pick<LedgerCandidate, "source" | "sources">): Set<string> {
+  return new Set([c.source, ...(c.sources ?? [])]);
 }
 
 const FUZZY_WINDOW_MS = 36 * 3600_000;
@@ -106,4 +146,47 @@ export function isFuzzyMatch(tx: CanonicalTransaction, c: LedgerCandidate): bool
 
 export function findFuzzyMatch(tx: CanonicalTransaction, candidates: LedgerCandidate[]): LedgerCandidate | undefined {
   return candidates.find((c) => isFuzzyMatch(tx, c));
+}
+
+function balancesMatch(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
+  return tx.balanceAfterMinor !== undefined && c.balanceAfterMinor != null && tx.balanceAfterMinor === c.balanceAfterMinor;
+}
+
+/** A statement row may be linked to one statement, and an alert channel may be linked once, unless the running balance says it is the same event. */
+export function counterpartAlreadyClaimed(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
+  const sources = linkedSources(c);
+  if (tx.source === "statement") return sources.has("statement");
+  const channel = alertChannel(tx.source);
+  if (!channel) return false;
+  const hasChannel = channel === "sms" ? sources.has("sms") : [...sources].some((s) => alertChannel(s) === "email");
+  if (!hasChannel) return false;
+  return !balancesMatch(tx, c);
+}
+
+/**
+ * Amount-and-day match between a statement row and an alert. Narration is not required.
+ * Each side claims at most one counterpart: a candidate already linked to a statement is skipped
+ * while importing a statement, and a candidate that already has this alert channel is skipped
+ * unless the running balance matches. Among what remains, the closest row wins.
+ */
+export function pickStatementAmountMatch(
+  tx: CanonicalTransaction,
+  candidates: LedgerCandidate[],
+  covered: boolean,
+): LedgerCandidate | undefined {
+  if (tx.source !== "statement" && !covered) return undefined;
+  const hits = candidates.filter((c) => {
+    if (counterpartAlreadyClaimed(tx, c)) return false;
+    if (tx.source !== "statement" && !linkedSources(c).has("statement")) return false;
+    if (c.currency !== tx.currency || c.type !== tx.type || c.amountMinor !== tx.amountMinor) return false;
+    if (c.accountKey !== accountKey(tx.institution, tx.accountLast4) && !c.accountKey.endsWith(":PRIMARY") && tx.accountLast4) return false;
+    return lagosDayDelta(c.transactionDate, tx.transactionDate) <= 1;
+  });
+  hits.sort((a, b) => {
+    const da = Math.abs(a.transactionDate.getTime() - tx.transactionDate.getTime());
+    const db = Math.abs(b.transactionDate.getTime() - tx.transactionDate.getTime());
+    if (da !== db) return da - db;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return hits[0];
 }

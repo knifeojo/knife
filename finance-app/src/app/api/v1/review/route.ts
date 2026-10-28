@@ -9,63 +9,119 @@ import { minor, suggestionJson } from "@/lib/mobile/serialize";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function encodeReviewCursor(skip: number): string {
+  return Buffer.from(`q:${skip}`, "utf8").toString("base64url");
+}
+
+function decodeReviewCursor(raw: string): number | null {
+  try {
+    const text = Buffer.from(raw, "base64url").toString("utf8");
+    const m = /^q:(\d+)$/.exec(text);
+    if (!m) return null;
+    const skip = Number(m[1]);
+    return Number.isInteger(skip) && skip >= 0 && skip < 10_000 ? skip : null;
+  } catch {
+    return null;
+  }
+}
+
+function questionJson(q: Awaited<ReturnType<typeof reviewWithSuggestions>>["questions"][number]) {
+  return {
+    kind: q.kind,
+    key: q.key,
+    title: q.title,
+    prompt: q.prompt,
+    totalMinor: minor(q.totalMinor),
+    totalCurrency: q.totalCurrency ?? "NGN",
+    totalDetail: q.totalDetail ?? null,
+    count: q.count,
+    examples: q.examples,
+    /** group: "relationship" (one-tap answers about a person), "more" (behind Someone else), "control" (Skip, Not a person), or null. */
+    options: q.options.map((o) => ({ value: o.value, label: o.label, category: o.category, subcategory: o.subcategory ?? null, group: o.group ?? null })),
+    currentCategory: q.currentCategory ?? null,
+    hint: q.hint ?? null,
+    /** Answer one with { value: "other", otherText: words, otherCategory: category unless "Other" }. */
+    narrationHints: (q.narrationHints ?? []).map((h) => ({ words: h.words, category: h.category, subcategory: h.subcategory })),
+    /** Holder and conversion questions take only the listed options. */
+    allowsOther: q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "match" && q.kind !== "mispair" && q.kind !== "duplicate" && q.kind !== "currency" && q.kind !== "advance",
+    /** For questions about an individual: money both ways, last date and every spelling seen. Null otherwise. */
+    person: q.person
+      ? {
+          inCount: q.person.inCount, inMinor: minor(q.person.inMinor), outCount: q.person.outCount, outMinor: minor(q.person.outMinor),
+          lastDate: q.person.lastDate, variants: q.person.variants,
+          currencies: q.person.currencies?.map((c) => ({ currency: c.currency, inMinor: minor(c.inMinor), outMinor: minor(c.outMinor) })) ?? null,
+        }
+      : null,
+    /** Unlabelled money the answer would fix. People questions come first, sorted by this. */
+    impactMinor: q.impactMinor !== undefined ? minor(q.impactMinor) : null,
+    /** The relationship the AI proposes for this person ("spouse"). The owner confirms by answering "rel:spouse". */
+    aiRelationship: q.aiRelationship ?? null,
+    /** The AI's pick for this payee, shown pre-selected. Null when it has none. */
+    aiSuggestion: q.aiSuggestion ? suggestionJson(q.aiSuggestion) : null,
+    /** Ledger's own guess (same surname, a regular payment, money both ways). Null when it has none. */
+    guess: q.guess
+      ? {
+          kind: q.guess.kind,
+          reason: q.guess.reason,
+          answers: q.guess.answers.map((a) => ({
+            value: a.value,
+            label: a.label,
+            vendorCategory: a.vendorCategory ?? null,
+            vendorSubcategory: a.vendorSubcategory ?? null,
+          })),
+        }
+      : null,
+  };
+}
+
 /** GET: the same "Help Ledger get this right" questions and AI suggestions as the web Review page. */
 export async function GET(req: Request) {
   const auth = await requireApiUser(req);
   if ("response" in auth) return auth.response;
+  const url = new URL(req.url);
+  const limitRaw = url.searchParams.get("limit");
+  const cursorRaw = url.searchParams.get("cursor");
+  const useCursor = limitRaw !== null || cursorRaw !== null;
+  let skip = 0;
+  let limit = 30;
+  if (useCursor) {
+    const sizeRaw = limitRaw ?? "30";
+    if (!/^\d+$/.test(sizeRaw)) return apiError(400, "limit must be a positive integer");
+    limit = Number(sizeRaw);
+    if (limit < 1 || limit > 100) return apiError(400, "limit must be between 1 and 100");
+    if (cursorRaw) {
+      const decoded = decodeReviewCursor(cursorRaw);
+      if (decoded === null) return apiError(400, "cursor is not valid");
+      skip = decoded;
+    }
+  }
+
   const { questions, suggestions } = await reviewWithSuggestions(auth.user.id);
-  return apiJson({
-    questions: questions.map((q) => ({
-      kind: q.kind,
-      key: q.key,
-      title: q.title,
-      prompt: q.prompt,
-      totalMinor: minor(q.totalMinor),
-      totalCurrency: q.totalCurrency ?? "NGN",
-      totalDetail: q.totalDetail ?? null,
-      count: q.count,
-      examples: q.examples,
-      /** group: "relationship" (one-tap answers about a person), "more" (behind Someone else), "control" (Skip, Not a person), or null. */
-      options: q.options.map((o) => ({ value: o.value, label: o.label, category: o.category, subcategory: o.subcategory ?? null, group: o.group ?? null })),
-      currentCategory: q.currentCategory ?? null,
-      hint: q.hint ?? null,
-      /** Answer one with { value: "other", otherText: words, otherCategory: category unless "Other" }. */
-      narrationHints: (q.narrationHints ?? []).map((h) => ({ words: h.words, category: h.category, subcategory: h.subcategory })),
-      /** Holder and conversion questions take only the listed options. */
-      allowsOther: q.kind !== "holder" && q.kind !== "conversion" && q.kind !== "match" && q.kind !== "mispair" && q.kind !== "duplicate" && q.kind !== "currency" && q.kind !== "advance",
-      /** For questions about an individual: money both ways, last date and every spelling seen. Null otherwise. */
-      person: q.person
-        ? {
-            inCount: q.person.inCount, inMinor: minor(q.person.inMinor), outCount: q.person.outCount, outMinor: minor(q.person.outMinor),
-            lastDate: q.person.lastDate, variants: q.person.variants,
-            currencies: q.person.currencies?.map((c) => ({ currency: c.currency, inMinor: minor(c.inMinor), outMinor: minor(c.outMinor) })) ?? null,
-          }
-        : null,
-      /** Unlabelled money the answer would fix. People questions come first, sorted by this. */
-      impactMinor: q.impactMinor !== undefined ? minor(q.impactMinor) : null,
-      /** The relationship the AI proposes for this person ("spouse"). The owner confirms by answering "rel:spouse". */
-      aiRelationship: q.aiRelationship ?? null,
-      /** The AI's pick for this payee, shown pre-selected. Null when it has none. */
-      aiSuggestion: q.aiSuggestion ? suggestionJson(q.aiSuggestion) : null,
-      /** Ledger's own guess (same surname, a regular payment, money both ways). Null when it has none. */
-      guess: q.guess
-        ? {
-            kind: q.guess.kind,
-            reason: q.guess.reason,
-            answers: q.guess.answers.map((a) => ({
-              value: a.value,
-              label: a.label,
-              vendorCategory: a.vendorCategory ?? null,
-              vendorSubcategory: a.vendorSubcategory ?? null,
-            })),
-          }
-        : null,
-    })),
+  const questionRows = questions.map(questionJson);
+  const suggestionRows = suggestions.map(suggestionJson);
+  const body = {
+    questions: questionRows,
     /** AI suggestions for payees no question covers. */
-    suggestions: suggestions.map(suggestionJson),
+    suggestions: suggestionRows,
     totalMinor: minor(questions.reduce((t, q) => t + q.totalMinor, 0n)),
     categories: ALL_CATEGORIES,
     relationships: RELATIONSHIPS.map((r) => ({ value: r.value, label: r.label })),
+  };
+
+  if (!useCursor) return apiJson(body);
+
+  type Item = { kind: "question"; row: (typeof questionRows)[number] } | { kind: "suggestion"; row: (typeof suggestionRows)[number] };
+  const items: Item[] = [
+    ...questionRows.map((row) => ({ kind: "question" as const, row })),
+    ...suggestionRows.map((row) => ({ kind: "suggestion" as const, row })),
+  ];
+  const page = items.slice(skip, skip + limit);
+  const next = skip + limit;
+  return apiJson({
+    ...body,
+    questions: page.filter((i) => i.kind === "question").map((i) => i.row),
+    suggestions: page.filter((i) => i.kind === "suggestion").map((i) => i.row),
+    nextCursor: next < items.length ? encodeReviewCursor(next) : null,
   });
 }
 

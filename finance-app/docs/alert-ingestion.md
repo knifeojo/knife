@@ -125,7 +125,7 @@ npm run db:push
 
 ## Dedup and Review
 
-SMS, email alerts and statement rows for the same account / amount / direction / time window / similar narration merge. Statement is the source of truth: it links rather than duplicates. Source badges show every observation.
+SMS, email alerts and statement rows for the same account / amount / direction / time window / similar narration merge. When a statement already covers that day, an alert with the same account, amount and direction merges with one unclaimed statement row on that Lagos day or the next one (WAT value date versus an evening SMS). A row already linked to a statement, or to an alert of the same channel, is not claimed again. A repeat a week later does not merge. Accounts imported before coverage was stored get their span from the earliest and latest statement row (`npm run alerts:backfill-coverage`), without opening review flags. `npm run alerts:link-sms` prints date, direction and amount for SMS that now match exactly one statement row; add `--apply` to write. Apply keeps the statement row (category, person, transfer pair, fees) and records the SMS on it. Statement is the source of truth: it links rather than duplicates. Source badges show every observation.
 
 - **Fees** (`Commission on NIP Transfer`, VAT, stamp duty, …) link to the adjacent transfer (same minute, same account) as category Fees.
 - **Balance gaps**: previous Bal ± Amt ≠ this Bal → “possible missed transaction” in Review.

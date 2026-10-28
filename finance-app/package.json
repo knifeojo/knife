@@ -14,7 +14,9 @@
     "recategorize": "tsx src/scripts/recategorize.ts",
     "fx:rebuild": "tsx src/scripts/fx-rebuild.ts",
     "ai:suggest": "tsx src/scripts/ai-suggest.ts",
-    "alerts:mac-messages": "tsx src/scripts/mac-messages.ts"
+    "alerts:mac-messages": "tsx src/scripts/mac-messages.ts",
+    "alerts:backfill-coverage": "tsx src/scripts/backfill-coverage.ts",
+    "alerts:link-sms": "tsx src/scripts/link-sms.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

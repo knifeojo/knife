@@ -143,7 +143,10 @@ describe("advance / repayment pairing", () => {
     expect(leftover.category).toBe("Own transfer");
     const { buildQuestions } = await import("@/core/review");
     const qs = await buildQuestions(userId);
-    expect(qs.some((q) => q.kind === "advance")).toBe(true);
+    const advance = qs.find((q) => q.kind === "advance");
+    expect(advance).toMatchObject({ totalCurrency: "USD", totalMinor: 1_500_00n });
+    expect(advance?.prompt.startsWith("$1,500.00")).toBe(true);
+    expect(advance?.options.find((o) => o.value === "debt")?.label).toBe("This is a real loan - count it as debt");
     const s = await summary(userId, monthPeriod(new Date("2026-05-20T12:00:00Z")));
     expect(s.income).toBe(0n);
     expect(s.expenses).toBe(0n);

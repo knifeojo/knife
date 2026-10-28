@@ -49,8 +49,8 @@ function PersonCard({ p, others }: { p: PersonSummary; others: PersonSummary[] }
               {p.months.map((m) => (
                 <tr key={m.month} className="border-t border-border">
                   <td className="py-1.5">{monthName(m.month)} {m.month.slice(0, 4)}</td>
-                  <td className="text-right">{m.outMinor ? formatMoney(m.outMinor) : "—"}</td>
-                  <td className="text-right">{m.inMinor ? formatMoney(m.inMinor) : "—"}</td>
+                  <td className="text-right">{m.outMinor ? formatMoney(m.outMinor) : "-"}</td>
+                  <td className="text-right">{m.inMinor ? formatMoney(m.inMinor) : "-"}</td>
                 </tr>
               ))}
             </tbody>

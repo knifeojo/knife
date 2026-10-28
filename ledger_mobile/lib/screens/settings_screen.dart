@@ -1,16 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../alerts/senders.dart';
 import '../alerts/sms_controller.dart';
 import '../alerts/sync.dart';
 import '../api/models.dart';
 import '../server_url.dart';
 import '../state/ledger_controller.dart';
-import 'loans_screen.dart';
-import 'people_screen.dart';
-import 'review_screen.dart';
-import 'sms_alerts_card.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -39,38 +34,10 @@ class SettingsScreen extends StatelessWidget {
           const Text('Re-run applies the latest rules to every transaction. Labels you chose, and Review answers, are kept.'),
           const SizedBox(height: 8),
           const RerunCategorizationButton(),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            key: const Key('settings-review'),
-            onPressed: () => openReview(context),
-            child: const Text('Review payments that need a purpose'),
-          ),
           const SizedBox(height: 24),
           Text('AI categorization', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 4),
           const AiSettingsCard(),
-          const SizedBox(height: 24),
-          Text('Loans', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 4),
-          const Text('Statements show repayments, not what is left. Enter the balance from your loan app so Afford can use it.'),
-          const SizedBox(height: 8),
-          OutlinedButton(key: const Key('settings-loans'), onPressed: () => openLoans(context), child: const Text('Your loans')),
-          const SizedBox(height: 24),
-          Text('People', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 4),
-          const Text('Statements show names, not relationships. Tell Ledger who your family and regular contacts are and their payments are labelled for good.'),
-          const SizedBox(height: 8),
-          OutlinedButton(key: const Key('settings-people'), onPressed: () => openPeople(context), child: const Text('Your people')),
-          const SizedBox(height: 24),
-          Text('Bank alerts', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 4),
-          const Text(
-            'Email sync runs on the Ledger server. SMS bank alerts are the switch below: only $smsBankSenderPhrase are read. Personal messages are never uploaded. Google Play does not allow this permission; this is for the sideloaded APK.',
-          ),
-          const SizedBox(height: 8),
-          const SmsBankAlertsCard(),
-          const SizedBox(height: 8),
-          const AlertSyncCard(),
           const SizedBox(height: 24),
           OutlinedButton(onPressed: controller.signOut, child: const Text('Sign out')),
           const SizedBox(height: 8),

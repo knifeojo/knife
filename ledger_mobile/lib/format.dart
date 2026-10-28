@@ -1,6 +1,6 @@
 /// Formats a minor-unit string without converting through floating point.
 String formatMinor(String? minor, {String currency = 'NGN'}) {
-  if (minor == null || minor.isEmpty) return '—';
+  if (minor == null || minor.isEmpty) return '-';
   final negative = minor.startsWith('-');
   final digits = negative ? minor.substring(1) : minor;
   if (!RegExp(r'^\d+$').hasMatch(digits)) return minor;
@@ -71,4 +71,88 @@ DateTime? parseCalendarDay(String raw) {
 String formatDay(DateTime date) {
   final local = date.toLocal();
   return '${local.day} ${_months[local.month - 1]} ${local.year}';
+}
+
+const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+DateTime _lagosClock(DateTime instant) => instant.toUtc().add(const Duration(hours: 1));
+
+/// Lagos calendar month of an instant, YYYY-MM.
+String lagosYearMonth(DateTime instant) => _lagosClock(instant).toIso8601String().substring(0, 7);
+
+String formatYearMonth(String month) {
+  final m = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(month);
+  if (m == null) return month;
+  final year = int.parse(m.group(1)!);
+  final index = int.parse(m.group(2)!) - 1;
+  if (index < 0 || index > 11) return month;
+  const names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  return '${names[index]} $year';
+}
+
+String shiftYearMonth(String month, int delta) {
+  final m = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(month);
+  if (m == null) return month;
+  final dt = DateTime.utc(int.parse(m.group(1)!), int.parse(m.group(2)!) + delta, 1);
+  return '${dt.year}-${dt.month.toString().padLeft(2, '0')}';
+}
+
+String shortMonthName(String month) {
+  final m = RegExp(r'^(\d{4})-(\d{2})$').firstMatch(month);
+  if (m == null) return month;
+  final index = int.parse(m.group(2)!) - 1;
+  if (index < 0 || index > 11) return month;
+  return _months[index];
+}
+
+/// Sticky Activity header: "Thu 23 Oct".
+String formatLagosDayHeader(String day) {
+  final parsed = parseCalendarDay(day);
+  if (parsed == null) return day;
+  return '${_weekdays[parsed.weekday - 1]} ${parsed.day} ${_months[parsed.month - 1]}';
+}
+
+String formatLagosTime(DateTime instant) {
+  final local = _lagosClock(instant);
+  return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+}
+
+/// 22% from 2160 basis points, rounded to the nearest percent.
+int percentFromBp(int bp) => (bp + (bp >= 0 ? 50 : -50)) ~/ 100;
+
+String _currencySymbol(String currency) => switch (currency) {
+      'NGN' => '₦',
+      'USD' => r'$',
+      'GBP' => '£',
+      'EUR' => '€',
+      'CAD' => r'CA$',
+      'GHS' => '₵',
+      'XOF' => 'CFA',
+      'KES' => 'KSh',
+      _ => '$currency ',
+    };
+
+/// Home-sized amounts: ₦1.25M, ₦980k, ₦270k. No floating point.
+String formatCompactMinor(String? minor, {String currency = 'NGN'}) {
+  if (minor == null || minor.isEmpty) return '-';
+  final negative = minor.startsWith('-');
+  final digits = negative ? minor.substring(1) : minor;
+  if (!RegExp(r'^\d+$').hasMatch(digits)) return minor;
+  final value = BigInt.parse(digits);
+  final naira = value ~/ BigInt.from(100);
+  final symbol = _currencySymbol(currency);
+  final sign = negative ? '-' : '';
+  if (naira >= BigInt.from(1000000)) {
+    final hundredths = (naira + BigInt.from(5000)) ~/ BigInt.from(10000);
+    final whole = hundredths ~/ BigInt.from(100);
+    final frac = (hundredths % BigInt.from(100)).toInt();
+    if (frac == 0) return '$sign$symbol${_groupThousands(whole.toString())}M';
+    final fracText = frac % 10 == 0 ? '${frac ~/ 10}' : frac.toString().padLeft(2, '0');
+    return '$sign$symbol$whole.${fracText}M';
+  }
+  if (naira >= BigInt.from(10000)) {
+    final k = (naira + BigInt.from(500)) ~/ BigInt.from(1000);
+    return '$sign$symbol${_groupThousands(k.toString())}k';
+  }
+  return formatMinor(minor, currency: currency);
 }
