@@ -51,6 +51,32 @@ function statefulClient(opts: { failOnUid?: number; failTimes?: number }): { fac
   return { factory, fetchCount: () => fetches };
 }
 
+describe("IMAP first-sync catch-up", () => {
+  it("pages past the per-listing cap in one run until the UID checkpoint is caught up", async () => {
+    const prev = process.env.MAX_MESSAGES_PER_SYNC;
+    process.env.MAX_MESSAGES_PER_SYNC = "2";
+    try {
+      const user = await db.user.create({ data: { email: "imap-catchup@test.dev" } });
+      const conn = await db.financialConnection.create({
+        data: { userId: user.id, provider: "imap", imapHost: "imap.mail.yahoo.com", imapPort: 993, imapUser: "ada@yahoo.com", status: "active" },
+      });
+      const client = statefulClient({});
+      const summary = await syncEmailSource(
+        user.id,
+        conn.id,
+        new ImapEmailSource({ host: "imap.mail.yahoo.com", port: 993, user: "ada@yahoo.com", password: "app-password-never-logged" }, client.factory),
+      );
+      expect(summary.created).toBe(4);
+      expect(await db.transaction.count({ where: { userId: user.id } })).toBe(4);
+      const cursor = await db.imapFolderCursor.findFirst({ where: { connectionId: conn.id, folder: "INBOX" } });
+      expect(cursor?.uid).toBe(14);
+    } finally {
+      if (prev === undefined) delete process.env.MAX_MESSAGES_PER_SYNC;
+      else process.env.MAX_MESSAGES_PER_SYNC = prev;
+    }
+  });
+});
+
 describe("IMAP sync resume", () => {
   it("commits each message, checkpoints the UID, and resumes without duplicating after a drop", async () => {
     const user = await db.user.create({ data: { email: "imap-resume@test.dev" } });

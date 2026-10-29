@@ -2,13 +2,13 @@ import { Prisma } from "@prisma/client";
 import { db, withBusyRetry } from "@/lib/db";
 import { log } from "@/lib/log";
 import { LEGACY_GIVING_SUBCATEGORIES, categorize, inferHolderName, type UserRule } from "./categorize";
-import { accountKey, amountsMatch, computeFingerprint, findFuzzyMatch, pickStatementAmountMatch, pickStatementReplay, statementCoversDate } from "./dedup";
+import { accountKey, amountsMatch, computeFingerprint, findFuzzyMatch, pickAlertTimeMatch, pickStatementAmountMatch, pickStatementReplay, statementCoversDate } from "./dedup";
 import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
 import { decodeImapMessageId, IMAP_BATCH_SIZE, imapMessageIdAliases } from "./alerts/imap";
 import { loadImapFolderCursors, saveImapFolderCursor } from "./alerts/imap-cursor";
 import { emailSearchQueries } from "./alerts/statement-mail";
-import { INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
+import { INITIAL_LOOKBACK_DAYS, maxMessagesPerSync } from "./sources";
 import type { KnownPerson } from "./people-match";
 import { extractPayoutQuote } from "./fx/quotes";
 import { storeQuotedRate } from "./fx/realised";
@@ -81,7 +81,7 @@ async function upsertAccount(userId: string, tx: CanonicalTransaction) {
       return match;
     }
   }
-  // One account at this institution: attach. Do not create ****3205 next to an SMS-fed ****1234.
+  // Exactly one account at this institution: attach it. Do not open another masked number beside the existing one.
   if (real.length === 1) return real[0];
   // Several accounts and no last-4 match: keep the row, but do not invent another account.
   if (real.length > 1) {
@@ -118,13 +118,21 @@ async function upsertAccount(userId: string, tx: CanonicalTransaction) {
  * better reader, or the full statement after a short extract), upgrade the stored description and the
  * payee. Labels the user set and links stay; rows labelled by rules are re-labelled from the new text.
  */
+/** Bank-name + debit/credit fallback when narration was not extracted. */
+export function isGenericAlertDescription(desc: string): boolean {
+  return /^(?:gtbank|gtb|guaranty trust(?: bank)?)\s+(?:debit|credit)$/i.test(desc.trim());
+}
+
 async function enrich(userId: string, transactionId: string, tx: CanonicalTransaction, userRules?: UserRule[], owners?: string[]) {
   const existing = await db.transaction.findUnique({ where: { id: transactionId } });
   if (!existing || tx.description === existing.description) return;
+  if (isGenericAlertDescription(tx.description) && !isGenericAlertDescription(existing.description)) return;
   // Re-reading the SAME kind of document (statement vs statement): the newer reading wins, so earlier
   // reader mistakes are corrected. Across sources (alert vs statement) only a richer version wins —
   // except a statement is the source of truth and always upgrades the stored fields.
-  if (existing.source !== tx.source && tx.source !== "statement") {
+  // A generic "GTBank debit" row is always upgraded when a later source brings a real narration.
+  const upgradeGeneric = isGenericAlertDescription(existing.description) && !isGenericAlertDescription(tx.description);
+  if (!upgradeGeneric && existing.source !== tx.source && tx.source !== "statement") {
     if (tx.description.length <= existing.description.length) return;
     const words = (s: string) => s.toUpperCase().replace(/\d{6,}/g, " ").split(/[^A-Z0-9]+/).filter((w) => w.length >= 3);
     const oldWords = words(existing.description);
@@ -202,8 +210,11 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
     sources: [...new Set([c.source, ...c.sources.map((s) => s.source)])],
   }));
   const open = claimed ? mapped.filter((c) => !claimed.has(c.id)) : mapped;
-  const fuzzy = findFuzzyMatch(tx, open.filter((c) => c.currency === tx.currency && amountsMatch(c.amountMinor, tx.amountMinor, "NGN")));
+  const sameAmount = open.filter((c) => c.currency === tx.currency && amountsMatch(c.amountMinor, tx.amountMinor, "NGN"));
+  const fuzzy = findFuzzyMatch(tx, sameAmount);
   if (fuzzy) return link(fuzzy.id, "fuzzy");
+  const alertTime = pickAlertTimeMatch(tx, sameAmount);
+  if (alertTime) return link(alertTime.id, "fuzzy");
   const replay = tx.source === "statement" ? pickStatementReplay(tx, open) : undefined;
   if (replay) return link(replay.id, "fuzzy");
   const covered = statementCoversDate(account.statementCoveredFrom, account.statementCoveredTo, tx.transactionDate);
@@ -351,93 +362,106 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
     let historyId: string | undefined;
     let historyTried = false;
     let historyCoveredAll = false;
+    const pageSize = maxMessagesPerSync();
+    const checkpointImap = async (id: string) => {
+      if (!imap) return;
+      const parsedId = decodeImapMessageId(id);
+      if (!parsedId) return;
+      folderCursors![parsedId.folder] = {
+        uid: parsedId.uid,
+        uidValidity: source.folderUidValidity?.(parsedId.folder) ?? folderCursors![parsedId.folder]?.uidValidity,
+      };
+      await saveImapFolderCursor(connectionId, parsedId.folder, parsedId.uid, folderCursors![parsedId.folder]?.uidValidity ?? undefined);
+    };
     for (const query of emailSearchQueries(source.source)) {
       if (historyCoveredAll) break;
-      let ids: string[] = [];
-      if (!historyTried && source.listHistoryMessageIds && conn.gmailHistoryId && conn.lastSyncedAt) {
-        historyTried = true;
-        const hist = await source.listHistoryMessageIds(conn.gmailHistoryId);
-        if (hist.stale) ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC, folderCursors });
-        else {
-          ids = hist.ids.slice(0, MAX_MESSAGES_PER_SYNC);
-          historyId = hist.historyId;
-          historyCoveredAll = true;
-        }
-      } else {
-        ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC, folderCursors });
-      }
-      const aliases = ids.flatMap((id) => messageIdAliases(source.source, id));
-      const done = new Set(
-        (await db.processedEmail.findMany({ where: { userId, messageId: { in: aliases } }, select: { messageId: true } })).map((p) => p.messageId),
-      );
-      const batchSize = imap ? IMAP_BATCH_SIZE : ids.length || 1;
-      for (let i = 0; i < ids.length; i += batchSize) {
-        const batch = ids.slice(i, i + batchSize);
-        for (const id of batch) {
-          if (messageIdAliases(source.source, id).some((alias) => done.has(alias))) continue;
-          m.emailsScanned++;
-          const email = await source.getMessage(id);
-          const { importEmailAttachments } = await import("./alerts/import-statements");
-          const statements = await importEmailAttachments(userId, {
-            source: source.source,
-            messageId: id,
-            from: email.from,
-            subject: email.subject,
-            attachments: email.attachments,
-            fetchAttachment: source.fetchAttachment ? (attachmentId) => source.fetchAttachment!(id, attachmentId) : undefined,
-          }).catch((e: unknown) => {
-            log.error("statement.email_failed", { userId, messageId: id, error: e instanceof Error ? e.message : "unknown" });
-            return [];
-          });
-          const outcome = parseEmail(email);
-          let status = outcome.status as string;
-          let transactionId: string | undefined;
-          if (outcome.status === "parsed") {
-            m.parsed++;
-            confidences.push(outcome.transaction.confidence);
-            const r = await ingestTransaction(userId, { ...outcome.transaction, source: source.source, sourceTransactionId: id }, rules, owners);
-            transactionId = r.transactionId;
-            if (r.status === "created") {
-              m.created++;
-              const { linkAdjacentFee } = await import("./alerts/fees");
-              await linkAdjacentFee(userId, r.transactionId);
-            } else {
-              m.duplicates++;
-              status = "duplicate";
-            }
-          } else if (outcome.status === "failed") {
-            m.parseFailures++;
-            const { queueKnownUnparsed } = await import("./alerts/ingest-email");
-            await queueKnownUnparsed(userId, email, outcome.parser);
-          } else if (statements.length) {
-            status = statements.every((file) => file.status === "duplicate") ? "duplicate" : "parsed";
-          } else m.skipped++;
-
-          // Metadata only. The body is dropped here and never persisted.
-          await markProcessedEmail({
-            userId,
-            connectionId,
-            messageId: id,
-            sender: email.from.slice(0, 200),
-            subject: email.subject.slice(0, 200),
-            receivedAt: email.date,
-            status,
-            parser: statements.length && outcome.status !== "parsed" ? "statement" : "parser" in outcome ? outcome.parser : null,
-            transactionId,
-          });
-          for (const alias of messageIdAliases(source.source, id)) done.add(alias);
-          if (imap) {
-            const parsedId = decodeImapMessageId(id);
-            if (parsedId) {
-              folderCursors![parsedId.folder] = {
-                uid: parsedId.uid,
-                uidValidity: source.folderUidValidity?.(parsedId.folder) ?? folderCursors![parsedId.folder]?.uidValidity,
-              };
-              await saveImapFolderCursor(connectionId, parsedId.folder, parsedId.uid, folderCursors![parsedId.folder]?.uidValidity ?? undefined);
-            }
+      let more = true;
+      while (more) {
+        more = false;
+        let ids: string[] = [];
+        if (!historyTried && source.listHistoryMessageIds && conn.gmailHistoryId && conn.lastSyncedAt) {
+          historyTried = true;
+          const hist = await source.listHistoryMessageIds(conn.gmailHistoryId);
+          if (hist.stale) ids = await source.listMessageIds({ query, after, max: pageSize, folderCursors });
+          else {
+            ids = hist.ids.slice(0, pageSize);
+            historyId = hist.historyId;
+            historyCoveredAll = true;
           }
-          lastId = id;
+        } else {
+          ids = await source.listMessageIds({ query, after, max: pageSize, folderCursors });
         }
+        if (!ids.length) break;
+        const aliases = ids.flatMap((id) => messageIdAliases(source.source, id));
+        const done = new Set(
+          (await db.processedEmail.findMany({ where: { userId, messageId: { in: aliases } }, select: { messageId: true } })).map((p) => p.messageId),
+        );
+        const batchSize = imap ? IMAP_BATCH_SIZE : ids.length || 1;
+        for (let i = 0; i < ids.length; i += batchSize) {
+          const batch = ids.slice(i, i + batchSize);
+          for (const id of batch) {
+            if (messageIdAliases(source.source, id).some((alias) => done.has(alias))) {
+              await checkpointImap(id);
+              lastId = id;
+              continue;
+            }
+            m.emailsScanned++;
+            const email = await source.getMessage(id);
+            const { importEmailAttachments } = await import("./alerts/import-statements");
+            const statements = await importEmailAttachments(userId, {
+              source: source.source,
+              messageId: id,
+              from: email.from,
+              subject: email.subject,
+              attachments: email.attachments,
+              fetchAttachment: source.fetchAttachment ? (attachmentId) => source.fetchAttachment!(id, attachmentId) : undefined,
+            }).catch((e: unknown) => {
+              log.error("statement.email_failed", { userId, messageId: id, error: e instanceof Error ? e.message : "unknown" });
+              return [];
+            });
+            const outcome = parseEmail(email);
+            let status = outcome.status as string;
+            let transactionId: string | undefined;
+            if (outcome.status === "parsed") {
+              m.parsed++;
+              confidences.push(outcome.transaction.confidence);
+              const r = await ingestTransaction(userId, { ...outcome.transaction, source: source.source, sourceTransactionId: id }, rules, owners);
+              transactionId = r.transactionId;
+              if (r.status === "created") {
+                m.created++;
+                const { linkAdjacentFee } = await import("./alerts/fees");
+                await linkAdjacentFee(userId, r.transactionId);
+              } else {
+                m.duplicates++;
+                status = "duplicate";
+              }
+            } else if (outcome.status === "failed") {
+              m.parseFailures++;
+              const { queueKnownUnparsed } = await import("./alerts/ingest-email");
+              await queueKnownUnparsed(userId, email, outcome.parser);
+            } else if (statements.length) {
+              status = statements.every((file) => file.status === "duplicate") ? "duplicate" : "parsed";
+            } else m.skipped++;
+
+            // Metadata only. The body is dropped here and never persisted.
+            await markProcessedEmail({
+              userId,
+              connectionId,
+              messageId: id,
+              sender: email.from.slice(0, 200),
+              subject: email.subject.slice(0, 200),
+              receivedAt: email.date,
+              status,
+              parser: statements.length && outcome.status !== "parsed" ? "statement" : "parser" in outcome ? outcome.parser : null,
+              transactionId,
+            });
+            for (const alias of messageIdAliases(source.source, id)) done.add(alias);
+            await checkpointImap(id);
+            lastId = id;
+          }
+        }
+        // IMAP: the 1,000 cap is a listing page, not a first-sync stop. Keep going until a short page.
+        if (imap && !historyCoveredAll && ids.length >= pageSize) more = true;
       }
     }
 

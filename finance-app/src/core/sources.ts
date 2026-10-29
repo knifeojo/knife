@@ -23,5 +23,11 @@ export const BANK_SOURCES: BankEmailSource[] = [
 
 /** First sync looks back this far; later syncs use the last-sync watermark. */
 export const INITIAL_LOOKBACK_DAYS = 365;
-/** Hard cap per sync run so a first sync cannot run away. */
+/** IMAP listing page size. A first sync keeps paging via the UID checkpoint until it is caught up. */
 export const MAX_MESSAGES_PER_SYNC = 1000;
+
+/** Override with MAX_MESSAGES_PER_SYNC for tests. */
+export function maxMessagesPerSync(): number {
+  const n = Number(process.env.MAX_MESSAGES_PER_SYNC);
+  return Number.isInteger(n) && n > 0 ? n : MAX_MESSAGES_PER_SYNC;
+}

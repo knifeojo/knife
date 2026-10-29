@@ -150,6 +150,37 @@ export function findFuzzyMatch(tx: CanonicalTransaction, candidates: LedgerCandi
   return candidates.find((c) => isFuzzyMatch(tx, c));
 }
 
+/** SMS and email of the same event can be minutes apart even when narration or balance is missing. */
+export const ALERT_TIME_WINDOW_MS = 10 * 60_000;
+
+export function isAlertTimeMatch(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
+  const left = alertChannel(tx.source);
+  const right = alertChannel(c.source);
+  if (!left || !right || left === right) return false;
+  if (counterpartAlreadyClaimed(tx, c)) return false;
+  if (c.currency !== tx.currency || c.type !== tx.type || c.amountMinor !== tx.amountMinor) return false;
+  if (c.accountKey !== accountKey(tx.institution, tx.accountLast4) && !c.accountKey.endsWith(":PRIMARY") && tx.accountLast4)
+    return false;
+  return Math.abs(c.transactionDate.getTime() - tx.transactionDate.getTime()) <= ALERT_TIME_WINDOW_MS;
+}
+
+/**
+ * Email ↔ SMS: same account, amount and direction, timestamps within about ±10 minutes.
+ * Description and running balance are not required. Closest unclaimed row wins.
+ */
+export function pickAlertTimeMatch(tx: CanonicalTransaction, candidates: LedgerCandidate[]): LedgerCandidate | undefined {
+  const channel = alertChannel(tx.source);
+  if (!channel) return undefined;
+  const hits = candidates.filter((c) => isAlertTimeMatch(tx, c));
+  hits.sort((a, b) => {
+    const da = Math.abs(a.transactionDate.getTime() - tx.transactionDate.getTime());
+    const db = Math.abs(b.transactionDate.getTime() - tx.transactionDate.getTime());
+    if (da !== db) return da - db;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+  return hits[0];
+}
+
 const FOREIGN_WALLET = new Set(["USD", "CAD", "GBP", "EUR"]);
 
 /** Non-NGN amounts that differ by one minor unit are the same cents (FX rounding), not a new row. */

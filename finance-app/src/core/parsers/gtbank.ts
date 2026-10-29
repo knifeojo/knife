@@ -1,7 +1,7 @@
 import { extractMaskedLast4 } from "@/core/alerts/money";
 import { normalizeCurrency, parseAmountToMinor } from "@/lib/money";
 import type { BankAlertParser, EmailMessage, ParsedTransaction, TransactionType } from "../types";
-import { emailBodyText, extractFields, parseBankDate, pickField } from "./text";
+import { emailBodyText, extractAlertFields, parseBankDate, pickField } from "./text";
 
 // Field labels seen across GTBank alert layouts. Adding a new label is a one-line change.
 const LABELS = {
@@ -101,7 +101,7 @@ export class GTBankParser implements BankAlertParser {
 
   parse(email: EmailMessage): ParsedTransaction | null {
     const body = emailBodyText(email);
-    const fields = extractFields(body);
+    const fields = extractAlertFields(email);
 
     // Amount: labelled field first, then the prose form "debited with NGN 250,000.00", then the subject.
     let money = parseMoney(pickField(fields, LABELS.amount));

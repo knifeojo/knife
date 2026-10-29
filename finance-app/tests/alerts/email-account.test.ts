@@ -105,6 +105,67 @@ describe("GTBank email alerts attach to the SMS account and dedupe", () => {
     expect(accounts.find((acct) => acct.id === row.accountId)?.maskedAccountNumber).toBe("PRIMARY");
   });
 
+  it("merges a generic email into an SMS row within 10 minutes and keeps the SMS narration", async () => {
+    const user = await db.user.create({ data: { email: "gtb-email-sms-time@test.dev" } });
+    const sms = await ingestSmsPayload(user.id, {
+      sender: "GTBank",
+      body: SMS,
+      receivedAt: "2026-10-02T11:20:00.000Z",
+      sourceId: "sms-time-2468",
+    });
+    expect(sms.status).toBe("created");
+    if (sms.status !== "created") return;
+
+    const posted = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "imap",
+      sourceTransactionId: "INBOX:101",
+      type: "DEBIT",
+      amountMinor: 7_643_000n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-02T11:27:00Z"),
+      description: "GTBank debit",
+      accountLast4: "2468",
+      confidence: 0.4,
+    });
+    expect(posted.status).toBe("duplicate");
+    expect(posted.transactionId).toBe(sms.transactionId);
+    const row = await db.transaction.findUniqueOrThrow({ where: { id: sms.transactionId } });
+    expect(row.description).toMatch(/ADA OKAFOR/i);
+    expect(row.description).not.toMatch(/^GTBank debit$/i);
+    const sources = await db.transactionSource.findMany({ where: { transactionId: sms.transactionId } });
+    expect(sources.map((s) => s.source).sort()).toEqual(["imap", "sms"]);
+  });
+
+  it("upgrades a generic email row when a later SMS brings the real narration", async () => {
+    const user = await db.user.create({ data: { email: "gtb-email-first@test.dev" } });
+    const email = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "imap",
+      sourceTransactionId: "INBOX:102",
+      type: "DEBIT",
+      amountMinor: 7_643_000n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-02T11:20:00Z"),
+      description: "GTBank debit",
+      accountLast4: "2468",
+      confidence: 0.4,
+    });
+    expect(email.status).toBe("created");
+    const sms = await ingestSmsPayload(user.id, {
+      sender: "GTBank",
+      body: SMS,
+      receivedAt: "2026-10-02T11:22:00.000Z",
+      sourceId: "sms-after-email",
+    });
+    expect(sms.status).toBe("duplicate");
+    if (sms.status !== "duplicate") return;
+    expect(sms.transactionId).toBe(email.transactionId);
+    const row = await db.transaction.findUniqueOrThrow({ where: { id: email.transactionId } });
+    expect(row.description).toMatch(/ADA OKAFOR/i);
+    expect(row.description).not.toMatch(/^GTBank debit$/i);
+  });
+
   it("links an IMAP alert to the statement row for the same amount on a covered day", async () => {
     const user = await db.user.create({ data: { email: "gtb-stmt-dedup@test.dev" } });
     const account = await db.account.create({

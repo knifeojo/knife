@@ -128,6 +128,39 @@ describe("GTBankParser: last-4 and narration from HTML plus a short text part", 
     expect(tx.description).toContain("NIP/TRANSFER/TO ADA OKAFOR");
     expect(parseEmail(R.gensHtmlWithWeakText).status).toBe("parsed");
   });
+
+  it("parses nested GeNS tables with nbsp labels when the subject has no amount", () => {
+    const tx = parser.parse(R.gensNestedNbspTable)!;
+    expect(tx).not.toBeNull();
+    expect(tx.type).toBe("DEBIT");
+    expect(tx.amountMinor).toBe(7_643_000n);
+    expect(tx.accountLast4).toBe("2468");
+    expect(tx.balanceAfterMinor).toBe(90_000_000n);
+    expect(tx.reference).toBe("SYN260002101200001");
+    expect(tx.description).toContain("NIP/TRANSFER/TO ADA OKAFOR");
+    expect(tx.description).toContain("RENT OCT");
+    expect(tx.description).not.toMatch(/^GTBank debit$/i);
+    expect(tx.transactionDate.toISOString()).toBe("2026-10-02T11:20:00.000Z");
+  });
+
+  it("pairs labels on one table row with values on the next", () => {
+    const tx = parser.parse(R.gensLabelThenValueRows)!;
+    expect(tx.type).toBe("CREDIT");
+    expect(tx.amountMinor).toBe(1_200_000n);
+    expect(tx.accountLast4).toBe("2468");
+    expect(tx.balanceAfterMinor).toBe(91_200_000n);
+    expect(tx.description).toContain("KEMI ADE");
+    expect(tx.description).not.toMatch(/^GTBank credit$/i);
+  });
+
+  it("falls back to plaintext labels when HTML has no table fields", () => {
+    const tx = parser.parse(R.gensTextFallback)!;
+    expect(tx.type).toBe("DEBIT");
+    expect(tx.amountMinor).toBe(320_000n);
+    expect(tx.accountLast4).toBe("2468");
+    expect(tx.balanceAfterMinor).toBe(88_800_000n);
+    expect(tx.description).toContain("POS SYNTHETIC MART LEKKI");
+  });
 });
 
 describe("helpers", () => {
@@ -153,5 +186,12 @@ describe("helpers", () => {
   it("flattens HTML tables into label : value lines", () => {
     const text = htmlToText("<table><tr><td>Amount</td><td>NGN&nbsp;5,000.00</td></tr></table>");
     expect(text).toBe("Amount : NGN 5,000.00");
+  });
+
+  it("flattens nested tables so a label cell and a value cell still pair", () => {
+    const text = htmlToText(
+      "<table><tr><td><table><tr><td>Available Balance</td></tr></table></td><td><table><tr><td>:</td></tr></table></td><td><table><tr><td>NGN&nbsp;9,000.00</td></tr></table></td></tr></table>",
+    );
+    expect(text).toContain("Available Balance : NGN 9,000.00");
   });
 });
