@@ -48,9 +48,9 @@ describe("GTBank email alerts attach to the SMS account and dedupe", () => {
     expect(row.description).not.toMatch(/^GTBank debit$/i);
   });
 
-  it("attaches an unmatched last-4 to the only GTBank account instead of opening a duplicate", async () => {
+  it("holds an unmatched last-4 for review instead of attaching it to the only GTBank account", async () => {
     const user = await db.user.create({ data: { email: "gtb-one-acct@test.dev" } });
-    await db.account.create({
+    const account = await db.account.create({
       data: {
         userId: user.id,
         institution: "GTBank",
@@ -71,16 +71,21 @@ describe("GTBank email alerts attach to the SMS account and dedupe", () => {
       accountLast4: "7643",
       confidence: 1,
     });
-    expect(posted.status).toBe("created");
+    expect(posted.status).toBe("review");
+    if (posted.status !== "review") return;
+    expect(posted.reason).toBe("possibly another account");
     const accounts = await db.account.findMany({ where: { userId: user.id, institution: "GTBank" } });
     expect(accounts.map((a) => a.maskedAccountNumber)).toEqual(["****2468"]);
-    const row = await db.transaction.findUniqueOrThrow({ where: { id: posted.transactionId } });
-    expect(row.accountId).toBe(accounts[0].id);
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(0);
+    const held = await db.unparsedAlert.findUniqueOrThrow({ where: { id: posted.id } });
+    expect(held.reason).toBe("possibly another account");
+    expect(held.status).toBe("open");
+    expect(account.id).toBe(accounts[0].id);
   });
 
-  it("does not invent a third last-4 account when two GTBank accounts already exist", async () => {
+  it("holds an unmatched last-4 for review when two GTBank accounts already exist", async () => {
     const user = await db.user.create({ data: { email: "gtb-two-acct@test.dev" } });
-    const a = await db.account.create({
+    await db.account.create({
       data: { userId: user.id, institution: "GTBank", accountName: "GTB 2468", maskedAccountNumber: "****2468", currency: "NGN" },
     });
     await db.account.create({
@@ -98,11 +103,101 @@ describe("GTBank email alerts attach to the SMS account and dedupe", () => {
       accountLast4: "7643",
       confidence: 1,
     });
+    expect(posted.status).toBe("review");
     const accounts = await db.account.findMany({ where: { userId: user.id, institution: "GTBank" }, orderBy: { maskedAccountNumber: "asc" } });
-    expect(accounts.map((row) => row.maskedAccountNumber)).toEqual(["****1111", "****2468", "PRIMARY"]);
+    expect(accounts.map((row) => row.maskedAccountNumber)).toEqual(["****1111", "****2468"]);
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it("attaches an email with no account shown onto the only GTBank account", async () => {
+    const user = await db.user.create({ data: { email: "gtb-no-last4@test.dev" } });
+    const account = await db.account.create({
+      data: { userId: user.id, institution: "GTBank", accountName: "GTB 2468", maskedAccountNumber: "****2468", currency: "NGN" },
+    });
+    const posted = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "imap",
+      sourceTransactionId: "INBOX:93",
+      type: "DEBIT",
+      amountMinor: 1_000_00n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-03T10:00:00Z"),
+      description: "POS SYNTHETIC MART LEKKI",
+      confidence: 1,
+    });
+    expect(posted.status).toBe("created");
+    if (posted.status !== "created") return;
     const row = await db.transaction.findUniqueOrThrow({ where: { id: posted.transactionId } });
-    expect(row.accountId).not.toBe(a.id);
-    expect(accounts.find((acct) => acct.id === row.accountId)?.maskedAccountNumber).toBe("PRIMARY");
+    expect(row.accountId).toBe(account.id);
+  });
+
+  it("holds an email whose narration names a different account for review", async () => {
+    const user = await db.user.create({ data: { email: "gtb-narration-last4@test.dev" } });
+    await db.account.create({
+      data: { userId: user.id, institution: "GTBank", accountName: "GTB 2468", maskedAccountNumber: "****2468", currency: "NGN" },
+    });
+    const posted = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "imap",
+      sourceTransactionId: "INBOX:94",
+      type: "DEBIT",
+      amountMinor: 1_000_00n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-03T10:00:00Z"),
+      description: "Acct:******7643 POS SYNTHETIC MART",
+      confidence: 1,
+    });
+    expect(posted.status).toBe("review");
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it("holds an email whose running balance does not fit the nearby chain", async () => {
+    const user = await db.user.create({ data: { email: "gtb-bal-chain@test.dev" } });
+    await ingestSmsPayload(user.id, {
+      sender: "GTBank",
+      body: SMS,
+      receivedAt: "2026-10-02T11:20:00.000Z",
+      sourceId: "sms-bal-2468",
+    });
+    const posted = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "imap",
+      sourceTransactionId: "INBOX:95",
+      type: "DEBIT",
+      amountMinor: 5_000_00n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-02T11:25:00Z"),
+      description: "POS SYNTHETIC MART",
+      balanceAfterMinor: 5_000_000n,
+      confidence: 1,
+    });
+    expect(posted.status).toBe("review");
+    expect(await db.unparsedAlert.findFirst({ where: { userId: user.id, reason: "possibly another account" } })).toBeTruthy();
+  });
+
+  it("holds a matching last-4 email whose running balance still does not fit the chain", async () => {
+    const user = await db.user.create({ data: { email: "gtb-bal-match-last4@test.dev" } });
+    await ingestSmsPayload(user.id, {
+      sender: "GTBank",
+      body: SMS,
+      receivedAt: "2026-10-02T11:20:00.000Z",
+      sourceId: "sms-bal-match",
+    });
+    const posted = await ingestTransaction(user.id, {
+      institution: "GTBank",
+      source: "imap",
+      sourceTransactionId: "INBOX:96",
+      type: "DEBIT",
+      amountMinor: 5_000_00n,
+      currency: "NGN",
+      transactionDate: new Date("2026-10-02T11:25:00Z"),
+      description: "POS SYNTHETIC MART",
+      accountLast4: "2468",
+      balanceAfterMinor: 5_000_000n,
+      confidence: 1,
+    });
+    expect(posted.status).toBe("review");
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(1);
   });
 
   it("merges a generic email into an SMS row within 10 minutes and keeps the SMS narration", async () => {
@@ -213,8 +308,11 @@ describe("GTBank email alerts attach to the SMS account and dedupe", () => {
     const conn = await db.financialConnection.create({
       data: { userId: user.id, provider: "fixture", lastSyncedAt: new Date("2026-01-01") },
     });
-    await syncEmailSource(user.id, conn.id, new FixtureEmailSource([R.gensHtmlWithWeakText]));
+    const summary = await syncEmailSource(user.id, conn.id, new FixtureEmailSource([R.gensHtmlWithWeakText]));
     const accounts = await db.account.findMany({ where: { userId: user.id, institution: "GTBank", currency: "NGN" } });
     expect(accounts.map((a) => a.maskedAccountNumber)).toEqual(["****4521"]);
+    expect(summary.parseFailures).toBe(1);
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(0);
+    expect(await db.unparsedAlert.findFirst({ where: { userId: user.id, reason: "possibly another account" } })).toBeTruthy();
   });
 });

@@ -242,8 +242,10 @@ async function persistParsed(userId: string, parsed: StatementParseResult, { ins
   for (const tx of parsed.transactions) {
     const r = await ingestTransaction(userId, tx, rules, owners, claimed);
     if (r.status === "created") created++;
-    else duplicates++;
-    accountId ??= (await db.transaction.findUnique({ where: { id: r.transactionId }, select: { accountId: true } }))?.accountId;
+    else if (r.status === "duplicate") duplicates++;
+    if (r.status !== "review") {
+      accountId ??= (await db.transaction.findUnique({ where: { id: r.transactionId }, select: { accountId: true } }))?.accountId;
+    }
   }
 
   // Nothing is silently dropped: every unreadable row is kept for the user to add or dismiss.

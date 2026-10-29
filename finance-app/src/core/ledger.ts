@@ -14,10 +14,18 @@ import { extractPayoutQuote } from "./fx/quotes";
 import { storeQuotedRate } from "./fx/realised";
 import { pairOwnTransfers } from "./transfers";
 import type { CanonicalTransaction } from "./types";
+import {
+  POSSIBLY_ANOTHER_ACCOUNT,
+  balanceFitsAccount,
+  isEmailAlertSource,
+  last4MatchesMasked,
+  shownAccountLast4s,
+} from "./alerts/account-attach";
 
 export type IngestResult =
   | { status: "created"; transactionId: string }
-  | { status: "duplicate"; transactionId: string; matchType: "source" | "exact" | "fuzzy" };
+  | { status: "duplicate"; transactionId: string; matchType: "source" | "exact" | "fuzzy" }
+  | { status: "review"; reason: typeof POSSIBLY_ANOTHER_ACCOUNT; id: string; transactionId?: undefined };
 
 /** Names of the user, for spotting transfers between their own accounts (reordered names included). */
 export async function loadOwners(userId: string): Promise<string[]> {
@@ -113,6 +121,99 @@ async function upsertAccount(userId: string, tx: CanonicalTransaction) {
   });
 }
 
+async function createInstitutionAccount(
+  userId: string,
+  tx: CanonicalTransaction,
+  masked: string,
+) {
+  const digits = masked === "PRIMARY" ? undefined : masked.replace(/\D/g, "");
+  return db.account.upsert({
+    where: { userId_institution_maskedAccountNumber: { userId, institution: tx.institution, maskedAccountNumber: masked } },
+    update: {},
+    create: {
+      userId,
+      institution: tx.institution,
+      maskedAccountNumber: masked,
+      accountName: `${tx.institution} ${tx.currency} ${digits ? `••${digits}` : "account"}`,
+      currency: tx.currency,
+    },
+  });
+}
+
+async function widenLast4IfLonger<T extends { id: string; maskedAccountNumber: string }>(
+  match: T,
+  digits: string,
+  tx: CanonicalTransaction,
+): Promise<T | Awaited<ReturnType<typeof db.account.update>>> {
+  const d = match.maskedAccountNumber.replace(/\D/g, "");
+  if (digits.length > d.length && match.maskedAccountNumber !== "PRIMARY") {
+    return db.account.update({
+      where: { id: match.id },
+      data: { maskedAccountNumber: `****${digits}`, accountName: `${tx.institution} ${tx.currency} ••${digits}` },
+    });
+  }
+  return match;
+}
+
+/**
+ * Email alerts: attach on a matching last-4, or (only when the email shows no account) onto the
+ * single existing account. A different last-4, or a running balance that does not fit the chain,
+ * is held for review as possibly another account.
+ */
+async function resolveAccountForEmail(
+  userId: string,
+  tx: CanonicalTransaction,
+): Promise<{ status: "ok"; account: Awaited<ReturnType<typeof upsertAccount>> } | { status: "review" }> {
+  const known = await db.account.findMany({ where: { userId, institution: tx.institution, currency: tx.currency } });
+  const real = known.filter((a) => a.maskedAccountNumber !== "PRIMARY");
+  const shown = shownAccountLast4s(tx);
+
+  const matchShown = (digits: string) =>
+    known.find((a) => last4MatchesMasked(digits, a.maskedAccountNumber));
+
+  if (shown.length) {
+    for (const digits of shown) {
+      const match = matchShown(digits);
+      if (!match) continue;
+      if (!(await balanceFitsAccount(userId, match.id, tx))) return { status: "review" };
+      return { status: "ok", account: await widenLast4IfLonger(match, digits, tx) };
+    }
+    if (!real.length && !known.length) {
+      return { status: "ok", account: await createInstitutionAccount(userId, tx, `****${shown[0]}`) };
+    }
+    return { status: "review" };
+  }
+
+  if (real.length === 1) {
+    if (!(await balanceFitsAccount(userId, real[0].id, tx))) return { status: "review" };
+    return { status: "ok", account: real[0] };
+  }
+  if (real.length > 1) {
+    const primary = known.find((a) => a.maskedAccountNumber === "PRIMARY");
+    if (primary) {
+      if (!(await balanceFitsAccount(userId, primary.id, tx))) return { status: "review" };
+      return { status: "ok", account: primary };
+    }
+    return { status: "ok", account: await createInstitutionAccount(userId, tx, "PRIMARY") };
+  }
+  return { status: "ok", account: await createInstitutionAccount(userId, tx, "PRIMARY") };
+}
+
+async function holdPossiblyAnotherAccount(userId: string, tx: CanonicalTransaction): Promise<IngestResult> {
+  const row = await db.unparsedAlert.create({
+    data: {
+      userId,
+      channel: "email",
+      sender: tx.institution.slice(0, 200),
+      receivedAt: tx.transactionDate,
+      rawText: tx.description.slice(0, 4000),
+      reason: POSSIBLY_ANOTHER_ACCOUNT,
+      parser: tx.institution,
+    },
+  });
+  return { status: "review", reason: POSSIBLY_ANOTHER_ACCOUNT, id: row.id };
+}
+
 /**
  * When the same transaction arrives again with a fuller description (e.g. a statement re-read with a
  * better reader, or the full statement after a short extract), upgrade the stored description and the
@@ -169,7 +270,11 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
     return { status: "duplicate", transactionId: seen.transactionId, matchType: "source" };
   }
 
-  const account = await upsertAccount(userId, tx);
+  const resolved = isEmailAlertSource(tx.source)
+    ? await resolveAccountForEmail(userId, tx)
+    : { status: "ok" as const, account: await upsertAccount(userId, tx) };
+  if (resolved.status === "review") return holdPossiblyAnotherAccount(userId, tx);
+  const account = resolved.account;
   if (tx.accountHolder && !account.holderName) {
     await db.account.update({ where: { id: account.id }, data: { holderName: tx.accountHolder } });
   }
@@ -426,12 +531,16 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
               m.parsed++;
               confidences.push(outcome.transaction.confidence);
               const r = await ingestTransaction(userId, { ...outcome.transaction, source: source.source, sourceTransactionId: id }, rules, owners);
-              transactionId = r.transactionId;
               if (r.status === "created") {
+                transactionId = r.transactionId;
                 m.created++;
                 const { linkAdjacentFee } = await import("./alerts/fees");
                 await linkAdjacentFee(userId, r.transactionId);
+              } else if (r.status === "review") {
+                m.parseFailures++;
+                status = "review";
               } else {
+                transactionId = r.transactionId;
                 m.duplicates++;
                 status = "duplicate";
               }

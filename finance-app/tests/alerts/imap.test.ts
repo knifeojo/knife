@@ -10,6 +10,8 @@ import {
   imapFromClauses,
   imapMessageIdAliases,
   imapReconnectDelayMs,
+  imapFolderSearchQuery,
+  imapUidRangeAfter,
   isImapDisconnectError,
   isRelevantImapFolder,
   relevantImapFolders,
@@ -186,6 +188,14 @@ describe("IMAP source (mocked)", () => {
       folderCursors: { INBOX: { uid: 17, uidValidity: "9" } },
     });
     expect(ids).toEqual(["INBOX:18", "INBOX:22"]);
+    expect(client.search).toHaveBeenCalledWith(expect.objectContaining({ uid: "18:*" }), { uid: true });
+  });
+
+  it("asks SEARCH for UIDs after the checkpoint so a capped first page is not repeated", () => {
+    expect(imapUidRangeAfter(0)).toBeUndefined();
+    expect(imapUidRangeAfter(1000)).toBe("1001:*");
+    expect(imapFolderSearchQuery({ uidAfter: 1000 })).toEqual(expect.objectContaining({ uid: "1001:*" }));
+    expect(imapFolderSearchQuery({ after: new Date("2026-01-01"), uidAfter: 0 }).uid).toBeUndefined();
   });
 
   it("resets a folder cursor when UIDVALIDITY changes", async () => {

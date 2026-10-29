@@ -29,15 +29,29 @@ const MESSAGES: Record<number, Buffer> = {
   14: alertMime(14, "NGN1,400.00", "SYNTHETIC PAYEE FOUR"),
 };
 
-function statefulClient(opts: { failOnUid?: number; failTimes?: number }): { factory: () => ImapClientLike; fetchCount: () => number } {
+function uidStart(query: Record<string, unknown>): number {
+  const uid = typeof query.uid === "string" ? query.uid : "";
+  const m = uid.match(/^(\d+):/);
+  return m ? Number(m[1]) : 0;
+}
+
+function statefulClient(opts: { failOnUid?: number; failTimes?: number; cap?: number }): { factory: () => ImapClientLike; fetchCount: () => number } {
   let remainingFails = opts.failTimes ?? 0;
   let fetches = 0;
+  const all = [11, 12, 13, 14];
+  const cap = opts.cap ?? all.length;
   const factory = (): ImapClientLike => ({
     connect: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue([{ path: "INBOX", specialUse: "\\Inbox" }]),
     mailboxOpen: vi.fn().mockResolvedValue({ uidValidity: 5, path: "INBOX" }),
-    search: vi.fn().mockResolvedValue([11, 12, 13, 14]),
+    search: vi.fn(async (query: Record<string, unknown>) => {
+      const start = uidStart(query);
+      const remaining = all.filter((uid) => uid >= start && uid > 0);
+      // No UID range: a server that only returns the first page of the mailbox.
+      if (!query.uid) return remaining.slice(0, cap);
+      return remaining.filter((uid) => uid >= start).slice(0, cap);
+    }),
     fetchOne: vi.fn(async (seq: string | number) => {
       const uid = Number(seq);
       fetches++;
@@ -52,7 +66,7 @@ function statefulClient(opts: { failOnUid?: number; failTimes?: number }): { fac
 }
 
 describe("IMAP first-sync catch-up", () => {
-  it("pages past the per-listing cap in one run until the UID checkpoint is caught up", async () => {
+  it("pages past a 1,000-style SEARCH cap in one run until the UID checkpoint is caught up", async () => {
     const prev = process.env.MAX_MESSAGES_PER_SYNC;
     process.env.MAX_MESSAGES_PER_SYNC = "2";
     try {
@@ -60,12 +74,13 @@ describe("IMAP first-sync catch-up", () => {
       const conn = await db.financialConnection.create({
         data: { userId: user.id, provider: "imap", imapHost: "imap.mail.yahoo.com", imapPort: 993, imapUser: "ada@yahoo.com", status: "active" },
       });
-      const client = statefulClient({});
+      const client = statefulClient({ cap: 2 });
       const summary = await syncEmailSource(
         user.id,
         conn.id,
         new ImapEmailSource({ host: "imap.mail.yahoo.com", port: 993, user: "ada@yahoo.com", password: "app-password-never-logged" }, client.factory),
       );
+      expect(summary.emailsScanned).toBe(4);
       expect(summary.created).toBe(4);
       expect(await db.transaction.count({ where: { userId: user.id } })).toBe(4);
       const cursor = await db.imapFolderCursor.findFirst({ where: { connectionId: conn.id, folder: "INBOX" } });

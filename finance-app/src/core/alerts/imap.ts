@@ -178,6 +178,19 @@ function fromQuery(): Record<string, unknown> {
   return {};
 }
 
+/** UID range so a later page is not the same first N SEARCH hits. */
+export function imapUidRangeAfter(cursor: number): string | undefined {
+  return cursor > 0 ? `${cursor + 1}:*` : undefined;
+}
+
+export function imapFolderSearchQuery(opts: { after?: Date; uidAfter?: number }): Record<string, unknown> {
+  const query: Record<string, unknown> = { ...fromQuery() };
+  if (opts.after) query.since = opts.after;
+  const uid = imapUidRangeAfter(opts.uidAfter ?? 0);
+  if (uid) query.uid = uid;
+  return query;
+}
+
 export interface StatementCandidate {
   folder: string;
   uid: number;
@@ -241,8 +254,7 @@ export class ImapEmailSource implements EmailSource {
           if (validity) this.validity.set(folder, validity);
           const stored = folderCursors?.[folder];
           const cursor = stored && stored.uidValidity && validity && stored.uidValidity !== validity ? 0 : stored?.uid ?? 0;
-          const query: Record<string, unknown> = { ...fromQuery() };
-          if (after) query.since = after;
+          const query = imapFolderSearchQuery({ after, uidAfter: cursor });
           const uids = ((await client.search(query, { uid: true })) || []).filter((uid) => uid > cursor).sort((a, b) => a - b);
           for (const uid of uids) {
             ids.push(encodeImapMessageId(folder, uid));

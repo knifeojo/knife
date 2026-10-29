@@ -40,7 +40,7 @@ async function markProcessed(
 async function queueUnparsed(
   userId: string,
   msg: AlertMessage,
-  reason: "unparsed" | "low_confidence" | "known_sender",
+  reason: "unparsed" | "low_confidence" | "known_sender" | "possibly another account",
   parser?: string,
 ): Promise<string> {
   storeAlertSample({ userId, channel: msg.channel, sender: msg.sender, parser, body: msg.body });
@@ -63,6 +63,7 @@ async function postAlert(userId: string, parsed: ParsedAlert, source: SourceType
   const owners = await loadOwners(userId);
   const canonical: CanonicalTransaction = { ...parsed, source, sourceTransactionId };
   const result = await ingestTransaction(userId, canonical, rules, owners);
+  if (result.status === "review") return result;
   const posted = await db.transaction.findUnique({ where: { id: result.transactionId } });
   if (posted) {
     await linkAdjacentFee(userId, posted.id);
@@ -112,6 +113,10 @@ export async function ingestAlertMessage(
   }
 
   const posted = await postAlert(userId, outcome.transaction, opts.source, sourceId);
+  if (posted.status === "review") {
+    await markProcessed(userId, msg, sourceId, { status: "review", parser: outcome.parser });
+    return { status: "review", id: posted.id, parser: outcome.parser };
+  }
   await markProcessed(userId, msg, sourceId, {
     status: posted.status === "created" ? "parsed" : "duplicate",
     parser: outcome.parser,
