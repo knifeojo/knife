@@ -47,10 +47,11 @@ function statefulClient(opts: { failOnUid?: number; failTimes?: number; cap?: nu
     mailboxOpen: vi.fn().mockResolvedValue({ uidValidity: 5, path: "INBOX" }),
     search: vi.fn(async (query: Record<string, unknown>) => {
       const start = uidStart(query);
-      const remaining = all.filter((uid) => uid >= start && uid > 0);
-      // No UID range: a server that only returns the first page of the mailbox.
-      if (!query.uid) return remaining.slice(0, cap);
-      return remaining.filter((uid) => uid >= start).slice(0, cap);
+      const remaining = all.filter((uid) => uid >= Math.max(start, 1));
+      // Yahoo SEARCH FROM/OR/SINCE returns the first page and ignores UID.
+      const fromSearch = !!(query.from || query.or || query.since);
+      if (fromSearch) return all.slice(0, cap);
+      return remaining.slice(0, cap);
     }),
     fetchOne: vi.fn(async (seq: string | number) => {
       const uid = Number(seq);

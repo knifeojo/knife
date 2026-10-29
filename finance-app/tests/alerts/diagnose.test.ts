@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { db } from "@/lib/db";
 import { GTBANK_FIXTURES as F, GTBANK_REGRESSION as R } from "@/core/fixtures/gtbank-alerts";
-import { alertFingerprint, diagnoseFailedEmail, formatAlertFingerprint, maskSubjectDigits } from "@/core/alerts/diagnose";
+import { heldReasonTag } from "@/core/alerts/account-attach";
+import { alertFingerprint, diagnoseFailedEmail, diagnoseHeldReasonCounts, formatAlertFingerprint, maskSubjectDigits } from "@/core/alerts/diagnose";
 
 describe("alerts:diagnose fingerprints", () => {
   it("masks digits in the subject and lists labels without values", () => {
@@ -38,5 +40,24 @@ describe("alerts:diagnose fingerprints", () => {
 
     expect(diagnoseFailedEmail(R.gensNestedNbspTable)).toBeNull();
     expect(diagnoseFailedEmail(F.marketing)).toBeNull();
+  });
+});
+
+describe("alerts:diagnose held-reason counts", () => {
+  it("prints open held-reason counts without values", async () => {
+    const user = await db.user.create({ data: { email: "diagnose-held@test.dev" } });
+    await db.unparsedAlert.createMany({
+      data: [
+        { userId: user.id, channel: "email", sender: "GTBank", receivedAt: new Date("2026-10-03T10:00:00Z"), rawText: "held one", reason: heldReasonTag("last-4") },
+        { userId: user.id, channel: "email", sender: "GTBank", receivedAt: new Date("2026-10-03T11:00:00Z"), rawText: "held two", reason: heldReasonTag("last-4") },
+        { userId: user.id, channel: "email", sender: "GTBank", receivedAt: new Date("2026-10-03T12:00:00Z"), rawText: "held three", reason: heldReasonTag("balance") },
+        { userId: user.id, channel: "email", sender: "GTBank", receivedAt: new Date("2026-10-03T13:00:00Z"), rawText: "unparsed", reason: "unparsed" },
+      ],
+    });
+    const line = await diagnoseHeldReasonCounts(user.id);
+    expect(line).toContain("Held reasons (open):");
+    expect(line).toContain("last-4\t2");
+    expect(line).toContain("balance\t1");
+    expect(line).not.toMatch(/76,430|900,000|2468|NGN/i);
   });
 });

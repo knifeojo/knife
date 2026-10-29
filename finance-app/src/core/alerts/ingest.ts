@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
 import { ingestTransaction, loadOwners, loadUserRules } from "../ledger";
 import type { CanonicalTransaction, SourceType } from "../types";
+import {
+  canonicalFromHeld,
+  isPossiblyAnotherAccount,
+  parseHeldAlert,
+  shownAccountLast4s,
+} from "./account-attach";
 import { scanBalanceGaps } from "./balance";
 import { linkAdjacentFee } from "./fees";
 import { alertSourceId, parseAlert } from "./registry";
@@ -142,10 +148,13 @@ export function smsIdempotencyKey(sender: string, body: string, receivedAt: Date
   return createHash("sha256").update(`sms|${sender}|${body}|${receivedAt.toISOString()}`).digest("hex");
 }
 
+export type UnparsedAction = "ignore" | "add" | "attach" | "create";
+
 export async function resolveUnparsed(
   userId: string,
   id: string,
-  action: "ignore" | "add",
+  action: UnparsedAction,
+  opts?: { accountId?: string },
 ): Promise<{ ok: true } | { error: string }> {
   const row = await db.unparsedAlert.findFirst({ where: { id, userId, status: "open" } });
   if (!row) return { error: "Alert not found" };
@@ -153,6 +162,39 @@ export async function resolveUnparsed(
     await db.unparsedAlert.update({ where: { id }, data: { status: "ignored", resolvedAt: new Date() } });
     return { ok: true };
   }
+
+  if (action === "attach" || action === "create") {
+    const held = parseHeldAlert(row.rawText);
+    if (!held) return { error: "This alert cannot be attached." };
+    const tx = canonicalFromHeld(held);
+    let accountId = opts?.accountId;
+    if (action === "attach") {
+      if (!accountId) return { error: "Choose an account to attach to." };
+      const account = await db.account.findFirst({ where: { id: accountId, userId } });
+      if (!account) return { error: "Account not found" };
+    } else {
+      const digits = shownAccountLast4s(tx)[0];
+      const masked = digits ? `****${digits}` : "PRIMARY";
+      const account = await db.account.upsert({
+        where: { userId_institution_maskedAccountNumber: { userId, institution: tx.institution, maskedAccountNumber: masked } },
+        update: {},
+        create: {
+          userId,
+          institution: tx.institution,
+          maskedAccountNumber: masked,
+          accountName: `${tx.institution} ${tx.currency} ${digits ? `••${digits}` : "account"}`,
+          currency: tx.currency,
+        },
+      });
+      accountId = account.id;
+    }
+    const posted = await ingestTransaction(userId, tx, undefined, undefined, undefined, { accountId });
+    if (posted.status === "review") return { error: "Could not add this alert." };
+    await db.unparsedAlert.update({ where: { id }, data: { status: "added", resolvedAt: new Date() } });
+    return { ok: true };
+  }
+
+  if (isPossiblyAnotherAccount(row.reason)) return { error: "Choose an account, create a new one, or ignore." };
   const msg: AlertMessage = { channel: row.channel as "email" | "sms", sender: row.sender, body: row.rawText, receivedAt: row.receivedAt };
   const outcome = parseAlert(msg);
   if (outcome.status !== "parsed" && outcome.status !== "review") return { error: "Still cannot parse this alert." };

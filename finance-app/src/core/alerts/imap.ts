@@ -255,10 +255,16 @@ export class ImapEmailSource implements EmailSource {
           const stored = folderCursors?.[folder];
           const cursor = stored && stored.uidValidity && validity && stored.uidValidity !== validity ? 0 : stored?.uid ?? 0;
           const query = imapFolderSearchQuery({ after, uidAfter: cursor });
-          const uids = ((await client.search(query, { uid: true })) || []).filter((uid) => uid > cursor).sort((a, b) => a - b);
-          for (const uid of uids) {
+          // Yahoo SEARCH FROM/OR often returns the first ~1,000 hits and ignores UID. Filter what
+          // we got, then if nothing is new, walk UID space without FROM so paging can catch up.
+          let uids = ((await client.search(query, { uid: true })) || []).filter((uid) => uid > cursor).sort((a, b) => a - b);
+          if (!uids.length) {
+            const range = imapUidRangeAfter(cursor) ?? "1:*";
+            uids = ((await client.search({ uid: range }, { uid: true })) || []).filter((uid) => uid > cursor).sort((a, b) => a - b);
+          }
+          const room = max - ids.length;
+          for (const uid of uids.slice(0, room)) {
             ids.push(encodeImapMessageId(folder, uid));
-            if (ids.length >= max) break;
           }
         } catch (e) {
           if (isImapDisconnectError(e)) throw e;

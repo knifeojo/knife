@@ -1,3 +1,4 @@
+import { formatHeldReasonCounts, heldReasonCounts } from "./account-attach";
 import { parseEmail } from "../parsers";
 import { extractFieldLabels } from "../parsers/text";
 import type { EmailMessage } from "../types";
@@ -31,4 +32,9 @@ export function diagnoseFailedEmail(email: EmailMessage): string | null {
   const outcome = parseEmail(email);
   if (outcome.status !== "failed") return null;
   return formatAlertFingerprint(alertFingerprint(email));
+}
+
+/** Open held-alert reason counts for alerts:diagnose. Labels only; no values. */
+export async function diagnoseHeldReasonCounts(userId?: string): Promise<string> {
+  return formatHeldReasonCounts(await heldReasonCounts(userId));
 }

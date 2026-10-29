@@ -17,15 +17,23 @@ import type { CanonicalTransaction } from "./types";
 import {
   POSSIBLY_ANOTHER_ACCOUNT,
   balanceFitsAccount,
+  heldReasonTag,
   isEmailAlertSource,
   last4MatchesMasked,
+  serializeHeldAlert,
   shownAccountLast4s,
+  type HoldReason,
 } from "./alerts/account-attach";
 
 export type IngestResult =
   | { status: "created"; transactionId: string }
   | { status: "duplicate"; transactionId: string; matchType: "source" | "exact" | "fuzzy" }
   | { status: "review"; reason: typeof POSSIBLY_ANOTHER_ACCOUNT; id: string; transactionId?: undefined };
+
+export interface IngestOptions {
+  /** Attach onto this account and skip the possibly-another-account hold. */
+  accountId?: string;
+}
 
 /** Names of the user, for spotting transfers between their own accounts (reordered names included). */
 export async function loadOwners(userId: string): Promise<string[]> {
@@ -157,13 +165,13 @@ async function widenLast4IfLonger<T extends { id: string; maskedAccountNumber: s
 
 /**
  * Email alerts: attach on a matching last-4, or (only when the email shows no account) onto the
- * single existing account. A different last-4, or a running balance that does not fit the chain,
- * is held for review as possibly another account.
+ * single existing account. A different last-4 is held for review as possibly another account.
+ * Balance is checked later, and only when this email would create a new row.
  */
 async function resolveAccountForEmail(
   userId: string,
   tx: CanonicalTransaction,
-): Promise<{ status: "ok"; account: Awaited<ReturnType<typeof upsertAccount>> } | { status: "review" }> {
+): Promise<{ status: "ok"; account: Awaited<ReturnType<typeof upsertAccount>> } | { status: "review"; heldReason: HoldReason }> {
   const known = await db.account.findMany({ where: { userId, institution: tx.institution, currency: tx.currency } });
   const real = known.filter((a) => a.maskedAccountNumber !== "PRIMARY");
   const shown = shownAccountLast4s(tx);
@@ -175,39 +183,32 @@ async function resolveAccountForEmail(
     for (const digits of shown) {
       const match = matchShown(digits);
       if (!match) continue;
-      if (!(await balanceFitsAccount(userId, match.id, tx))) return { status: "review" };
       return { status: "ok", account: await widenLast4IfLonger(match, digits, tx) };
     }
     if (!real.length && !known.length) {
       return { status: "ok", account: await createInstitutionAccount(userId, tx, `****${shown[0]}`) };
     }
-    return { status: "review" };
+    return { status: "review", heldReason: "last-4" };
   }
 
-  if (real.length === 1) {
-    if (!(await balanceFitsAccount(userId, real[0].id, tx))) return { status: "review" };
-    return { status: "ok", account: real[0] };
-  }
+  if (real.length === 1) return { status: "ok", account: real[0] };
   if (real.length > 1) {
     const primary = known.find((a) => a.maskedAccountNumber === "PRIMARY");
-    if (primary) {
-      if (!(await balanceFitsAccount(userId, primary.id, tx))) return { status: "review" };
-      return { status: "ok", account: primary };
-    }
+    if (primary) return { status: "ok", account: primary };
     return { status: "ok", account: await createInstitutionAccount(userId, tx, "PRIMARY") };
   }
   return { status: "ok", account: await createInstitutionAccount(userId, tx, "PRIMARY") };
 }
 
-async function holdPossiblyAnotherAccount(userId: string, tx: CanonicalTransaction): Promise<IngestResult> {
+async function holdPossiblyAnotherAccount(userId: string, tx: CanonicalTransaction, heldReason: HoldReason): Promise<IngestResult> {
   const row = await db.unparsedAlert.create({
     data: {
       userId,
       channel: "email",
       sender: tx.institution.slice(0, 200),
       receivedAt: tx.transactionDate,
-      rawText: tx.description.slice(0, 4000),
-      reason: POSSIBLY_ANOTHER_ACCOUNT,
+      rawText: serializeHeldAlert(tx, heldReason).slice(0, 4000),
+      reason: heldReasonTag(heldReason),
       parser: tx.institution,
     },
   });
@@ -241,7 +242,12 @@ async function enrich(userId: string, transactionId: string, tx: CanonicalTransa
     if (oldWords.length && oldWords.filter((w) => newWords.has(w)).length / oldWords.length < 0.8) return;
   }
   const c = categorize({ description: tx.description, type: tx.type }, userRules ?? (await loadUserRules(userId)), owners ?? (await loadOwners(userId)));
-  const keepLabel = existing.classificationSource === "user" || existing.classificationSource === "pair";
+  // Email matching an existing row must not relabel it. Only a generic "GTBank debit"
+  // placeholder is recategorized from the richer narration.
+  const recategorize =
+    existing.classificationSource !== "user" &&
+    existing.classificationSource !== "pair" &&
+    (upgradeGeneric || !isEmailAlertSource(tx.source));
   await db.transaction.update({
     where: { id: transactionId },
     data: {
@@ -252,7 +258,7 @@ async function enrich(userId: string, transactionId: string, tx: CanonicalTransa
       personId: c.personId ?? existing.personId,
       destinationCountry: c.destinationCountry ?? existing.destinationCountry,
       destinationCurrency: c.destinationCurrency ?? existing.destinationCurrency,
-      ...(keepLabel ? {} : { category: c.category, subcategory: c.subcategory ?? null, classificationSource: c.source, classificationConfidence: c.confidence }),
+      ...(recategorize ? { category: c.category, subcategory: c.subcategory ?? null, classificationSource: c.source, classificationConfidence: c.confidence } : {}),
     },
   });
 }
@@ -261,7 +267,14 @@ async function enrich(userId: string, transactionId: string, tx: CanonicalTransa
  * The single entry point into the ledger for every source (email, fixture, demo, and later
  * statements / open banking / SMS). Handles normalization, dedup, categorization and persistence.
  */
-export async function ingestTransaction(userId: string, tx: CanonicalTransaction, userRules?: UserRule[], owners?: string[], claimed?: Set<string>): Promise<IngestResult> {
+export async function ingestTransaction(
+  userId: string,
+  tx: CanonicalTransaction,
+  userRules?: UserRule[],
+  owners?: string[],
+  claimed?: Set<string>,
+  opts?: IngestOptions,
+): Promise<IngestResult> {
   const seen = await db.transactionSource.findUnique({
     where: { userId_source_sourceTransactionId: { userId, source: tx.source, sourceTransactionId: tx.sourceTransactionId } },
   });
@@ -270,11 +283,18 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
     return { status: "duplicate", transactionId: seen.transactionId, matchType: "source" };
   }
 
-  const resolved = isEmailAlertSource(tx.source)
-    ? await resolveAccountForEmail(userId, tx)
-    : { status: "ok" as const, account: await upsertAccount(userId, tx) };
-  if (resolved.status === "review") return holdPossiblyAnotherAccount(userId, tx);
-  const account = resolved.account;
+  let account;
+  if (opts?.accountId) {
+    const forced = await db.account.findFirst({ where: { id: opts.accountId, userId } });
+    if (!forced) throw new Error("Account not found");
+    account = forced;
+  } else if (isEmailAlertSource(tx.source)) {
+    const resolved = await resolveAccountForEmail(userId, tx);
+    if (resolved.status === "review") return holdPossiblyAnotherAccount(userId, tx, resolved.heldReason);
+    account = resolved.account;
+  } else {
+    account = await upsertAccount(userId, tx);
+  }
   if (tx.accountHolder && !account.holderName) {
     await db.account.update({ where: { id: account.id }, data: { holderName: tx.accountHolder } });
   }
@@ -325,6 +345,11 @@ export async function ingestTransaction(userId: string, tx: CanonicalTransaction
   const covered = statementCoversDate(account.statementCoveredFrom, account.statementCoveredTo, tx.transactionDate);
   const byDay = pickStatementAmountMatch(tx, mapped, covered);
   if (byDay) return link(byDay.id, "fuzzy");
+
+  // Hold on a broken chain only when this email would become a new row. Duplicates must merge first.
+  if (!opts?.accountId && isEmailAlertSource(tx.source) && !(await balanceFitsAccount(userId, account.id, tx))) {
+    return holdPossiblyAnotherAccount(userId, tx, "balance");
+  }
 
   const ownerNames = [...(owners ?? (await loadOwners(userId))), ...(tx.accountHolder ? [tx.accountHolder] : [])];
   const c = categorize({ description: tx.description, type: tx.type }, userRules ?? (await loadUserRules(userId)), ownerNames);
@@ -463,6 +488,7 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
     await source.beginSession?.();
     const rules = await loadUserRules(userId);
     const owners = await loadOwners(userId);
+    const matchedIds: string[] = [];
     let lastId: string | undefined;
     let historyId: string | undefined;
     let historyTried = false;
@@ -533,6 +559,7 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
               const r = await ingestTransaction(userId, { ...outcome.transaction, source: source.source, sourceTransactionId: id }, rules, owners);
               if (r.status === "created") {
                 transactionId = r.transactionId;
+                matchedIds.push(r.transactionId);
                 m.created++;
                 const { linkAdjacentFee } = await import("./alerts/fees");
                 await linkAdjacentFee(userId, r.transactionId);
@@ -541,6 +568,7 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
                 status = "review";
               } else {
                 transactionId = r.transactionId;
+                matchedIds.push(r.transactionId);
                 m.duplicates++;
                 status = "duplicate";
               }
@@ -574,10 +602,21 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
       }
     }
 
-    await pairOwnTransfers(userId);
-    const accounts = await db.account.findMany({ where: { userId }, select: { id: true } });
-    const { scanBalanceGaps } = await import("./alerts/balance");
-    for (const a of accounts) await scanBalanceGaps(userId, a.id);
+    if (matchedIds.length) {
+      const matched = await db.transaction.findMany({
+        where: { id: { in: matchedIds } },
+        select: { id: true, accountId: true, transactionDate: true },
+      });
+      if (matched.length) {
+        const times = matched.map((row) => row.transactionDate.getTime());
+        await pairOwnTransfers(userId, {
+          accountIds: [...new Set(matched.map((row) => row.accountId))],
+          from: new Date(Math.min(...times)),
+          to: new Date(Math.max(...times)),
+          transactionIds: matched.map((row) => row.id),
+        });
+      }
+    }
     await withBusyRetry(() =>
       db.financialConnection.update({
         where: { id: connectionId },

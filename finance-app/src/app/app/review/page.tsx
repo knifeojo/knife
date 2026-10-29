@@ -4,6 +4,7 @@ import { reviewWithSuggestions, type SuggestionGroup } from "@/core/ai/suggestio
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { formatMoney } from "@/lib/money";
 import { Card, PageHeader } from "@/components/ui";
+import { heldAlertPreview, isPossiblyAnotherAccount, POSSIBLY_ANOTHER_ACCOUNT } from "@/core/alerts/account-attach";
 import { answerQuestionAction, confirmSuggestionAction, dismissGapAction, dismissReconAction, dismissSuggestionAction, resolveUnparsedAction, unlockStatementAction } from "../actions";
 import { onboardingState } from "@/core/onboarding";
 import { db } from "@/lib/db";
@@ -35,10 +36,11 @@ function AiPick({ g }: { g: SuggestionGroup }) {
 export default async function Review({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const sp = await searchParams;
-  const [{ questions, suggestions }, welcome, unparsed, gaps, flags, locked] = await Promise.all([
+  const [{ questions, suggestions }, welcome, unparsed, accounts, gaps, flags, locked] = await Promise.all([
     reviewWithSuggestions(user.id),
     onboardingState(user.id),
     db.unparsedAlert.findMany({ where: { userId: user.id, status: "open" }, orderBy: { receivedAt: "desc" }, take: 40 }),
+    db.account.findMany({ where: { userId: user.id }, orderBy: { accountName: "asc" }, select: { id: true, accountName: true, institution: true, maskedAccountNumber: true } }),
     db.balanceGap.findMany({ where: { userId: user.id, status: "open" }, orderBy: { atDate: "desc" }, take: 20 }),
     db.reconFlag.findMany({ where: { userId: user.id, status: "open" }, orderBy: { createdAt: "desc" }, take: 20 }),
     db.statementFile.findMany({
@@ -48,6 +50,8 @@ export default async function Review({ searchParams }: { searchParams: Promise<R
       select: { id: true, fileName: true, institution: true, sender: true, subject: true, detail: true, bytesStored: true },
     }),
   ]);
+  const held = unparsed.filter((u) => isPossiblyAnotherAccount(u.reason));
+  const otherUnparsed = unparsed.filter((u) => !isPossiblyAnotherAccount(u.reason));
   const lockedFiles = locked.map((file) => ({
     id: file.id,
     fileName: file.fileName,
@@ -105,11 +109,51 @@ export default async function Review({ searchParams }: { searchParams: Promise<R
           </ul>
         </Card>
       )}
-      {unparsed.length > 0 && (
+      {held.length > 0 && (
+        <Card title="Possibly another account" className="mb-4">
+          <p className="text-sm text-ink-2 mb-3">These alerts name a different account, or their running balance does not fit. Attach to an existing account, create a new one, or ignore.</p>
+          <ul className="space-y-3">
+            {held.map((u) => (
+              <li key={u.id} className="text-sm border-t border-border pt-3 first:border-0 first:pt-0" data-testid="held-alert">
+                <p className="text-xs text-ink-3">{u.channel} · {u.sender} · {POSSIBLY_ANOTHER_ACCOUNT}{u.parser ? ` · ${u.parser}` : ""}</p>
+                <pre className="mt-1 text-xs font-mono whitespace-pre-wrap break-words bg-surface-2 rounded px-2 py-1">{heldAlertPreview(u.rawText)}</pre>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  {accounts.length > 0 && (
+                    <form action={resolveUnparsedAction} className="flex flex-wrap items-end gap-2">
+                      <input type="hidden" name="id" value={u.id} />
+                      <input type="hidden" name="action" value="attach" />
+                      <div>
+                        <label className="label" htmlFor={`acct-${u.id}`}>Existing account</label>
+                        <select id={`acct-${u.id}`} name="accountId" required className="input mt-1 h-8 text-xs">
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>{a.accountName} · {a.maskedAccountNumber}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button className="btn btn-secondary h-8 text-xs">Attach to this account</button>
+                    </form>
+                  )}
+                  <form action={resolveUnparsedAction}>
+                    <input type="hidden" name="id" value={u.id} />
+                    <input type="hidden" name="action" value="create" />
+                    <button className="btn btn-secondary h-8 text-xs">Create a new account</button>
+                  </form>
+                  <form action={resolveUnparsedAction}>
+                    <input type="hidden" name="id" value={u.id} />
+                    <input type="hidden" name="action" value="ignore" />
+                    <button className="btn btn-ghost h-8 text-xs">Ignore</button>
+                  </form>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      {otherUnparsed.length > 0 && (
         <Card title="Unparsed bank alerts" className="mb-4">
           <p className="text-sm text-ink-2 mb-3">Known bank senders we could not post automatically. Samples stay on this machine only.</p>
           <ul className="space-y-3">
-            {unparsed.map((u) => (
+            {otherUnparsed.map((u) => (
               <li key={u.id} className="text-sm border-t border-border pt-3 first:border-0 first:pt-0">
                 <p className="text-xs text-ink-3">{u.channel} · {u.sender} · {u.reason}{u.parser ? ` · ${u.parser}` : ""}</p>
                 <pre className="mt-1 text-xs font-mono whitespace-pre-wrap break-words bg-surface-2 rounded px-2 py-1">{u.rawText}</pre>

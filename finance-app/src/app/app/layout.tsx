@@ -3,12 +3,12 @@ import { Logo } from "@/components/ui";
 import { Nav } from "@/components/nav";
 import { requireUser } from "@/lib/auth";
 import { logout } from "../(auth)/actions";
-import { buildQuestions } from "@/core/review";
+import { pendingReviewCount } from "@/core/review";
 import { ImportStatus } from "@/components/import-status";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const reviewCount = user.isDemo ? 0 : (await buildQuestions(user.id)).length;
+  const reviewCount = user.isDemo ? 0 : await pendingReviewCount(user.id);
   return (
     <div className="min-h-screen">
       {user.isDemo && (

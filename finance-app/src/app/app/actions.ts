@@ -142,7 +142,10 @@ export async function dismissForwardingNotice(form: FormData) {
 export async function resolveUnparsedAction(form: FormData) {
   const user = await requireUser();
   const { resolveUnparsed } = await import("@/core/alerts/ingest");
-  await resolveUnparsed(user.id, String(form.get("id")), form.get("action") === "add" ? "add" : "ignore");
+  const raw = String(form.get("action") ?? "ignore");
+  const action = raw === "attach" || raw === "create" || raw === "add" || raw === "ignore" ? raw : "ignore";
+  const accountId = String(form.get("accountId") ?? "").trim();
+  await resolveUnparsed(user.id, String(form.get("id")), action, { accountId: accountId || undefined });
   revalidatePath("/app", "layout");
 }
 

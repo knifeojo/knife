@@ -8,7 +8,7 @@ async function main() {
   loadDotEnv();
   const { db } = await import("../lib/db");
   const { ImapEmailSource, decodeImapMessageId } = await import("../core/alerts/imap");
-  const { diagnoseFailedEmail } = await import("../core/alerts/diagnose");
+  const { diagnoseFailedEmail, diagnoseHeldReasonCounts } = await import("../core/alerts/diagnose");
   const { INITIAL_LOOKBACK_DAYS } = await import("../core/sources");
   try {
     const conns = await db.financialConnection.findMany({
@@ -17,6 +17,7 @@ async function main() {
     });
     if (!conns.length) {
       console.log("No active IMAP connection. Save host, port and username on Accounts first.");
+      console.log(await diagnoseHeldReasonCounts());
       return;
     }
     const after = new Date(Date.now() - INITIAL_LOOKBACK_DAYS * 86400_000);
@@ -53,6 +54,8 @@ async function main() {
         await source.endSession();
       }
     }
+    const users = [...new Set(conns.map((c) => c.userId))];
+    for (const userId of users) console.log(await diagnoseHeldReasonCounts(userId));
     console.log(`Diagnose: ${failed} failed of ${scanned} scanned. Nothing was imported.`);
   } finally {
     await db.$disconnect();
