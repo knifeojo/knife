@@ -4,7 +4,7 @@ import { pendingReviewCount } from "./review";
 /**
  * Home payload for one Lagos month. In/out/left reuse `summary` so they match GET /summary
  * (own transfers, paired legs, reversals, fee credits, FX to naira).
- * reviewCount is the pending Review question total, same as the web nav badge.
+ * reviewCount is the pending Review total (questions plus open held/unparsed alerts), same as the web nav badge.
  */
 export async function monthOverview(userId: string, period: Period) {
   const prev = previousCalendarMonth(period);

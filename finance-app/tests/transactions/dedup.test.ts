@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountKey, computeFingerprint, isFuzzyMatch, pickStatementAmountMatch, pickStatementReplay, statementCoversDate, type LedgerCandidate } from "@/core/dedup";
+import { accountKey, computeFingerprint, isAlertTimeMatch, isFuzzyMatch, pickAlertTimeMatch, pickStatementAmountMatch, pickStatementReplay, statementCoversDate, type LedgerCandidate } from "@/core/dedup";
 import type { CanonicalTransaction } from "@/core/types";
 
 const base: CanonicalTransaction = {
@@ -181,6 +181,56 @@ describe("fuzzy cross-source matching", () => {
       sourceTransactionId: "stmt-5k-b",
     };
     expect(pickStatementAmountMatch(second, [sms], true)).toBeUndefined();
+  });
+
+  it("matches email to SMS on account, amount, direction and ±10 minutes without narration", () => {
+    const sms = asCandidate({
+      ...base,
+      source: "sms",
+      reference: undefined,
+      description: "NIP TRANSFER TO ADA OKAFOR",
+      transactionDate: new Date("2026-10-02T11:20:00Z"),
+      sourceTransactionId: "sms-time",
+    });
+    const email: CanonicalTransaction = {
+      ...base,
+      source: "imap",
+      reference: undefined,
+      description: "GTBank debit",
+      transactionDate: new Date("2026-10-02T11:26:00Z"),
+      sourceTransactionId: "imap-time",
+      balanceAfterMinor: undefined,
+    };
+    expect(isFuzzyMatch(email, sms)).toBe(false);
+    expect(isAlertTimeMatch(email, sms)).toBe(true);
+    expect(pickAlertTimeMatch(email, [sms])?.id).toBe(sms.id);
+
+    const elevenMin = { ...email, transactionDate: new Date("2026-10-02T11:31:01Z") };
+    expect(isAlertTimeMatch(elevenMin, sms)).toBe(false);
+    expect(pickAlertTimeMatch(elevenMin, [sms])).toBeUndefined();
+
+    const sameChannel = asCandidate({
+      ...base,
+      source: "gmail",
+      reference: undefined,
+      description: "GTBank debit",
+      transactionDate: email.transactionDate,
+      sourceTransactionId: "gmail-time",
+    }, "tx-email");
+    expect(isAlertTimeMatch(email, sameChannel)).toBe(false);
+
+    const claimed = { ...sms, sources: ["sms", "imap"] };
+    expect(isAlertTimeMatch(email, claimed)).toBe(false);
+
+    const closer = asCandidate({
+      ...base,
+      source: "sms",
+      reference: undefined,
+      description: "NIP TRANSFER TO ADA OKAFOR",
+      transactionDate: new Date("2026-10-02T11:25:00Z"),
+      sourceTransactionId: "sms-closer",
+    }, "tx-closer");
+    expect(pickAlertTimeMatch(email, [sms, closer])?.id).toBe("tx-closer");
   });
 
   it("links a PAYMENTDEEL SMS credit to a Deel INC statement/email credit", () => {

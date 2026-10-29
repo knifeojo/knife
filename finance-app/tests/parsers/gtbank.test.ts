@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { GTBANK_FIXTURES as F } from "@/core/fixtures/gtbank-alerts";
+import { GTBANK_FIXTURES as F, GTBANK_REGRESSION as R } from "@/core/fixtures/gtbank-alerts";
+import { extractMaskedLast4 } from "@/core/alerts/money";
 import { GTBankParser } from "@/core/parsers/gtbank";
 import { parseEmail } from "@/core/parsers";
 import { htmlToText, parseBankDate } from "@/core/parsers/text";
@@ -106,6 +107,62 @@ describe("GTBankParser: recognition and failure", () => {
   });
 });
 
+describe("GTBankParser: last-4 and narration from HTML plus a short text part", () => {
+  it("takes last-4 from the masked account, never from NGN 76,430.00", () => {
+    expect(extractMaskedLast4("NGN 76,430.00")).toBeUndefined();
+    expect(extractMaskedLast4("******2468 : Amount : NGN 76,430.00")).toBe("2468");
+    const html = parser.parse(R.gensHtmlWithWeakText)!;
+    expect(html.accountLast4).toBe("2468");
+    expect(html.accountLast4).not.toBe("7643");
+    expect(html.amountMinor).toBe(7_643_000n);
+    expect(html.description).toContain("ADA OKAFOR");
+    expect(html.description).not.toMatch(/^GTBank debit$/i);
+
+    const sameLine = parser.parse(R.gensAccountAndAmountSameLine)!;
+    expect(sameLine.accountLast4).toBe("2468");
+    expect(sameLine.description).toContain("KEMI ADE");
+  });
+
+  it("reads Description from HTML when the text/plain part is only a preview", () => {
+    const tx = parser.parse(R.gensHtmlWithWeakText)!;
+    expect(tx.description).toContain("NIP/TRANSFER/TO ADA OKAFOR");
+    expect(parseEmail(R.gensHtmlWithWeakText).status).toBe("parsed");
+  });
+
+  it("parses nested GeNS tables with nbsp labels when the subject has no amount", () => {
+    const tx = parser.parse(R.gensNestedNbspTable)!;
+    expect(tx).not.toBeNull();
+    expect(tx.type).toBe("DEBIT");
+    expect(tx.amountMinor).toBe(7_643_000n);
+    expect(tx.accountLast4).toBe("2468");
+    expect(tx.balanceAfterMinor).toBe(90_000_000n);
+    expect(tx.reference).toBe("SYN260002101200001");
+    expect(tx.description).toContain("NIP/TRANSFER/TO ADA OKAFOR");
+    expect(tx.description).toContain("RENT OCT");
+    expect(tx.description).not.toMatch(/^GTBank debit$/i);
+    expect(tx.transactionDate.toISOString()).toBe("2026-10-02T11:20:00.000Z");
+  });
+
+  it("pairs labels on one table row with values on the next", () => {
+    const tx = parser.parse(R.gensLabelThenValueRows)!;
+    expect(tx.type).toBe("CREDIT");
+    expect(tx.amountMinor).toBe(1_200_000n);
+    expect(tx.accountLast4).toBe("2468");
+    expect(tx.balanceAfterMinor).toBe(91_200_000n);
+    expect(tx.description).toContain("KEMI ADE");
+    expect(tx.description).not.toMatch(/^GTBank credit$/i);
+  });
+
+  it("falls back to plaintext labels when HTML has no table fields", () => {
+    const tx = parser.parse(R.gensTextFallback)!;
+    expect(tx.type).toBe("DEBIT");
+    expect(tx.amountMinor).toBe(320_000n);
+    expect(tx.accountLast4).toBe("2468");
+    expect(tx.balanceAfterMinor).toBe(88_800_000n);
+    expect(tx.description).toContain("POS SYNTHETIC MART LEKKI");
+  });
+});
+
 describe("helpers", () => {
   it("parses amounts to minor units without floats", () => {
     expect(parseAmountToMinor("1,983,611.00")).toBe(198_361_100n);
@@ -129,5 +186,12 @@ describe("helpers", () => {
   it("flattens HTML tables into label : value lines", () => {
     const text = htmlToText("<table><tr><td>Amount</td><td>NGN&nbsp;5,000.00</td></tr></table>");
     expect(text).toBe("Amount : NGN 5,000.00");
+  });
+
+  it("flattens nested tables so a label cell and a value cell still pair", () => {
+    const text = htmlToText(
+      "<table><tr><td><table><tr><td>Available Balance</td></tr></table></td><td><table><tr><td>:</td></tr></table></td><td><table><tr><td>NGN&nbsp;9,000.00</td></tr></table></td></tr></table>",
+    );
+    expect(text).toContain("Available Balance : NGN 9,000.00");
   });
 });

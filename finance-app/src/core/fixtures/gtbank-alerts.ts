@@ -230,3 +230,145 @@ Description : UBER TRIP HELP.UBER.COM`,
 
 /** Fixtures that represent real transactions (used by "Import sample alerts"). */
 export const SAMPLE_INBOX: EmailMessage[] = Object.values(GTBANK_FIXTURES);
+
+/** Regression samples kept out of SAMPLE_INBOX so pipeline counts stay stable. */
+export const GTBANK_REGRESSION: Record<string, EmailMessage> = {
+  // Short text/plain (Yahoo preview) plus the real GeNS table in HTML. The amount would
+  // yield last-4 "7643" if the parser scanned digits; the masked account is ******2468.
+  gensHtmlWithWeakText: {
+    id: "fx-014",
+    from: SENDER,
+    subject: "GeNS Transaction Alert [Debit: NGN76,430.00]",
+    date: new Date("2026-10-02T11:20:00Z"),
+    text: `GeNS Transaction Alert [Debit: NGN76,430.00]
+
+A Debit transaction occurred on your account with us.`,
+    html: gensHtml({
+      kind: "Debit",
+      account: "******2468",
+      description: "NIP/TRANSFER/TO ADA OKAFOR",
+      amount: "NGN 76,430.00",
+      valueDate: "02-Oct-2026",
+      remarks: "RENT OCT",
+      time: "12:20:00 PM",
+      doc: "SYN260002101200001",
+      available: "NGN 900,000.00",
+    }),
+  },
+  // Flattened table row: account mask and amount on one line. Last-4 must stay 2468.
+  gensAccountAndAmountSameLine: {
+    id: "fx-015",
+    from: SENDER,
+    subject: "GeNS Transaction Alert [Debit: NGN76,430.00]",
+    date: new Date("2026-10-02T11:21:00Z"),
+    text: `Guaranty Trust Bank Electronic Notification Service (GeNS)
+We wish to inform you that a Debit transaction occurred on your account with us.
+Account Number : ******2468 : Amount : NGN 76,430.00
+Description : NIP CR TRANSFER FROM KEMI ADE
+Value Date : 02-Oct-2026
+Time of Transaction : 12:21:00 PM`,
+  },
+};
+
+function nestedCell(inner: string): string {
+  return `<td><table border="0" cellpadding="0" cellspacing="0"><tr><td>${inner}</td></tr></table></td>`;
+}
+
+function nestedRow(label: string, value: string): string {
+  const spaced = label.replace(/ /g, "&nbsp;");
+  return `<tr>${nestedCell(spaced)}${nestedCell(":")}${nestedCell(value)}</tr>`;
+}
+
+/** Yahoo/GeNS: each label and value lives in its own nested table; spaces are nbsp. */
+export function gensNestedNbspHtml(opts: {
+  account: string;
+  description: string;
+  amount: string;
+  valueDate: string;
+  remarks?: string;
+  time: string;
+  doc?: string;
+  available?: string;
+}): string {
+  return `<!DOCTYPE html><html><body>
+<table width="100%"><tr><td>
+<table cellpadding="4">
+<tr><td colspan="3"><b>Transaction Notification</b></td></tr>
+${nestedRow("Account Number", opts.account)}
+${nestedRow("Transaction Location", "205")}
+${nestedRow("Description", opts.description)}
+${nestedRow("Amount", opts.amount.replace(/ /g, "&nbsp;"))}
+${nestedRow("Value Date", opts.valueDate)}
+${opts.remarks ? nestedRow("Remarks", opts.remarks) : ""}
+${nestedRow("Time of Transaction", opts.time)}
+${opts.doc ? nestedRow("Document Number", opts.doc) : ""}
+${opts.available ? nestedRow("Available Balance", opts.available.replace(/ /g, "&nbsp;")) : ""}
+</table>
+</td></tr></table>
+<p>Guaranty Trust Bank Electronic Notification Service (GeNS)</p>
+<p>We wish to inform you that a Debit transaction occurred on your account with us.</p>
+</body></html>`;
+}
+
+GTBANK_REGRESSION.gensNestedNbspTable = {
+  id: "fx-016",
+  from: SENDER,
+  subject: "Transaction Alert",
+  date: new Date("2026-10-02T11:20:00Z"),
+  text: `Transaction Alert
+
+A Debit transaction occurred on your account with us.`,
+  html: gensNestedNbspHtml({
+    account: "******2468",
+    description: "NIP/TRANSFER/TO ADA OKAFOR",
+    amount: "NGN 76,430.00",
+    valueDate: "02-Oct-2026",
+    remarks: "RENT OCT",
+    time: "12:20:00 PM",
+    doc: "SYN260002101200001",
+    available: "NGN 900,000.00",
+  }),
+};
+
+GTBANK_REGRESSION.gensLabelThenValueRows = {
+  id: "fx-017",
+  from: SENDER,
+  subject: "GeNS Transaction Alert",
+  date: new Date("2026-10-02T11:22:00Z"),
+  html: `<html><body>
+<p>Guaranty Trust Bank Electronic Notification Service (GeNS)</p>
+<p>We wish to inform you that a Credit transaction occurred on your account with us.</p>
+<table>
+<tr><td>Account Number</td></tr><tr><td>******2468</td></tr>
+<tr><td>Transaction Location</td></tr><tr><td>205</td></tr>
+<tr><td>Description</td></tr><tr><td>NIP CR TRANSFER FROM KEMI ADE</td></tr>
+<tr><td>Amount</td></tr><tr><td>NGN 12,000.00</td></tr>
+<tr><td>Value Date</td></tr><tr><td>02-Oct-2026</td></tr>
+<tr><td>Remarks</td></tr><tr><td>INVOICE 88</td></tr>
+<tr><td>Time of Transaction</td></tr><tr><td>12:22:00 PM</td></tr>
+<tr><td>Document Number</td></tr><tr><td>SYN260002101220002</td></tr>
+<tr><td>Available Balance</td></tr><tr><td>NGN 912,000.00</td></tr>
+</table>
+</body></html>`,
+};
+
+GTBANK_REGRESSION.gensTextFallback = {
+  id: "fx-018",
+  from: SENDER,
+  subject: "Transaction Alert",
+  date: new Date("2026-10-02T11:23:00Z"),
+  html: `<html><body><div>Guaranty Trust Bank</div><div>A Debit transaction occurred on your account with us.</div></body></html>`,
+  text: `Account Number
+******2468
+Description
+POS SYNTHETIC MART LEKKI
+Amount
+NGN 3,200.00
+Value Date
+02-Oct-2026
+Time of Transaction
+12:23:00 PM
+Available Balance
+NGN 888,000.00
+Guaranty Trust Bank Electronic Notification Service (GeNS)`,
+};

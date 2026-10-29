@@ -17,7 +17,9 @@
     "alerts:mac-messages": "tsx src/scripts/mac-messages.ts",
     "alerts:backfill-coverage": "tsx src/scripts/backfill-coverage.ts",
     "statements:backfill": "tsx src/scripts/backfill-statement-files.ts",
-    "alerts:link-sms": "tsx src/scripts/link-sms.ts"
+    "alerts:link-sms": "tsx src/scripts/link-sms.ts",
+    "alerts:list-statements": "tsx src/scripts/list-statements.ts",
+    "alerts:diagnose": "tsx src/scripts/diagnose-alerts.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

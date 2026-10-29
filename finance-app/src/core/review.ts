@@ -612,9 +612,13 @@ export async function buildQuestions(userId: string, limit?: number): Promise<Qu
   return limit == null ? questions : questions.slice(0, limit);
 }
 
-/** Same number the web nav badge uses: every pending question, not a 12-item slice. */
+/** Same number the web nav badge uses: pending questions plus open unparsed/held alerts. */
 export async function pendingReviewCount(userId: string): Promise<number> {
-  return (await buildQuestions(userId)).length;
+  const [questions, unparsed] = await Promise.all([
+    buildQuestions(userId),
+    db.unparsedAlert.count({ where: { userId, status: "open" } }),
+  ]);
+  return questions.length + unparsed;
 }
 
 /** Spellings of a name across the owner's transactions, for saving as aliases. */

@@ -13,8 +13,41 @@ export function parseMoney(raw: string | undefined): { minor: bigint; currency?:
   return { minor, currency: normalizeCurrency(m[1] ?? m[3]) };
 }
 
+const STAR_MASK = /(?:\*+|•{2,}|●{2,})[\s-]*(\d{3,4})\b/;
+const STAR_PREFIXED = /\b\d{2}(?:\*+|•{2,}|●{2,})(\d{3,4})\b/;
+const AMOUNT_HINT = /(?:NGN|USD|GBP|EUR|₦|\$|£|€)\s*[\d,]+|\b[\d,]+\.\d{2}\b/;
+
+function starMaskLast4(raw: string): string | undefined {
+  const m = raw.match(STAR_MASK) ?? raw.match(STAR_PREFIXED);
+  return m ? m[1].slice(-4) : undefined;
+}
+
+export function hasMaskedAccount(raw: string): boolean {
+  return STAR_MASK.test(raw) || STAR_PREFIXED.test(raw);
+}
+
+/** True when the string is a money amount and does not also carry a masked account. */
+export function looksLikeAmount(raw: string): boolean {
+  return AMOUNT_HINT.test(raw) && !starMaskLast4(raw);
+}
+
+/**
+ * Last 4 of a masked account (`******1234`, `01******1234`). Never taken from a
+ * transaction amount: NGN 76,430.00 must not become account ending 7643.
+ */
+export function extractMaskedLast4(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const starred = starMaskLast4(raw);
+  if (starred) return starred;
+  if (AMOUNT_HINT.test(raw)) return undefined;
+  const labelled = raw.match(/(?:acct|account(?:\s*(?:number|no\.?))?|a\/c)\s*[:.\s#*-]+(\d{3,4})\b/i);
+  if (labelled) return labelled[1];
+  return undefined;
+}
+
 export function lastDigits(raw: string | undefined, min = 3): string | undefined {
   if (!raw) return undefined;
+  if (looksLikeAmount(raw)) return starMaskLast4(raw);
   const digits = raw.replace(/[^0-9]/g, "");
   return digits.length >= min ? digits.slice(-Math.min(4, digits.length)) : undefined;
 }

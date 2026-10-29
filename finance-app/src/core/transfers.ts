@@ -262,6 +262,8 @@ export interface PairScope {
   accountIds: string[];
   from: Date;
   to: Date;
+  /** When set, a pair must include one of these rows (the ones this import actually matched). */
+  transactionIds?: string[];
 }
 
 /** Finds and links own-account transfer pairs for a user. Returns how many new pairs were made. */
@@ -283,8 +285,11 @@ export async function pairOwnTransfers(userId: string, scope?: PairScope): Promi
     });
     const legs: Leg[] = rows.map((r) => ({ ...r, institution: inst.get(r.accountId) ?? "" }));
     const touched = scope ? new Set(scope.accountIds) : undefined;
+    const matchedRows = scope?.transactionIds?.length ? new Set(scope.transactionIds) : undefined;
     const pairs = findPairs(legs, owners, await loadPairRateLookup(userId)).filter(
-      (pair) => !touched || touched.has(pair.debit.accountId) || touched.has(pair.credit.accountId),
+      (pair) =>
+        (!touched || touched.has(pair.debit.accountId) || touched.has(pair.credit.accountId)) &&
+        (!matchedRows || matchedRows.has(pair.debit.id) || matchedRows.has(pair.credit.id)),
     );
     let linked = 0;
     for (const p of pairs) {

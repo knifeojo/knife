@@ -125,11 +125,15 @@ describe("user corrections teach future ingestion", () => {
       institution: "GTBank", source: "fixture", sourceTransactionId: "l-1", type: "DEBIT", amountMinor: 1_000_000n,
       currency: "NGN", transactionDate: new Date("2026-08-01T10:00:00Z"), description: "NIP/MAMA NKECHI/UPKEEP", reference: "L0000001", confidence: 1,
     });
+    expect(first.status).toBe("created");
+    if (first.status !== "created") return;
     await recategorize(user.id, first.transactionId, "Family", "Parents");
     const second = await ingestTransaction(user.id, {
       institution: "GTBank", source: "fixture", sourceTransactionId: "l-2", type: "DEBIT", amountMinor: 1_000_000n,
       currency: "NGN", transactionDate: new Date("2026-09-01T10:00:00Z"), description: "NIP/MAMA NKECHI/UPKEEP SEPT", reference: "L0000002", confidence: 1,
     });
+    expect(second.status).toBe("created");
+    if (second.status !== "created") return;
     const t2 = await db.transaction.findUniqueOrThrow({ where: { id: second.transactionId } });
     expect(t2).toMatchObject({ category: "Family", subcategory: "Parents", classificationSource: "user" });
   });
