@@ -1,10 +1,12 @@
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, withBusyRetry } from "@/lib/db";
 import { log } from "@/lib/log";
 import { LEGACY_GIVING_SUBCATEGORIES, categorize, inferHolderName, type UserRule } from "./categorize";
 import { accountKey, amountsMatch, computeFingerprint, findFuzzyMatch, pickStatementAmountMatch, pickStatementReplay, statementCoversDate } from "./dedup";
 import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
+import { decodeImapMessageId, IMAP_BATCH_SIZE, imapMessageIdAliases } from "./alerts/imap";
+import { loadImapFolderCursors, saveImapFolderCursor } from "./alerts/imap-cursor";
 import { emailSearchQueries } from "./alerts/statement-mail";
 import { INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
 import type { KnownPerson } from "./people-match";
@@ -60,20 +62,17 @@ export async function loadKnownPeople(userId: string): Promise<KnownPerson[]> {
 
 async function upsertAccount(userId: string, tx: CanonicalTransaction) {
   const known = await db.account.findMany({ where: { userId, institution: tx.institution, currency: tx.currency } });
-  if (!tx.accountLast4) {
-    // Alert without an account number: attach to the user's only matching account if unambiguous.
-    const real = known.filter((a) => a.maskedAccountNumber !== "PRIMARY");
-    if (real.length === 1) return real[0];
-  } else {
+  const real = known.filter((a) => a.maskedAccountNumber !== "PRIMARY");
+  const digits = tx.accountLast4;
+  if (digits) {
     // Masked and full numbers for the same account ("533" vs "3533") resolve to one account.
-    const digits = tx.accountLast4;
     const match = known.find((a) => {
       const d = a.maskedAccountNumber.replace(/\D/g, "");
       return d && (d.endsWith(digits) || digits.endsWith(d));
     });
     if (match) {
       const d = match.maskedAccountNumber.replace(/\D/g, "");
-      if (digits.length > d.length) {
+      if (digits.length > d.length && match.maskedAccountNumber !== "PRIMARY") {
         return db.account.update({
           where: { id: match.id },
           data: { maskedAccountNumber: `****${digits}`, accountName: `${tx.institution} ${tx.currency} ••${digits}` },
@@ -82,7 +81,25 @@ async function upsertAccount(userId: string, tx: CanonicalTransaction) {
       return match;
     }
   }
-  const masked = tx.accountLast4 ? `****${tx.accountLast4}` : "PRIMARY";
+  // One account at this institution: attach. Do not create ****3205 next to an SMS-fed ****1234.
+  if (real.length === 1) return real[0];
+  // Several accounts and no last-4 match: keep the row, but do not invent another account.
+  if (real.length > 1) {
+    const primary = known.find((a) => a.maskedAccountNumber === "PRIMARY");
+    if (primary) return primary;
+    return db.account.upsert({
+      where: { userId_institution_maskedAccountNumber: { userId, institution: tx.institution, maskedAccountNumber: "PRIMARY" } },
+      update: {},
+      create: {
+        userId,
+        institution: tx.institution,
+        maskedAccountNumber: "PRIMARY",
+        accountName: `${tx.institution} ${tx.currency} account`,
+        currency: tx.currency,
+      },
+    });
+  }
+  const masked = digits ? `****${digits}` : "PRIMARY";
   return db.account.upsert({
     where: { userId_institution_maskedAccountNumber: { userId, institution: tx.institution, maskedAccountNumber: masked } },
     update: {},
@@ -90,7 +107,7 @@ async function upsertAccount(userId: string, tx: CanonicalTransaction) {
       userId,
       institution: tx.institution,
       maskedAccountNumber: masked,
-      accountName: `${tx.institution} ${tx.currency} ${tx.accountLast4 ? `••${tx.accountLast4}` : "account"}`,
+      accountName: `${tx.institution} ${tx.currency} ${digits ? `••${digits}` : "account"}`,
       currency: tx.currency,
     },
   });
@@ -270,18 +287,64 @@ export interface SyncSummary {
   skipped: number;
 }
 
+function messageIdAliases(sourceKind: string, id: string): string[] {
+  return sourceKind === "imap" ? imapMessageIdAliases(id) : [id];
+}
+
+async function markProcessedEmail(input: {
+  userId: string;
+  connectionId: string;
+  messageId: string;
+  sender: string;
+  subject: string;
+  receivedAt: Date;
+  status: string;
+  parser: string | null;
+  transactionId?: string;
+}): Promise<void> {
+  await withBusyRetry(() =>
+    db.processedEmail.upsert({
+      where: { userId_messageId: { userId: input.userId, messageId: input.messageId } },
+      create: {
+        userId: input.userId,
+        connectionId: input.connectionId,
+        messageId: input.messageId,
+        sender: input.sender,
+        subject: input.subject,
+        receivedAt: input.receivedAt,
+        status: input.status,
+        parser: input.parser,
+        transactionId: input.transactionId,
+      },
+      update: {
+        status: input.status,
+        parser: input.parser,
+        transactionId: input.transactionId,
+        sender: input.sender,
+        subject: input.subject,
+        receivedAt: input.receivedAt,
+      },
+    }),
+  );
+}
+
 /** Incremental email sync: fetch new candidate alerts, parse, ingest, record metadata and metrics. */
 export async function syncEmailSource(userId: string, connectionId: string, source: EmailSource): Promise<SyncSummary> {
   const conn = await db.financialConnection.findFirstOrThrow({ where: { id: connectionId, userId } });
   const run = await db.syncRun.create({ data: { userId, connectionId, status: "running" } });
   const m = { emailsScanned: 0, parsed: 0, created: 0, duplicates: 0, parseFailures: 0, skipped: 0 };
   const confidences: number[] = [];
-  // Re-scan a 2 day overlap; processed message ids make the overlap free.
-  const after = conn.lastSyncedAt
-    ? new Date(conn.lastSyncedAt.getTime() - 2 * 86400_000)
-    : new Date(Date.now() - INITIAL_LOOKBACK_DAYS * 86400_000);
+  const imap = source.source === "imap";
+  // IMAP resumes by UID per folder. Date lookback stays at 365 days so Archive mail is not skipped.
+  const after = imap
+    ? new Date(Date.now() - INITIAL_LOOKBACK_DAYS * 86400_000)
+    : conn.lastSyncedAt
+      ? new Date(conn.lastSyncedAt.getTime() - 2 * 86400_000)
+      : new Date(Date.now() - INITIAL_LOOKBACK_DAYS * 86400_000);
+  const folderCursors = imap ? await loadImapFolderCursors(connectionId) : undefined;
 
   try {
+    await source.beginSession?.();
     const rules = await loadUserRules(userId);
     const owners = await loadOwners(userId);
     let lastId: string | undefined;
@@ -294,61 +357,64 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
       if (!historyTried && source.listHistoryMessageIds && conn.gmailHistoryId && conn.lastSyncedAt) {
         historyTried = true;
         const hist = await source.listHistoryMessageIds(conn.gmailHistoryId);
-        if (hist.stale) ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC });
+        if (hist.stale) ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC, folderCursors });
         else {
           ids = hist.ids.slice(0, MAX_MESSAGES_PER_SYNC);
           historyId = hist.historyId;
           historyCoveredAll = true;
         }
       } else {
-        ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC });
+        ids = await source.listMessageIds({ query, after, max: MAX_MESSAGES_PER_SYNC, folderCursors });
       }
+      const aliases = ids.flatMap((id) => messageIdAliases(source.source, id));
       const done = new Set(
-        (await db.processedEmail.findMany({ where: { userId, messageId: { in: ids } }, select: { messageId: true } })).map((p) => p.messageId),
+        (await db.processedEmail.findMany({ where: { userId, messageId: { in: aliases } }, select: { messageId: true } })).map((p) => p.messageId),
       );
-      for (const id of ids) {
-        if (done.has(id)) continue;
-        m.emailsScanned++;
-        const email = await source.getMessage(id);
-        const { importEmailAttachments } = await import("./alerts/import-statements");
-        const statements = await importEmailAttachments(userId, {
-          source: source.source,
-          messageId: id,
-          from: email.from,
-          subject: email.subject,
-          attachments: email.attachments,
-          fetchAttachment: source.fetchAttachment ? (attachmentId) => source.fetchAttachment!(id, attachmentId) : undefined,
-        }).catch((e: unknown) => {
-          log.error("statement.email_failed", { userId, messageId: id, error: e instanceof Error ? e.message : "unknown" });
-          return [];
-        });
-        const outcome = parseEmail(email);
-        let status = outcome.status as string;
-        let transactionId: string | undefined;
-        if (outcome.status === "parsed") {
-          m.parsed++;
-          confidences.push(outcome.transaction.confidence);
-          const r = await ingestTransaction(userId, { ...outcome.transaction, source: source.source, sourceTransactionId: id }, rules, owners);
-          transactionId = r.transactionId;
-          if (r.status === "created") {
-            m.created++;
-            const { linkAdjacentFee } = await import("./alerts/fees");
-            await linkAdjacentFee(userId, r.transactionId);
-          } else {
-            m.duplicates++;
-            status = "duplicate";
-          }
-        } else if (outcome.status === "failed") {
-          m.parseFailures++;
-          const { queueKnownUnparsed } = await import("./alerts/ingest-email");
-          await queueKnownUnparsed(userId, email, outcome.parser);
-        } else if (statements.length) {
-          status = statements.every((file) => file.status === "duplicate") ? "duplicate" : "parsed";
-        } else m.skipped++;
+      const batchSize = imap ? IMAP_BATCH_SIZE : ids.length || 1;
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batch = ids.slice(i, i + batchSize);
+        for (const id of batch) {
+          if (messageIdAliases(source.source, id).some((alias) => done.has(alias))) continue;
+          m.emailsScanned++;
+          const email = await source.getMessage(id);
+          const { importEmailAttachments } = await import("./alerts/import-statements");
+          const statements = await importEmailAttachments(userId, {
+            source: source.source,
+            messageId: id,
+            from: email.from,
+            subject: email.subject,
+            attachments: email.attachments,
+            fetchAttachment: source.fetchAttachment ? (attachmentId) => source.fetchAttachment!(id, attachmentId) : undefined,
+          }).catch((e: unknown) => {
+            log.error("statement.email_failed", { userId, messageId: id, error: e instanceof Error ? e.message : "unknown" });
+            return [];
+          });
+          const outcome = parseEmail(email);
+          let status = outcome.status as string;
+          let transactionId: string | undefined;
+          if (outcome.status === "parsed") {
+            m.parsed++;
+            confidences.push(outcome.transaction.confidence);
+            const r = await ingestTransaction(userId, { ...outcome.transaction, source: source.source, sourceTransactionId: id }, rules, owners);
+            transactionId = r.transactionId;
+            if (r.status === "created") {
+              m.created++;
+              const { linkAdjacentFee } = await import("./alerts/fees");
+              await linkAdjacentFee(userId, r.transactionId);
+            } else {
+              m.duplicates++;
+              status = "duplicate";
+            }
+          } else if (outcome.status === "failed") {
+            m.parseFailures++;
+            const { queueKnownUnparsed } = await import("./alerts/ingest-email");
+            await queueKnownUnparsed(userId, email, outcome.parser);
+          } else if (statements.length) {
+            status = statements.every((file) => file.status === "duplicate") ? "duplicate" : "parsed";
+          } else m.skipped++;
 
-        // Metadata only. The body is dropped here and never persisted.
-        await db.processedEmail.create({
-          data: {
+          // Metadata only. The body is dropped here and never persisted.
+          await markProcessedEmail({
             userId,
             connectionId,
             messageId: id,
@@ -358,9 +424,20 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
             status,
             parser: statements.length && outcome.status !== "parsed" ? "statement" : "parser" in outcome ? outcome.parser : null,
             transactionId,
-          },
-        });
-        lastId = id;
+          });
+          for (const alias of messageIdAliases(source.source, id)) done.add(alias);
+          if (imap) {
+            const parsedId = decodeImapMessageId(id);
+            if (parsedId) {
+              folderCursors![parsedId.folder] = {
+                uid: parsedId.uid,
+                uidValidity: source.folderUidValidity?.(parsedId.folder) ?? folderCursors![parsedId.folder]?.uidValidity,
+              };
+              await saveImapFolderCursor(connectionId, parsedId.folder, parsedId.uid, folderCursors![parsedId.folder]?.uidValidity ?? undefined);
+            }
+          }
+          lastId = id;
+        }
       }
     }
 
@@ -368,33 +445,41 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
     const accounts = await db.account.findMany({ where: { userId }, select: { id: true } });
     const { scanBalanceGaps } = await import("./alerts/balance");
     for (const a of accounts) await scanBalanceGaps(userId, a.id);
-    await db.financialConnection.update({
-      where: { id: connectionId },
-      data: {
-        lastSyncedAt: new Date(),
-        lastProcessedMessageId: lastId ?? conn.lastProcessedMessageId,
-        status: "active",
-        lastError: null,
-        ...(historyId ? { gmailHistoryId: historyId } : {}),
-      },
-    });
-    await db.syncRun.update({
-      where: { id: run.id },
-      data: {
-        ...m,
-        status: "success",
-        finishedAt: new Date(),
-        avgConfidence: confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null,
-      },
-    });
+    await withBusyRetry(() =>
+      db.financialConnection.update({
+        where: { id: connectionId },
+        data: {
+          lastSyncedAt: new Date(),
+          lastProcessedMessageId: lastId ?? conn.lastProcessedMessageId,
+          status: "active",
+          lastError: null,
+          ...(historyId ? { gmailHistoryId: historyId } : {}),
+        },
+      }),
+    );
+    await withBusyRetry(() =>
+      db.syncRun.update({
+        where: { id: run.id },
+        data: {
+          ...m,
+          status: "success",
+          finishedAt: new Date(),
+          avgConfidence: confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null,
+        },
+      }),
+    );
     log.info("sync.success", { userId, connectionId, source: source.source, ...m });
     return { syncRunId: run.id, ...m };
   } catch (e) {
     const message = e instanceof Error ? e.message : "unknown error";
-    await db.syncRun.update({ where: { id: run.id }, data: { ...m, status: "failed", finishedAt: new Date(), error: message.slice(0, 300) } });
-    await db.financialConnection.update({ where: { id: connectionId }, data: { lastError: message.slice(0, 300) } });
+    await withBusyRetry(() =>
+      db.syncRun.update({ where: { id: run.id }, data: { ...m, status: "failed", finishedAt: new Date(), error: message.slice(0, 300) } }),
+    ).catch(() => {});
+    await withBusyRetry(() => db.financialConnection.update({ where: { id: connectionId }, data: { lastError: message.slice(0, 300) } })).catch(() => {});
     log.error("sync.failed", { userId, connectionId, source: source.source, error: message });
     throw e;
+  } finally {
+    await source.endSession?.().catch(() => {});
   }
 }
 

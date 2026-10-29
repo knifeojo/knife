@@ -1,3 +1,4 @@
+import { extractMaskedLast4 } from "@/core/alerts/money";
 import { normalizeCurrency, parseAmountToMinor } from "@/lib/money";
 import type { BankAlertParser, EmailMessage, ParsedTransaction, TransactionType } from "../types";
 import { emailBodyText, extractFields, parseBankDate, pickField } from "./text";
@@ -6,17 +7,33 @@ import { emailBodyText, extractFields, parseBankDate, pickField } from "./text";
 const LABELS = {
   amount: ["amount", "transaction amount", "amt", "amount (ngn)"],
   type: ["transaction type", "txn type", "type", "dr/cr"],
-  description: ["description", "narration", "narrative", "details", "transaction details"],
+  description: [
+    "description",
+    "narration",
+    "narrative",
+    "details",
+    "transaction details",
+    "tran particular",
+    "txn particulars",
+    "particulars",
+    "payment details",
+    "beneficiary",
+    "beneficiary name",
+    "merchant",
+    "merchant name",
+  ],
   remarks: ["remarks", "remark"],
   date: ["value date", "transaction date", "txn date", "date of transaction", "posting date", "date"],
   time: ["time of transaction", "transaction time", "time"],
   reference: ["reference", "reference number", "reference no", "ref", "ref no", "transaction reference", "document number", "session id"],
   availableBalance: ["available balance", "available bal", "avail bal", "avail. bal"],
   balance: ["current balance", "cleared balance", "balance", "ledger balance"],
-  account: ["account number", "account no", "acct no", "account", "acct"],
+  account: ["account number", "account no", "acct no", "account no.", "a/c number", "a/c no", "a/c", "acct", "account"],
 };
 
 const MONEY_RE = /(NGN|USD|GBP|EUR|₦|\$|£|€)?\s*([\d,]+(?:\.\d{1,2})?)\s*(NGN|USD|GBP|EUR)?/i;
+const NARRATION_LINE =
+  /(?:^|\n)\s*(?:description|narration|narrative|remarks|particulars|transaction details|details of this transaction)\s*[:\-]\s*(.+)/i;
 
 function parseMoney(raw: string | undefined): { minor: bigint; currency?: string; drcr?: TransactionType } | undefined {
   if (!raw) return undefined;
@@ -41,10 +58,21 @@ function detectType(fieldType: string | undefined, body: string, subject: string
   return undefined;
 }
 
-function last4(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const digits = raw.replace(/[^0-9]/g, "");
-  return digits.length >= 4 ? digits.slice(-4) : undefined;
+function narrationOf(fields: Map<string, string>, body: string): string | undefined {
+  const labeled = pickField(fields, LABELS.description) ?? pickField(fields, LABELS.remarks);
+  if (labeled && labeled.trim().length > 2) return labeled.trim();
+  const line = body.match(NARRATION_LINE)?.[1]?.trim();
+  if (line && line.length > 2 && !parseMoney(line)) return line.split("\n")[0].trim();
+  return undefined;
+}
+
+function accountLast4Of(fields: Map<string, string>, body: string): string | undefined {
+  for (const label of LABELS.account) {
+    const last4 = extractMaskedLast4(pickField(fields, [label]));
+    if (last4) return last4;
+  }
+  // Whole body: still only a masked account field, never the amount digits.
+  return extractMaskedLast4(body);
 }
 
 export class GTBankParser implements BankAlertParser {
@@ -96,20 +124,17 @@ export class GTBankParser implements BankAlertParser {
     const parsedDate = parseBankDate(dateField, pickField(fields, LABELS.time));
     const transactionDate = parsedDate ?? email.date;
 
-    const description =
-      pickField(fields, LABELS.description) ??
-      pickField(fields, LABELS.remarks) ??
-      `GTBank ${type === "DEBIT" ? "debit" : "credit"}`;
+    const description = narrationOf(fields, body) ?? `GTBank ${type === "DEBIT" ? "debit" : "credit"}`;
     const remarks = pickField(fields, LABELS.remarks);
     const fullDescription =
       remarks && remarks !== description && !description.includes(remarks) ? `${description} / ${remarks}` : description;
 
     const reference = pickField(fields, LABELS.reference)?.replace(/\s+/g, "");
     const balance = parseMoney(pickField(fields, LABELS.availableBalance) ?? pickField(fields, LABELS.balance));
-    const accountLast4 = last4(pickField(fields, LABELS.account));
+    const accountLast4 = accountLast4Of(fields, body);
 
     // Amount and direction are guaranteed at this point; score the optional fields.
-    const found = [true, true, !!parsedDate,!!pickField(fields, LABELS.description), !!reference, !!balance, !!accountLast4];
+    const found = [true, true, !!parsedDate, !!narrationOf(fields, body), !!reference, !!balance, !!accountLast4];
     const confidence = Math.round((found.filter(Boolean).length / found.length) * 100) / 100;
 
     return {

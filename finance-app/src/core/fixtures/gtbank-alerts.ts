@@ -230,3 +230,42 @@ Description : UBER TRIP HELP.UBER.COM`,
 
 /** Fixtures that represent real transactions (used by "Import sample alerts"). */
 export const SAMPLE_INBOX: EmailMessage[] = Object.values(GTBANK_FIXTURES);
+
+/** Regression samples kept out of SAMPLE_INBOX so pipeline counts stay stable. */
+export const GTBANK_REGRESSION: Record<string, EmailMessage> = {
+  // Short text/plain (Yahoo preview) plus the real GeNS table in HTML. The amount would
+  // yield last-4 "7643" if the parser scanned digits; the masked account is ******2468.
+  gensHtmlWithWeakText: {
+    id: "fx-014",
+    from: SENDER,
+    subject: "GeNS Transaction Alert [Debit: NGN76,430.00]",
+    date: new Date("2026-10-02T11:20:00Z"),
+    text: `GeNS Transaction Alert [Debit: NGN76,430.00]
+
+A Debit transaction occurred on your account with us.`,
+    html: gensHtml({
+      kind: "Debit",
+      account: "******2468",
+      description: "NIP/TRANSFER/TO ADA OKAFOR",
+      amount: "NGN 76,430.00",
+      valueDate: "02-Oct-2026",
+      remarks: "RENT OCT",
+      time: "12:20:00 PM",
+      doc: "SYN260002101200001",
+      available: "NGN 900,000.00",
+    }),
+  },
+  // Flattened table row: account mask and amount on one line. Last-4 must stay 2468.
+  gensAccountAndAmountSameLine: {
+    id: "fx-015",
+    from: SENDER,
+    subject: "GeNS Transaction Alert [Debit: NGN76,430.00]",
+    date: new Date("2026-10-02T11:21:00Z"),
+    text: `Guaranty Trust Bank Electronic Notification Service (GeNS)
+We wish to inform you that a Debit transaction occurred on your account with us.
+Account Number : ******2468 : Amount : NGN 76,430.00
+Description : NIP CR TRANSFER FROM KEMI ADE
+Value Date : 02-Oct-2026
+Time of Transaction : 12:21:00 PM`,
+  },
+};

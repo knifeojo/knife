@@ -44,6 +44,8 @@ next-env.d.ts
 # local sqlite
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 
 # local-only alert samples and IMAP/inbound secrets (never commit)
 /data/alert-samples/

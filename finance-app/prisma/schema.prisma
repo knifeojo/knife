@@ -96,10 +96,27 @@ model FinancialConnection {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
-  syncRuns        SyncRun[]
-  processedEmails ProcessedEmail[]
+  syncRuns          SyncRun[]
+  processedEmails   ProcessedEmail[]
+  imapFolderCursors ImapFolderCursor[]
 
   @@unique([userId, provider])
+}
+
+// Per-folder IMAP UID checkpoint so a dropped Yahoo connection can resume without
+// re-fetching mail that was already committed. uidValidity resets the cursor when
+// the mailbox is rebuilt.
+model ImapFolderCursor {
+  id           String              @id @default(cuid())
+  connectionId String
+  connection   FinancialConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  folder       String
+  uid          Int                 @default(0)
+  uidValidity  String?
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([connectionId, folder])
+  @@index([connectionId])
 }
 
 model Account {

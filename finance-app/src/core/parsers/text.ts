@@ -44,9 +44,16 @@ export function htmlToText(html: string): string {
 }
 
 export function emailBodyText(email: { html?: string; text?: string }): string {
-  if (email.text && email.text.trim()) return decodeEntities(email.text).replace(/\r/g, "");
-  if (email.html) return htmlToText(email.html);
-  return "";
+  const html = email.html ? htmlToText(email.html) : "";
+  const text = email.text?.trim() ? decodeEntities(email.text).replace(/\r/g, "") : "";
+  if (html && text) {
+    if (html.includes(text)) return html;
+    if (text.includes(html)) return text;
+    // Yahoo (and others) send a short text/plain plus the real GeNS table in HTML.
+    // Read the HTML first so labelled fields are not lost to the preview.
+    return `${html}\n${text}`;
+  }
+  return html || text;
 }
 
 /** Extracts "Label : value" pairs. Keys are lowercased with collapsed whitespace. */

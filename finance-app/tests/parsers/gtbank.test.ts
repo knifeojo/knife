@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { GTBANK_FIXTURES as F } from "@/core/fixtures/gtbank-alerts";
+import { GTBANK_FIXTURES as F, GTBANK_REGRESSION as R } from "@/core/fixtures/gtbank-alerts";
+import { extractMaskedLast4 } from "@/core/alerts/money";
 import { GTBankParser } from "@/core/parsers/gtbank";
 import { parseEmail } from "@/core/parsers";
 import { htmlToText, parseBankDate } from "@/core/parsers/text";
@@ -103,6 +104,29 @@ describe("GTBankParser: recognition and failure", () => {
   it("recognises every GTBank transaction fixture", () => {
     const ok = [F.gensDebitTransfer, F.gensCreditSalary, F.proseDebit, F.proseCreditPesa, F.gensPosShoprite, F.gensNetflix, F.gensSmsFee, F.missingOptionalFields, F.usdCredit];
     for (const e of ok) expect(parseEmail(e).status, e.id).toBe("parsed");
+  });
+});
+
+describe("GTBankParser: last-4 and narration from HTML plus a short text part", () => {
+  it("takes last-4 from the masked account, never from NGN 76,430.00", () => {
+    expect(extractMaskedLast4("NGN 76,430.00")).toBeUndefined();
+    expect(extractMaskedLast4("******2468 : Amount : NGN 76,430.00")).toBe("2468");
+    const html = parser.parse(R.gensHtmlWithWeakText)!;
+    expect(html.accountLast4).toBe("2468");
+    expect(html.accountLast4).not.toBe("7643");
+    expect(html.amountMinor).toBe(7_643_000n);
+    expect(html.description).toContain("ADA OKAFOR");
+    expect(html.description).not.toMatch(/^GTBank debit$/i);
+
+    const sameLine = parser.parse(R.gensAccountAndAmountSameLine)!;
+    expect(sameLine.accountLast4).toBe("2468");
+    expect(sameLine.description).toContain("KEMI ADE");
+  });
+
+  it("reads Description from HTML when the text/plain part is only a preview", () => {
+    const tx = parser.parse(R.gensHtmlWithWeakText)!;
+    expect(tx.description).toContain("NIP/TRANSFER/TO ADA OKAFOR");
+    expect(parseEmail(R.gensHtmlWithWeakText).status).toBe("parsed");
   });
 });
 
