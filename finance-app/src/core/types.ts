@@ -5,6 +5,16 @@ export type TransactionType = "CREDIT" | "DEBIT";
 
 export type SourceType = "gmail" | "imap" | "inbound" | "fixture" | "demo" | "statement" | "mono" | "sms" | "manual";
 
+/** A PDF, CSV or XLSX attached to an email. Bytes stay in memory unless a statement is waiting for a password. */
+export interface EmailAttachment {
+  filename: string;
+  mimeType: string;
+  /** Present when the bytes were inline (IMAP, inbound, small Gmail parts). */
+  bytes?: Buffer;
+  /** Gmail attachment id when the bytes must be fetched separately. */
+  attachmentId?: string;
+}
+
 /** A raw email as handed to parsers. Bodies live in memory only and are never persisted. */
 export interface EmailMessage {
   id: string;
@@ -13,6 +23,7 @@ export interface EmailMessage {
   date: Date;
   html?: string;
   text?: string;
+  attachments?: EmailAttachment[];
 }
 
 /** Output of a bank parser. Amounts are integer minor units (kobo). */

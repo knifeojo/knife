@@ -12,13 +12,26 @@ export async function ImportStatus({ userId }: { userId: string }) {
   const [issues, questions] = await Promise.all([openIssues(userId), buildQuestions(userId)]);
   const failed = runs.filter((r) => r.status === "failed");
   const partial = runs.filter((r) => r.status === "partial");
+  const needsPassword = runs.filter((r) => r.status === "needs_password");
+  const unrecognised = runs.filter((r) => r.status === "unrecognised");
   const created = runs.reduce((s, r) => s + r.created, 0);
   const merged = runs.reduce((s, r) => s + r.duplicates, 0);
   const linked = runs.reduce((s, r) => s + r.linked, 0);
-  const tone = failed.length === runs.length ? "fail" : failed.length || partial.length ? "partial" : "ok";
+  const attention = failed.length + partial.length + needsPassword.length + unrecognised.length;
+  const tone = failed.length === runs.length ? "fail" : attention ? "partial" : "ok";
   const styles = {
     ok: { box: "bg-accent-soft border-accent/30", icon: "✓", title: "Import complete" },
-    partial: { box: "bg-warn-bg border-warn-ink/20", icon: "!", title: failed.length ? "Import finished, but some files could not be read" : "Imported, but some rows need your attention" },
+    partial: {
+      box: "bg-warn-bg border-warn-ink/20",
+      icon: "!",
+      title: needsPassword.length && !failed.length && !partial.length && !unrecognised.length
+        ? "A statement needs a password"
+        : unrecognised.length && !failed.length && !partial.length && !needsPassword.length
+          ? "A statement layout was not recognised"
+          : failed.length
+            ? "Import finished, but some files could not be read"
+            : "Imported, but some rows need your attention",
+    },
     fail: { box: "bg-warn-bg border-danger/30", icon: "✕", title: "Import failed" },
   }[tone];
 
@@ -40,12 +53,18 @@ export async function ImportStatus({ userId }: { userId: string }) {
             <ul className="mt-2 space-y-1 text-sm">
               {runs.map((r) => (
                 <li key={r.id} className="flex flex-wrap gap-x-2">
-                  <span aria-hidden>{r.status === "failed" ? "✕" : "✓"}</span>
+                  <span aria-hidden>{r.status === "failed" || r.status === "unrecognised" ? "✕" : r.status === "needs_password" ? "!" : "✓"}</span>
                   <span className="font-medium truncate max-w-[60vw]">{r.label ?? "Statement"}</span>
-                  <span className={r.status === "failed" ? "text-danger" : "text-ink-2"}>
-                    {r.status === "failed"
-                      ? `${r.error ?? "Could not be imported"} ${fixHint(r.error ?? "")}`
-                      : `${r.emailsScanned} rows read · ${r.created} new · ${r.duplicates} already there${r.parseFailures ? ` · ${r.parseFailures} rows could not be read` : ""}`}
+                  <span className={r.status === "failed" || r.status === "unrecognised" ? "text-danger" : "text-ink-2"}>
+                    {r.status === "needs_password"
+                      ? "Needs a password. Enter it in Review. It stays on this machine."
+                      : r.status === "unrecognised"
+                        ? `Unrecognised layout. ${r.error ?? ""}`
+                        : r.status === "duplicate"
+                          ? "Already imported, so it was not added again."
+                          : r.status === "failed"
+                            ? `${r.error ?? "Could not be imported"} ${fixHint(r.error ?? "")}`
+                            : `${r.emailsScanned} rows read · ${r.created} new · ${r.duplicates} already there${r.parseFailures ? ` · ${r.parseFailures} rows could not be read` : ""}`}
                   </span>
                   {r.gapMinor ? (
                     <span className="basis-full text-warn-ink pl-5">
@@ -66,6 +85,9 @@ export async function ImportStatus({ userId }: { userId: string }) {
               </Link>
             )}
             <div className="mt-2 flex flex-wrap gap-4 text-sm font-medium">
+              {needsPassword.length > 0 && (
+                <Link href="/app/review" className="text-warn-ink underline">Enter {needsPassword.length} statement password{needsPassword.length > 1 ? "s" : ""}</Link>
+              )}
               {issues.length > 0 && (
                 <Link href="/app/accounts/issues" className="text-warn-ink underline">Fix {issues.length} unreadable row{issues.length > 1 ? "s" : ""}</Link>
               )}

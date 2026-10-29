@@ -3,7 +3,9 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { logout } from "../../(auth)/actions";
-import { askAgainAction, clearManualRateAction, deleteMyData, dismissForwardingNotice, importMarketRatesAction, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, setAccountCurrencyAction, setAiConsentAction, setAiRoutesAction, setFxPreferenceAction, setManualRateAction } from "../actions";
+import { askAgainAction, clearManualRateAction, deleteMyData, dismissForwardingNotice, importMarketRatesAction, measureAccuracyAction, reapplyCategoriesAction, runAiCategorizeAction, saveStatementPasswordsAction, setAccountCurrencyAction, setAiConsentAction, setAiRoutesAction, setFxPreferenceAction, setManualRateAction } from "../actions";
+import { statementInstitutions } from "@/core/alerts/statement-mail";
+import { hasStatementPassword } from "@/core/statements/passwords";
 import { ensureUserTokens, inboundAddress } from "@/core/alerts/tokens";
 import { defaultSyncMinutes } from "@/core/alerts/secrets";
 import { relativeTime } from "@/components/ui";
@@ -17,8 +19,18 @@ import { SyncButton } from "@/components/sync-button";
 
 const ROUTE_LABEL: Record<AiRoute, string> = { local: "Local", cloud: "Cloud (redacted)", off: "Off" };
 
-export default async function Settings() {
+export default async function Settings({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
+  const sp = await searchParams;
+  const institutions = statementInstitutions();
+  const savedPasswords = new Set(institutions.filter((inst) => hasStatementPassword(user.id, inst.institution)).map((inst) => inst.id));
+  const passwordNotice = sp.passwords === "saved"
+    ? "Statement passwords saved on this machine. They are encrypted and are not sent to the cloud AI."
+    : sp.passwords === "error"
+      ? "Could not save. Set STATEMENT_PASSWORD_KEY or ENCRYPTION_KEY (32 bytes, base64) and try again."
+      : sp.passwords === "demo"
+        ? "Demo accounts cannot save statement passwords."
+        : undefined;
   const tokens = await ensureUserTokens(user.id);
   const inbound = inboundAddress(tokens.inboundEmailToken);
   const [txCount, learned, history, status, connections, notices, fx, accounts] = await Promise.all([
@@ -38,6 +50,7 @@ export default async function Settings() {
   return (
     <div className="max-w-2xl space-y-4">
       <PageHeader title="Settings" />
+      {passwordNotice && <p className={`rounded-xl px-4 py-3 text-sm ${sp.passwords === "saved" ? "bg-accent-soft text-accent" : "bg-warn-bg text-warn-ink"}`}>{passwordNotice}</p>}
       <Card title="Profile">
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <div><dt className="text-xs text-ink-3">Name</dt><dd>{user.name ?? "Not set"}</dd></div>
@@ -79,6 +92,42 @@ export default async function Settings() {
             ))}
           </div>
         )}
+      </Card>
+      <Card title="Statement passwords">
+        <p className="text-sm text-ink-2">
+          Some banks lock the monthly PDF. Save each bank&rsquo;s statement password once. It is encrypted on this machine
+          with <code>STATEMENT_PASSWORD_KEY</code> (or <code>ENCRYPTION_KEY</code>) and stored in{" "}
+          <code>{process.env.STATEMENT_PASSWORD_FILE ? "STATEMENT_PASSWORD_FILE" : "~/.ledger/statement-passwords.json"}</code>.
+          It is not your bank login, it is never written to the database, never logged, and never sent to the cloud AI.
+          If a statement arrives without a saved password, Review asks for it once.
+        </p>
+        <form action={saveStatementPasswordsAction} className="mt-4 space-y-3">
+          {institutions.map((inst) => (
+            <div key={inst.id}>
+              <label className="label" htmlFor={`pw-${inst.id}`}>
+                {inst.institution}
+                {inst.id === "wallet" ? " (wallet)" : ""}
+                {savedPasswords.has(inst.id) ? <span className="ml-2 text-accent">Saved</span> : null}
+              </label>
+              <input
+                id={`pw-${inst.id}`}
+                name={`password:${inst.id}`}
+                type="password"
+                autoComplete="off"
+                className="input mt-1"
+                placeholder={savedPasswords.has(inst.id) ? "Leave blank to keep the saved password" : "PDF password"}
+                disabled={user.isDemo}
+              />
+              {savedPasswords.has(inst.id) && (
+                <label className="mt-1 flex items-center gap-2 text-xs text-ink-3">
+                  <input type="checkbox" name={`clear:${inst.id}`} value="1" disabled={user.isDemo} />
+                  Remove saved password
+                </label>
+              )}
+            </div>
+          ))}
+          <button className="btn btn-secondary" disabled={user.isDemo}>Save statement passwords</button>
+        </form>
       </Card>
       <Card title="Exchange rates">
         <p className="text-sm text-ink-2">

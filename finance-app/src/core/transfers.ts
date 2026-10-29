@@ -257,19 +257,35 @@ async function loadPairRateLookup(userId: string): Promise<FxRateLookup> {
   };
 }
 
+export interface PairScope {
+  /** Accounts this import wrote. A pair must touch one of them. */
+  accountIds: string[];
+  from: Date;
+  to: Date;
+}
+
 /** Finds and links own-account transfer pairs for a user. Returns how many new pairs were made. */
-export async function pairOwnTransfers(userId: string): Promise<number> {
+export async function pairOwnTransfers(userId: string, scope?: PairScope): Promise<number> {
   const accounts = await db.account.findMany({ where: { userId } });
   let paired = 0;
   if (accounts.length >= 2) {
     const owners = [...new Set(accounts.map((a) => a.holderName).filter((x): x is string => !!x))];
     const inst = new Map(accounts.map((a) => [a.id, a.institution]));
+    const from = scope ? new Date(scope.from.getTime() - WINDOW_MS) : undefined;
+    const to = scope ? new Date(scope.to.getTime() + WINDOW_MS) : undefined;
     const rows = await db.transaction.findMany({
-      where: { userId, transferPairId: null },
+      where: {
+        userId,
+        transferPairId: null,
+        ...(from && to ? { transactionDate: { gte: from, lte: to } } : {}),
+      },
       select: { id: true, accountId: true, type: true, amountMinor: true, currency: true, transactionDate: true, description: true, counterparty: true, category: true, classificationSource: true },
     });
     const legs: Leg[] = rows.map((r) => ({ ...r, institution: inst.get(r.accountId) ?? "" }));
-    const pairs = findPairs(legs, owners, await loadPairRateLookup(userId));
+    const touched = scope ? new Set(scope.accountIds) : undefined;
+    const pairs = findPairs(legs, owners, await loadPairRateLookup(userId)).filter(
+      (pair) => !touched || touched.has(pair.debit.accountId) || touched.has(pair.credit.accountId),
+    );
     let linked = 0;
     for (const p of pairs) {
       if (await isBlockedMispair(userId, p.debit.id, p.credit.id)) continue;

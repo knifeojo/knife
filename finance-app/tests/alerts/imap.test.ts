@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ImapEmailSource, bankEmailFromQuery, type ImapClientLike } from "@/core/alerts/imap";
+import { ImapEmailSource, bankEmailFromQuery, imapFromClauses, type ImapClientLike } from "@/core/alerts/imap";
 import { log } from "@/lib/log";
 
 function rfc822() {
@@ -33,8 +33,10 @@ describe("IMAP source (mocked)", () => {
     const ids = await src.listMessageIds({ query: "", after, max: 2 });
     expect(ids).toEqual(["18", "17"]);
 
-    const froms = bankEmailFromQuery();
-    expect(froms).toEqual(expect.arrayContaining([{ from: "gtbank.com" }, { from: "sterling.ng" }, { from: "providusbank.com" }]));
+    const banks = bankEmailFromQuery();
+    expect(banks).toEqual(expect.arrayContaining([{ from: "gtbank.com" }, { from: "sterling.ng" }, { from: "providusbank.com" }]));
+    const froms = imapFromClauses();
+    expect(froms).toEqual(expect.arrayContaining([...banks, { from: "deel.com" }, { from: "pesa.com" }]));
     expect(froms.every((f) => f.from.includes("."))).toBe(true);
     expect(client.search).toHaveBeenCalledWith({ since: after, or: froms }, { uid: true });
   });
@@ -48,6 +50,7 @@ describe("IMAP source (mocked)", () => {
     expect(client.fetchOne).toHaveBeenCalledWith("17", { source: true, envelope: true }, { uid: true });
     expect(msg.from).toMatch(/gtbank.com/);
     expect(msg.subject).toMatch(/GeNS/);
+    expect(msg.attachments ?? []).toEqual([]);
     expect(factory).toHaveBeenCalledWith(expect.objectContaining({ host: "imap.mail.yahoo.com", user: "me@yahoo.com" }));
     expect(JSON.stringify(log.redact({ password: "app-password-never-logged", host: "imap.mail.yahoo.com" }))).not.toContain("app-password-never-logged");
     expect(client.logout).toHaveBeenCalled();

@@ -490,7 +490,7 @@ export function parsePesaStatement(text: string): { result: StatementParseResult
   const transactions: CanonicalTransaction[] = [];
   const seen = new Map<string, number>();
   for (const draft of drafts) {
-    const key = ["Pesa", accountLast4 ?? "", draft.date.toISOString().slice(0, 10), draft.description, draft.type, draft.amount.toString(), draft.balance.toString()].join("|");
+    const key = ["Pesa", accountLast4 ?? "", lagosDay(draft.date), draft.description, draft.type, draft.amount.toString(), draft.balance.toString()].join("|");
     const n = (seen.get(key) ?? 0) + 1;
     seen.set(key, n);
     const sourceTransactionId = createHash("sha256").update(`${key}#${n}`).digest("hex").slice(0, 32);

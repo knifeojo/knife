@@ -1,8 +1,9 @@
+import { statementSenderDomains } from "./statement-mail";
 import { BANK_SENDERS } from "./senders";
 
 /** Atom XML Gmail can import (Settings → Filters and Blocked Addresses → Import filters). */
 export function gmailFilterXml(opts: { forwardTo: string; senders?: string[] }): string {
-  const froms = opts.senders ?? BANK_SENDERS.filter((s) => s.channel !== "sms").map((s) => s.id);
+  const froms = opts.senders ?? [...new Set([...BANK_SENDERS.filter((s) => s.channel !== "sms").map((s) => s.id), ...statementSenderDomains()])];
   const unique = [...new Set(froms)];
   const entries = unique.map((from) => {
     const escaped = escapeXml(from);

@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { EmailAttachment } from "../types";
+import { attachmentsFromList } from "./attachments";
 import { detectGmailForwardingConfirmation } from "./confirmation";
 import { inboundEmailSecret } from "./secrets";
 import { tokenFromRecipient } from "./tokens";
@@ -11,6 +13,7 @@ export interface InboundEmail {
   html?: string;
   date?: string;
   messageId?: string;
+  attachments?: EmailAttachment[];
 }
 
 export function verifyInboundSecret(req: Request, rawBody: string): boolean {
@@ -46,6 +49,7 @@ export function parseGenericInbound(body: Record<string, unknown>): InboundEmail
   const to = str(body.to) ?? str(body.recipient) ?? firstTo(body.toFull);
   const from = str(body.from) ?? str(body.sender);
   if (!to || !from) return null;
+  const attachments = attachmentsFromList(body.attachments ?? body.Attachments);
   return {
     to,
     from,
@@ -54,6 +58,7 @@ export function parseGenericInbound(body: Record<string, unknown>): InboundEmail
     html: str(body.html) ?? str(body.htmlBody),
     date: str(body.date) ?? str(body.timestamp),
     messageId: str(body.messageId) ?? str(body.MessageID),
+    ...(attachments.length ? { attachments } : {}),
   };
 }
 
@@ -67,6 +72,7 @@ export function parseCloudflareInbound(body: Record<string, unknown>): InboundEm
     html: body.html,
     date: body.date ?? header(body, "date"),
     messageId: body.messageId ?? header(body, "message-id"),
+    attachments: body.attachments ?? body.Attachments,
   });
 }
 
@@ -82,6 +88,7 @@ export function parsePostmarkInbound(body: Record<string, unknown>): InboundEmai
     html: body.HtmlBody,
     date: body.Date,
     messageId: body.MessageID,
+    attachments: body.Attachments ?? body.attachments,
   });
 }
 

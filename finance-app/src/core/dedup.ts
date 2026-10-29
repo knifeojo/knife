@@ -73,6 +73,8 @@ export function computeFingerprint(tx: CanonicalTransaction): string {
   const parts = [accountKey(tx.institution, tx.accountLast4), tx.currency, tx.type, tx.amountMinor.toString()];
   if (ref) parts.push(`REF:${ref}`);
   else parts.push(lagosDay(tx.transactionDate), normalizeDescription(tx.description), tx.balanceAfterMinor?.toString() ?? "");
+  // No running balance (Deel): identical amount/day rows are still different positions in the file.
+  if (tx.balanceAfterMinor === undefined && tx.source === "statement" && !ref) parts.push(`id:${tx.sourceTransactionId}`);
   return createHash("sha256").update(parts.join("|")).digest("hex");
 }
 
@@ -146,6 +148,69 @@ export function isFuzzyMatch(tx: CanonicalTransaction, c: LedgerCandidate): bool
 
 export function findFuzzyMatch(tx: CanonicalTransaction, candidates: LedgerCandidate[]): LedgerCandidate | undefined {
   return candidates.find((c) => isFuzzyMatch(tx, c));
+}
+
+const FOREIGN_WALLET = new Set(["USD", "CAD", "GBP", "EUR"]);
+
+/** Non-NGN amounts that differ by one minor unit are the same cents (FX rounding), not a new row. */
+export function amountsMatch(a: bigint, b: bigint, currency: string): boolean {
+  if (a === b) return true;
+  if (!FOREIGN_WALLET.has(currency)) return false;
+  const diff = a > b ? a - b : b - a;
+  return diff <= 1n;
+}
+
+/**
+ * A statement re-read is the same row when the account, direction and amount match and the dates
+ * are the same Lagos day, or the same instant seen as a UTC date versus a Lagos date.
+ * USD and CAD (and the other wallet currencies) are accepted as the same label: a wallet statement
+ * is sometimes stored under the wrong code and would otherwise be inserted again.
+ */
+export function datesAreSameEvent(a: Date, b: Date): boolean {
+  if (lagosDay(a) === lagosDay(b)) return true;
+  if (lagosDayDelta(a, b) > 1) return false;
+  const utcA = a.toISOString().slice(0, 10);
+  const utcB = b.toISOString().slice(0, 10);
+  return utcA === lagosDay(b) || utcB === lagosDay(a);
+}
+
+export function statementReplayMatch(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
+  if (tx.source !== "statement" || !linkedSources(c).has("statement")) return false;
+  if (c.type !== tx.type) return false;
+  if (!amountsMatch(tx.amountMinor, c.amountMinor, tx.currency) && !amountsMatch(tx.amountMinor, c.amountMinor, c.currency)) return false;
+  if (!datesAreSameEvent(tx.transactionDate, c.transactionDate)) return false;
+  if (c.currency !== tx.currency && !(FOREIGN_WALLET.has(c.currency) && FOREIGN_WALLET.has(tx.currency))) return false;
+  const balanceAbsent = tx.balanceAfterMinor === undefined || c.balanceAfterMinor == null;
+  if (balanceAbsent && !narrationOrReferenceMatches(tx, c)) return false;
+  return true;
+}
+
+/** Without a running balance, amount and day are not enough: the words or the reference must agree. */
+function narrationOrReferenceMatches(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
+  const left = normalizeReference(tx.reference);
+  const right = normalizeReference(c.reference ?? undefined);
+  if (left && right && (left === right || left.includes(right) || right.includes(left))) return true;
+  const a = normalizeDescription(tx.description);
+  const b = normalizeDescription(c.description);
+  return a.length > 0 && a === b;
+}
+
+/**
+ * Prefer a row whose running balance matches. Two same-day purchases of the same amount stay apart
+ * when their balances differ. A missing balance matches only when it is the only candidate.
+ */
+export function pickStatementReplay(tx: CanonicalTransaction, candidates: LedgerCandidate[]): LedgerCandidate | undefined {
+  const hits = candidates.filter((c) => statementReplayMatch(tx, c));
+  if (!hits.length) return undefined;
+  const balanced = tx.balanceAfterMinor === undefined
+    ? hits.filter((c) => c.balanceAfterMinor == null)
+    : hits.filter((c) => c.balanceAfterMinor != null && c.balanceAfterMinor === tx.balanceAfterMinor);
+  if (balanced.length === 1) return balanced[0];
+  if (balanced.length > 1) {
+    return balanced.find((c) => c.currency === tx.currency && lagosDay(c.transactionDate) === lagosDay(tx.transactionDate));
+  }
+  const missing = hits.filter((c) => tx.balanceAfterMinor === undefined || c.balanceAfterMinor == null);
+  return missing.length === 1 ? missing[0] : undefined;
 }
 
 function balancesMatch(tx: CanonicalTransaction, c: LedgerCandidate): boolean {

@@ -16,6 +16,17 @@ const NOTICES: Record<string, { tone: "accent" | "warn"; text: string }> = {
   error: { tone: "warn", text: "Something went wrong connecting Gmail. Please try again." },
 };
 
+const STATEMENT_STATUS: Record<string, { label: string; tone: "accent" | "warn" | "neutral" }> = {
+  imported: { label: "imported", tone: "accent" },
+  needs_password: { label: "needs password", tone: "warn" },
+  unrecognised: { label: "unrecognised layout", tone: "warn" },
+  duplicate: { label: "duplicate", tone: "neutral" },
+};
+
+function syncStatusLabel(status: string): string {
+  return STATEMENT_STATUS[status]?.label ?? status;
+}
+
 const EXTRA_NOTICES: Record<string, { tone: "accent" | "warn"; text: string }> = {
   saved: { tone: "accent", text: "IMAP settings saved. Put the app password in IMAP_PASSWORD or ~/.ledger/secrets.env. It is never stored here." },
   demo: { tone: "warn", text: "Demo accounts cannot connect IMAP." },
@@ -25,10 +36,16 @@ const EXTRA_NOTICES: Record<string, { tone: "accent" | "warn"; text: string }> =
 export default async function Accounts({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const sp = await searchParams;
-  const [accounts, connections, runs] = await Promise.all([
+  const [accounts, connections, runs, statementFiles] = await Promise.all([
     db.account.findMany({ where: { userId: user.id }, include: { _count: { select: { transactions: true } } }, orderBy: { createdAt: "asc" } }),
     db.financialConnection.findMany({ where: { userId: user.id }, orderBy: { createdAt: "asc" } }),
-    db.syncRun.findMany({ where: { userId: user.id }, orderBy: { startedAt: "desc" }, take: 5 }),
+    db.syncRun.findMany({ where: { userId: user.id }, orderBy: { startedAt: "desc" }, take: 8 }),
+    db.statementFile.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 15,
+      select: { id: true, fileName: true, institution: true, source: true, status: true, createdAt: true, occurrences: true, detail: true },
+    }),
   ]);
   const issues = await openIssues(user.id);
   const gmail = connections.find((c) => c.provider === "gmail" && c.status !== "revoked");
@@ -92,7 +109,7 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-ink-2">Connect Gmail with read-only access. We scan for GTBank transaction alerts and turn them into your ledger.</p>
+              <p className="text-sm text-ink-2">Connect Gmail with read-only access. We scan for bank alerts and for statement emails (PDF, CSV, Excel) and turn them into your ledger.</p>
               <Link href="/app/accounts/connect" className="btn btn-primary">Connect Gmail</Link>
               {!googleConfigured() && <p className="text-xs text-ink-3">Google OAuth is not configured on this server yet.</p>}
             </div>
@@ -136,7 +153,7 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
       {!user.isDemo && (
         <Card title="Import bank statements" className="mt-4">
           <p className="text-sm text-ink-2 mb-4">
-            No Gmail needed. Download statements from your bank app or internet banking as PDF, CSV or Excel and upload them here, several at once if you like. We detect the bank and account from each file, and transactions you already have (from alerts or earlier statements) are merged, not duplicated. Files are read once and not stored.{" "}
+            No Gmail needed. Download statements from your bank app or internet banking as PDF, CSV or Excel and upload them here, several at once if you like. Statement emails are imported on their own. We detect the bank and account from each file, and transactions you already have (from alerts or earlier statements) are merged, not duplicated. The same file is never imported twice. Files are read once and not stored. A saved statement password in Settings is tried when a PDF is locked.{" "}
             Samples to try: <a href="/sample-gtbank-statement.pdf" download className="text-accent underline">PDF</a>, <a href="/sample-gtbank-statement.csv" download className="text-accent underline">CSV</a>.
           </p>
           <StatementUpload />
@@ -160,8 +177,8 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
               <tbody className="num">
                 {runs.map((r) => (
                   <tr key={r.id} className="border-b border-border last:border-0">
-                    <td className="px-5 py-2">{relativeTime(r.startedAt)}</td>
-                    <td><Badge tone={r.status === "success" ? "accent" : "warn"}>{r.status}</Badge></td>
+                    <td className="px-5 py-2">{relativeTime(r.startedAt)}{r.label ? <div className="text-xs text-ink-3 font-sans">{r.label}</div> : null}</td>
+                    <td><Badge tone={r.status === "success" ? "accent" : r.status === "duplicate" ? "neutral" : "warn"}>{syncStatusLabel(r.status)}</Badge></td>
                     <td className="text-right">{r.emailsScanned}</td>
                     <td className="text-right">{r.created}</td>
                     <td className="text-right">{r.duplicates}</td>
@@ -172,6 +189,33 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
             </table>
           </div>
         ) : <Empty>No syncs yet.</Empty>}
+        {statementFiles.length > 0 && (
+          <div className="mt-5 overflow-x-auto -mx-5">
+            <h3 className="px-5 text-sm font-medium mb-2">Statements</h3>
+            <table className="w-full text-sm min-w-[560px]">
+              <thead><tr className="text-left text-xs text-ink-3 border-b border-border"><th className="font-normal px-5 py-2">When</th><th className="font-normal">File</th><th className="font-normal">From</th><th className="font-normal">Status</th></tr></thead>
+              <tbody>
+                {statementFiles.map((file) => {
+                  const label = STATEMENT_STATUS[file.status] ?? { label: file.status, tone: "neutral" as const };
+                  return (
+                    <tr key={file.id} className="border-b border-border last:border-0">
+                      <td className="px-5 py-2">{relativeTime(file.createdAt)}</td>
+                      <td>{file.fileName}{file.institution ? <span className="text-ink-3"> · {file.institution}</span> : null}{file.occurrences > 1 ? <span className="text-ink-3"> · seen {file.occurrences} times</span> : null}</td>
+                      <td className="text-ink-2">{file.source}</td>
+                      <td>
+                        {file.status === "needs_password" ? (
+                          <Link href="/app/review"><Badge tone={label.tone}>{label.label}</Badge></Link>
+                        ) : (
+                          <Badge tone={label.tone} title={file.detail ?? undefined}>{label.label}</Badge>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
     </>
   );

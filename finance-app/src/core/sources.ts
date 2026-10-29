@@ -1,5 +1,7 @@
 // Bank-specific search definitions. The sender domain has NOT been validated against a large
 // sample of real GTBank alerts, so the query is deliberately broad and overridable per deployment.
+// Statement emails are a second Gmail query (see statementGmailQuery). This alert query stays
+// alert-only so it can still be tightened; it is not the only search a sync runs.
 
 export interface BankEmailSource {
   institution: string;

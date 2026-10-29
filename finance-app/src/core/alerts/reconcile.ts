@@ -13,12 +13,35 @@ export async function reconcileAlertsVsStatement(
   from: Date,
   to: Date,
 ): Promise<{ alertOnly: number; statementOnly: number }> {
+  const firstAlert = await db.transaction.findFirst({
+    where: {
+      userId,
+      accountId,
+      OR: [
+        { source: { in: [...ALERT_SOURCES] } },
+        { sources: { some: { source: { in: [...ALERT_SOURCES] } } } },
+      ],
+    },
+    orderBy: { transactionDate: "asc" },
+    select: { transactionDate: true },
+  });
+  // Statement history usually starts before alerts do. Only the alert-tracked window is compared,
+  // so a 2025 statement row is not flagged just because SMS started in 2026.
+  const alertFrom = firstAlert?.transactionDate ?? null;
   const rows = await db.transaction.findMany({
-    where: { userId, accountId, transactionDate: { gte: from, lte: to } },
+    where: {
+      userId,
+      accountId,
+      transactionDate: { gte: alertFrom && alertFrom > from ? alertFrom : from, lte: to },
+    },
     include: { sources: true },
   });
   let alertOnly = 0;
   let statementOnly = 0;
+  if (!alertFrom) {
+    await extendStatementCoverage(accountId, from, to);
+    return { alertOnly: 0, statementOnly: 0 };
+  }
   for (const row of rows) {
     const kinds = new Set(row.sources.map((s) => s.source));
     kinds.add(row.source);
@@ -58,11 +81,19 @@ export async function reconcileAlertsVsStatement(
       }
     }
   }
-  await db.account.update({
-    where: { id: accountId },
-    data: { statementCoveredFrom: from, statementCoveredTo: to },
-  });
+  await extendStatementCoverage(accountId, from, to);
   return { alertOnly, statementOnly };
+}
+
+/** Widen coverage. A later, shorter file must not erase dates already covered. */
+async function extendStatementCoverage(accountId: string, from: Date, to: Date): Promise<void> {
+  const account = await db.account.findUnique({
+    where: { id: accountId },
+    select: { statementCoveredFrom: true, statementCoveredTo: true },
+  });
+  const statementCoveredFrom = !account?.statementCoveredFrom || from < account.statementCoveredFrom ? from : account.statementCoveredFrom;
+  const statementCoveredTo = !account?.statementCoveredTo || to > account.statementCoveredTo ? to : account.statementCoveredTo;
+  await db.account.update({ where: { id: accountId }, data: { statementCoveredFrom, statementCoveredTo } });
 }
 
 export async function dismissReconFlag(userId: string, id: string): Promise<void> {
