@@ -82,7 +82,7 @@ internal data class UploadOutcome(
     fun toMap(): Map<String, Any?> = mapOf(
         "sent" to sent,
         "kept" to kept,
-        "ok" to !retry && kept == 0,
+        "ok" to (!retry && kept == 0),
         "queued" to queued,
         "error" to error,
     )
