@@ -1,4 +1,5 @@
 import { incomeSources, previousCalendarMonth, spendingByCategory, summary, type Period } from "./analytics";
+import { freedThrough, loanClearedCards, syncLoanMoments } from "./loan-moments";
 import { pendingReviewCount } from "./review";
 
 /**
@@ -7,13 +8,17 @@ import { pendingReviewCount } from "./review";
  * reviewCount is the pending Review question total, same as the web nav badge.
  */
 export async function monthOverview(userId: string, period: Period) {
+  await syncLoanMoments(userId);
   const prev = previousCalendarMonth(period);
-  const [figures, prevFigures, categories, sources, reviewCount] = await Promise.all([
+  const [figures, prevFigures, categories, sources, reviewCount, cleared, freed] = await Promise.all([
     summary(userId, period),
     summary(userId, prev),
     spendingByCategory(userId, period),
     incomeSources(userId, period, 5),
     pendingReviewCount(userId),
+    loanClearedCards(userId),
+    freedThrough(userId, period.to),
   ]);
-  return { figures, prevOut: prevFigures.expenses, categories, sources, reviewCount, period, prev };
+  const current = period.from.getTime() <= Date.now() && Date.now() < period.to.getTime();
+  return { figures, prevOut: prevFigures.expenses, categories, sources, reviewCount, period, prev, cleared, freed: current ? freed : 0n };
 }

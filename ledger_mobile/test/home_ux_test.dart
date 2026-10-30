@@ -202,4 +202,45 @@ void main() {
     expect(find.textContaining('—'), findsNothing);
     expect(find.text('This is a real loan - count it as debt'), findsOneWidget);
   });
+
+  testWidgets('LEFT uses the freed projection and the cleared-loan card dismisses', (tester) async {
+    var dismissed = '';
+    final overview = MonthOverview.fromJson({
+      ..._overview,
+      'projectedLeftMinor': '39000000',
+      'loanCleared': [
+        {
+          'id': 'evt-1',
+          'loanId': 'loan-1',
+          'lender': 'Renmoney',
+          'totalRepaidMinor': '36000000',
+          'freedPerMonthMinor': '12000000',
+          'closedAt': '2026-10-20T09:00:00.000Z',
+        },
+      ],
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ledgerTheme(Brightness.light),
+        home: Scaffold(
+          body: ListView(
+            children: [
+              HomeBody(
+                overview: overview,
+                month: '2026-10',
+                onDismissCleared: (id) async {
+                  dismissed = id;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('₦390k'), findsOneWidget);
+    expect(find.text('₦270k'), findsNothing);
+    expect(find.text('Renmoney is fully paid. That frees up about ₦120,000 a month.'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('loan-cleared-dismiss-evt-1')));
+    expect(dismissed, 'evt-1');
+  });
 }

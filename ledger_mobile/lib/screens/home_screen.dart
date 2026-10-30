@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../api/models.dart';
 import '../format.dart';
+import '../loans/cleared_notice.dart';
 import '../state/ledger_controller.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -22,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   MonthOverview? _overview;
   String? _error;
   bool _loading = true;
+  final _notices = LoanNoticeGate(MethodChannelLoanNotice());
 
   @override
   void initState() {
@@ -42,12 +44,23 @@ class _HomeScreenState extends State<HomeScreen> {
         _overview = overview;
         _loading = false;
       });
+      await _notices.announce(overview.loanCleared.map((event) => (id: event.id, lender: event.lender, freedMinor: event.freedPerMonthMinor)));
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
         _error = error.message;
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _dismissCleared(String id) async {
+    try {
+      await context.read<LedgerController>().dismissLoanCleared(id);
+      if (mounted) await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.message);
     }
   }
 
@@ -86,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Loading…'))),
           if (_error != null) ErrorText(_error),
-          if (overview != null && !_loading) HomeBody(overview: overview, month: _month, onChanged: _load),
+          if (overview != null && !_loading) HomeBody(overview: overview, month: _month, onChanged: _load, onDismissCleared: _dismissCleared),
         ],
       ),
     );
@@ -94,11 +107,12 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class HomeBody extends StatelessWidget {
-  const HomeBody({super.key, required this.overview, required this.month, this.onChanged});
+  const HomeBody({super.key, required this.overview, required this.month, this.onChanged, this.onDismissCleared});
 
   final MonthOverview overview;
   final String month;
   final VoidCallback? onChanged;
+  final Future<void> Function(String id)? onDismissCleared;
 
   @override
   Widget build(BuildContext context) {
@@ -137,13 +151,39 @@ class HomeBody extends StatelessWidget {
               child: HomeStatCard(
                 key: const Key('home-left'),
                 label: 'LEFT',
-                minor: overview.leftMinor,
+                minor: overview.displayLeftMinor,
                 hint: kept,
                 filled: true,
               ),
             ),
           ],
         ),
+        if (overview.loanCleared.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          for (final event in overview.loanCleared)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                key: Key('loan-cleared-${event.id}'),
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 4, 4, 4),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(loanClearedNotice(event.lender, event.freedPerMonthMinor))),
+                      IconButton(
+                        key: Key('loan-cleared-dismiss-${event.id}'),
+                        tooltip: 'Dismiss',
+                        onPressed: onDismissCleared == null ? null : () => onDismissCleared!(event.id),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
         const SizedBox(height: 20),
         Row(
           children: [

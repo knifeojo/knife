@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { canonicalLender } from "../categorize";
+import { recordLoanCleared } from "../loan-moments";
 import { parseMoney } from "./money";
 import type { AlertMessage } from "./types";
 
@@ -123,10 +124,11 @@ export async function applyLoanStatus(userId: string, msg: AlertMessage, sourceI
       : { status: "review", applied: false, recorded: true };
   }
 
-  const loans = await db.loan.findMany({ where: { userId }, select: { id: true, lender: true, status: true } });
+  const loans = await db.loan.findMany({ where: { userId }, select: { id: true, lender: true, status: true, instalmentMinor: true } });
   const match = matchOpenLoan(loans, parsed, msg.sender);
   const apply = parsed.confidence >= 0.8 && typeof match === "object";
   const status = parsed.cleared || parsed.outstandingMinor === 0n ? "closed" : parsed.overdue ? "overdue" : "open";
+  const previous = apply && typeof match === "object" ? loans.find((loan) => loan.id === match.id) : undefined;
   if (apply && typeof match === "object") {
     await db.loan.update({
       where: { id: match.id },
@@ -139,6 +141,10 @@ export async function applyLoanStatus(userId: string, msg: AlertMessage, sourceI
         ...(status === "closed" && { status: "closed", closedAt: msg.receivedAt, outstandingMinor: 0n, balanceAsOf: msg.receivedAt }),
       },
     });
+    if (status === "closed" && previous?.status !== "closed") {
+      const closed = await db.loan.findUniqueOrThrow({ where: { id: match.id } });
+      await recordLoanCleared(userId, closed, { closedAt: msg.receivedAt, silent: false });
+    }
   }
   await db.loanUpdate.create({
     data: {

@@ -244,6 +244,8 @@ class LedgerController extends ChangeNotifier {
 
   Future<LedgerLoan> setLoanStatus(String id, String status) => _guard((api) => api.setLoanStatus(id, status));
 
+  Future<bool> dismissLoanCleared(String id) => _guard((api) => api.dismissLoanCleared(id));
+
   Future<List<StatementFileResult>> upload({required String filename, required Uint8List bytes, String? password}) {
     return _guard((api) => api.uploadStatement(filename: filename, bytes: bytes, password: password));
   }

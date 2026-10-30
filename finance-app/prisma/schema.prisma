@@ -45,6 +45,7 @@ model User {
   syncRuns     SyncRun[]
   loans        Loan[]
   loanUpdates  LoanUpdate[]
+  loanCleared  LoanClearedEvent[]
   suggestions  CategorySuggestion[]
   people       Person[]
   peopleBatches PeopleBatch[]
@@ -396,14 +397,36 @@ model Loan {
   endDate          DateTime? // the last instalment's due date
   notes            String?
   status           String    @default("open") // open | closed
+  source           String    @default("manual") // manual | inferred
+  firstPayment     DateTime? // first repayment seen, when the loan was inferred
+  totalRepaidMinor BigInt? // sum of those repayments
   // When the balance and instalments were last entered. Statement repayments after this are not in them yet.
   balanceAsOf      DateTime  @default(now())
   closedAt         DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   updates          LoanUpdate[]
+  cleared          LoanClearedEvent?
 
   @@index([userId, status])
+}
+
+// Fired once when a loan is paid off. Silent rows are loans that had already ended when first detected.
+model LoanClearedEvent {
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loanId             String    @unique
+  loan               Loan      @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  lender             String
+  totalRepaidMinor   BigInt
+  freedPerMonthMinor BigInt
+  closedAt           DateTime
+  silent             Boolean   @default(false)
+  dismissedAt        DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@index([userId, dismissedAt])
 }
 
 // One row per loan-status SMS we understood. Applied rows changed the loan; the rest are the audit of what arrived.

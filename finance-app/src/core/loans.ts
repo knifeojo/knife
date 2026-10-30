@@ -1,6 +1,7 @@
 import type { Loan } from "@prisma/client";
 import { db } from "@/lib/db";
 import { LENDER_NAMES, canonicalLender } from "./categorize";
+import { recordLoanCleared } from "./loan-moments";
 
 // Loans the user types in from their lender's app. A bank statement shows repayments going out but never
 // the balance left, so this is the only place Ledger gets a real balance and end date. All rule-based.
@@ -237,7 +238,9 @@ export async function updateLoan(userId: string, id: string, f: LoanFields, now 
 export async function setLoanStatus(userId: string, id: string, status: "open" | "closed", now = new Date()): Promise<Loan | null> {
   const old = await db.loan.findFirst({ where: { id, userId } });
   if (!old || old.status === status) return old;
-  return db.loan.update({ where: { id }, data: { status, closedAt: status === "closed" ? now : null } });
+  const updated = await db.loan.update({ where: { id }, data: { status, closedAt: status === "closed" ? now : null } });
+  if (status === "closed") await recordLoanCleared(userId, updated, { closedAt: now, silent: false });
+  return updated;
 }
 
 export async function deleteLoan(userId: string, id: string): Promise<boolean> {
@@ -265,6 +268,7 @@ export async function countRepayments(userId: string, id: string): Promise<{ loa
       ...(outstanding === 0n && { status: "closed", closedAt: last }),
     },
   });
+  if (outstanding === 0n && loan.status !== "closed") await recordLoanCleared(userId, updated, { closedAt: last, silent: false });
   return { loan: updated, counted: n, repaidMinor: sinceMinor };
 }
 
@@ -286,6 +290,9 @@ export function loanJson(v: LoanView) {
     payoffDate: day(v.payoff),
     notes: l.notes,
     status: l.status,
+    source: l.source,
+    firstPayment: day(l.firstPayment),
+    totalRepaidMinor: l.totalRepaidMinor?.toString() ?? null,
     balanceAsOf: l.balanceAsOf.toISOString(),
     closedAt: day(l.closedAt),
     repaymentsSince: { count: v.since.length, totalMinor: v.sinceMinor.toString(), lastDate: day(v.since[v.since.length - 1]?.date ?? null) },

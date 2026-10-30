@@ -152,6 +152,8 @@ class _LoanCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final facts = [
       if (loan.instalmentMinor != null) '${formatMinor(loan.instalmentMinor)} a month',
+      if (loan.totalRepaidMinor != null) 'repaid ${formatMinor(loan.totalRepaidMinor)}',
+      if (loan.firstPayment != null) 'from ${formatCalendarDay(loan.firstPayment!)}',
       if (loan.instalmentsPaid != null && loan.instalmentsTotal != null) '${loan.instalmentsPaid} of ${loan.instalmentsTotal} paid',
       if (loan.nextDueDate != null) 'next due ${formatCalendarDay(loan.nextDueDate!)}',
       if (loan.payoffDate != null) 'last payment ${formatCalendarDay(loan.payoffDate!)}',
@@ -167,9 +169,13 @@ class _LoanCard extends StatelessWidget {
               children: [
                 Expanded(child: Text(loan.lender, style: theme.textTheme.titleMedium)),
                 Text(
-                  loan.lastUpdateAt == null
-                      ? 'Entered ${formatDay(loan.balanceAsOf)}'
-                      : 'Entered ${formatDay(loan.balanceAsOf)} · Last update ${formatDay(loan.lastUpdateAt!)}',
+                  loan.isInferred
+                      ? (loan.lastUpdateAt == null
+                          ? 'Seen from repayments'
+                          : 'Seen from repayments · Last update ${formatDay(loan.lastUpdateAt!)}')
+                      : (loan.lastUpdateAt == null
+                          ? 'Entered ${formatDay(loan.balanceAsOf)}'
+                          : 'Entered ${formatDay(loan.balanceAsOf)} · Last update ${formatDay(loan.lastUpdateAt!)}'),
                   key: Key('loan-last-update-${loan.id}'),
                   style: theme.textTheme.bodySmall,
                 ),
