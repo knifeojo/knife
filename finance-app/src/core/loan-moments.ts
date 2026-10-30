@@ -62,6 +62,7 @@ export async function inferMissingLoans(userId: string, now = new Date()): Promi
         nextDueDate: draft.closed ? null : expectedNext(draft.lastPayment),
         status: draft.closed ? "closed" : "open",
         closedAt: draft.closedAt,
+        closeReason: draft.closeReason,
         balanceAsOf: draft.lastPayment,
         firstPayment: draft.firstPayment,
         totalRepaidMinor: draft.totalRepaidMinor,
@@ -125,6 +126,7 @@ export async function closeDueLoans(userId: string, now = new Date()): Promise<v
     const last = debits.at(-1)?.date ?? null;
     const repaid = debits.reduce((s, row) => s + row.amountMinor, 0n);
     const amounts = debits.map((row) => row.amountMinor);
+    const lumpMinor = debits.at(-1)?.amountMinor ?? null;
     const reason = closeReason({
       source: loan.source === "inferred" ? "inferred" : "manual",
       outstandingMinor: loan.outstandingMinor,
@@ -132,16 +134,19 @@ export async function closeDueLoans(userId: string, now = new Date()): Promise<v
       instalmentsTotal: loan.instalmentsTotal,
       lastRepayment: last,
       lumpSum: isLumpSum(amounts),
+      lumpMinor,
+      remainingMinor: loan.outstandingMinor,
       disbursementAfterLast: last ? disbursedAfter(rows, loan.lender, last) : false,
       now,
     });
     if (!reason) continue;
-    const closedAt = (reason === "stopped" || reason === "lump_sum") && last ? last : now;
+    const closedAt = (reason === "inactivity" || reason === "lump_sum") && last ? last : now;
     await db.loan.update({
       where: { id: loan.id },
       data: {
         status: "closed",
         closedAt,
+        closeReason: reason === "lump_sum" || reason === "inactivity" ? reason : loan.closeReason,
         outstandingMinor: 0n,
         ...(repaid > 0n && { totalRepaidMinor: repaid, firstPayment: loan.firstPayment ?? debits[0]?.date ?? null }),
       },
@@ -203,7 +208,7 @@ export async function answerInferredLoan(userId: string, loanId: string, value: 
     return 0;
   }
   if (loan.status !== "closed") {
-    await db.loan.update({ where: { id: loan.id }, data: { status: "closed", closedAt: now, outstandingMinor: 0n, reviewSnoozeUntil: null } });
+    await db.loan.update({ where: { id: loan.id }, data: { status: "closed", closedAt: now, closeReason: "review_yes", outstandingMinor: 0n, reviewSnoozeUntil: null } });
     await db.loanUpdate.create({
       data: {
         userId,
@@ -223,7 +228,28 @@ export async function answerInferredLoan(userId: string, loanId: string, value: 
   return 1;
 }
 
+/**
+ * Inferred loans used to store one instalment as the balance. Drop that guess when no status
+ * text ever reported a real outstanding figure. A closed loan left at zero stays zero.
+ */
+export async function clearGuessedInferredBalances(userId: string): Promise<number> {
+  const loans = await db.loan.findMany({
+    where: { userId, source: "inferred", NOT: { outstandingMinor: null } },
+    select: {
+      id: true,
+      status: true,
+      outstandingMinor: true,
+      updates: { where: { applied: true, NOT: { outstandingMinor: null } }, select: { id: true }, take: 1 },
+    },
+  });
+  const guessed = loans.filter((loan) => loan.updates.length === 0 && !(loan.status === "closed" && loan.outstandingMinor === 0n));
+  if (!guessed.length) return 0;
+  await db.loan.updateMany({ where: { id: { in: guessed.map((loan) => loan.id) } }, data: { outstandingMinor: null } });
+  return guessed.length;
+}
+
 export async function syncLoanMoments(userId: string, now = new Date()): Promise<void> {
+  await clearGuessedInferredBalances(userId);
   await inferMissingLoans(userId, now);
   await closeDueLoans(userId, now);
   await backfillRecentCleared(userId, now);

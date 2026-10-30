@@ -239,7 +239,7 @@ export async function updateLoan(userId: string, id: string, f: LoanFields, now 
 export async function setLoanStatus(userId: string, id: string, status: "open" | "closed", now = new Date()): Promise<Loan | null> {
   const old = await db.loan.findFirst({ where: { id, userId } });
   if (!old || old.status === status) return old;
-  const updated = await db.loan.update({ where: { id }, data: { status, closedAt: status === "closed" ? now : null } });
+  const updated = await db.loan.update({ where: { id }, data: { status, closedAt: status === "closed" ? now : null, ...(status === "open" && { closeReason: null }) } });
   if (status === "closed") await recordLoanCleared(userId, updated, { closedAt: now, silent: false });
   return updated;
 }
@@ -294,6 +294,7 @@ export function loanJson(v: LoanView) {
     notes: l.notes,
     status: l.status,
     source: l.source,
+    closeReason: l.closeReason,
     firstPayment: day(l.firstPayment),
     totalRepaidMinor: l.totalRepaidMinor?.toString() ?? null,
     balanceAsOf: l.balanceAsOf.toISOString(),

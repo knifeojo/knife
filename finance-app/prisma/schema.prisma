@@ -398,6 +398,7 @@ model Loan {
   notes            String?
   status           String    @default("open") // open | closed
   source           String    @default("manual") // manual | inferred
+  closeReason      String? // lump_sum | status_text | review_yes | inactivity
   firstPayment     DateTime? // first repayment seen, when the loan was inferred
   totalRepaidMinor BigInt? // sum of those repayments
   // When the balance and instalments were last entered. Statement repayments after this are not in them yet.
