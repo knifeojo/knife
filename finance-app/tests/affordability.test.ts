@@ -442,8 +442,8 @@ describe("affordability: from an imported statement", () => {
     expect(r.inputs.obligations.map((o) => [o.name, o.kind]).sort()).toEqual([["FairMoney", "recurring"], ["Grace Doe", "recurring"], ["Renmoney", "recurring"], ["TRF RENT OLUWASEUN ADEYEMI", "recurring"]]);
     expect(r.inputs.oneOffs).toMatchObject([{ name: "Fouani Showroom", category: "Shopping", label: "Electronics", amountMinor: N(450_000), kind: "one_off" }]);
     expect(r.advice.map((a) => [a.kind, a.subject])).toEqual([["debt", "Renmoney"], ["debt", "FairMoney"], ["cut", "Food"], ["one_off", "Fouani Showroom"]]);
-    expect(r.advice[0].text).toBe("Clear Renmoney first: at least ₦300,000 is still open (₦600,000 borrowed on 3 Jul, ₦300,000 repaid since, interest not counted). At ₦100,000 a month that takes at least 3 more months, then that money is free.");
-    expect(r.advice[1].text).toMatch(/^Clear FairMoney first\. You repay about ₦50,000 a month\. Ledger has not seen this loan paid out/);
+    expect(r.advice[0].text).toBe("Clear Renmoney: ₦100k left. At ₦100,000 a month that takes about 1 more month, then that money is free.");
+    expect(r.advice[1].text).toBe("Clear FairMoney: ₦50k left. At ₦50,000 a month that takes about 1 more month, then that money is free.");
     expect(r.advice[2].text).toMatch(/^Cut Food \(mostly groceries\) by about ₦70,000 a month\. You spent about ₦140,000 a month there from July to September\./);
   });
 });
@@ -495,8 +495,8 @@ describe("POST /api/v1/affordability", () => {
 
     const no = await (await post(token, { amountMinor: "300000000", horizon: "month_end" })).json();
     expect(no.verdict).toBe("no");
-    expect(no.advice[0]).toMatchObject({ kind: "debt", subject: "FairMoney", monthlyMinor: "5000000", openMinor: null });
-    expect(no.advice[0].text).toMatch(/^Clear FairMoney first\./);
+    expect(no.advice[0]).toMatchObject({ kind: "debt", subject: "FairMoney", monthlyMinor: "5000000", openMinor: "5000000" });
+    expect(no.advice[0].text).toMatch(/^Clear FairMoney: ₦50k left\./);
     expect(JSON.stringify(body)).not.toMatch(/[\u2014\u2013]/);
     expect(JSON.stringify(no)).not.toMatch(/[\u2014\u2013]/);
   });

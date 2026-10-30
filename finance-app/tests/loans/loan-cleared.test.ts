@@ -3,8 +3,8 @@ import { POST as sms } from "@/app/api/v1/alerts/sms/route";
 import { POST as dismiss } from "@/app/api/v1/loans/cleared/route";
 import { GET as overview } from "@/app/api/v1/overview/route";
 import { assessAffordability, type AffordabilityData, type LenderActivity, type MonthFigures, type RegularItem } from "@/core/affordability";
-import { closeReason, endedLongAgo, freedPerMonth, inferLoanDraft, isMerchantPayment, lenderOfRepayment, medianMinor, otherPersonTransfer, repaymentsStopped, type RepaymentRow } from "@/core/loan-cleared";
-import { closeDueLoans, inferMissingLoans, loanClearedCards, recordLoanCleared, syncLoanMoments } from "@/core/loan-moments";
+import { closeReason, closedRecently, endedLongAgo, freedPerMonth, groupLenderRepayments, inferLoanDraft, isMerchantPayment, isOwnName, lenderOfRepayment, medianMinor, otherPersonTransfer, repaymentsStopped, type RepaymentRow } from "@/core/loan-cleared";
+import { backfillRecentCleared, closeDueLoans, inferMissingLoans, loanClearedCards, recordLoanCleared, syncLoanMoments } from "@/core/loan-moments";
 import { countRepayments, createLoan, isFinished, toManualLoan } from "@/core/loans";
 import { issueSession } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -43,11 +43,18 @@ describe("freed amount and close rules", () => {
 
   it("drops shop payments and transfers to someone else at the same provider", () => {
     expect(isMerchantPayment("POS PURCHASE AT SHOPRITE LEKKI")).toBe(true);
-    expect(otherPersonTransfer("TO CARBON - ADA OJO", "Tunde Ade")).toBe(true);
+    expect(otherPersonTransfer("TO CARBON - BOLA KEMI", "Tunde Ade")).toBe(true);
     expect(otherPersonTransfer("TO RENMONEY - TUNDE ADE", "Tunde Ade")).toBe(false);
     expect(otherPersonTransfer("TO FAIRMONEY LOAN REPAYMENT", "Tunde Ade")).toBe(false);
+    expect(isOwnName("TUNDE NWOSU", "Tunde")).toBe(true);
+    expect(isOwnName("TUNDE NWOSU", "T. Nwosu")).toBe(true);
+    expect(isOwnName("TUNDE CHINEDU NWOSU", "T Nwosu")).toBe(true);
+    expect(isOwnName("BOLA KEMI", "Tunde Nwosu")).toBe(false);
+    expect(otherPersonTransfer("TO RENMONEY - TUNDE NWOSU", "Tunde")).toBe(false);
+    expect(otherPersonTransfer("TO RENMONEY - TUNDE NWOSU", ["Guest", "T. Nwosu"])).toBe(false);
+    expect(otherPersonTransfer("TO CARBON - BOLA KEMI", "T. Nwosu")).toBe(true);
     expect(lenderOfRepayment(row({ description: "POS PURCHASE AT SHOPRITE", merchantName: "Carbon" }), "Tunde Ade")).toBeUndefined();
-    expect(lenderOfRepayment(row({ description: "TO CARBON - ADA OJO", merchantName: "Carbon" }), "Tunde Ade")).toBeUndefined();
+    expect(lenderOfRepayment(row({ description: "TO CARBON - BOLA KEMI", merchantName: "Carbon" }), "Tunde Ade")).toBeUndefined();
     expect(lenderOfRepayment(row({ description: "TO RENMONEY - TUNDE ADE", merchantName: "Renmoney" }), "Tunde Ade")).toBe("Renmoney");
     expect(lenderOfRepayment(row({ description: "FAIRMONEY LOAN REPAYMENT", merchantName: "FairMoney" }), "Tunde Ade")).toBe("FairMoney");
     expect(lenderOfRepayment(row({ description: "PALMCREDIT REPAYMENT", merchantName: null }), "Tunde Ade")).toBe("PalmCredit");
@@ -75,6 +82,18 @@ describe("freed amount and close rules", () => {
     expect(closeReason({ source: "inferred", outstandingMinor: N(12_000), instalmentsPaid: null, instalmentsTotal: null, lastRepayment: last, disbursementAfterLast: false, now })).toBe("stopped");
     expect(closeReason({ source: "inferred", outstandingMinor: N(12_000), instalmentsPaid: null, instalmentsTotal: null, lastRepayment: last, disbursementAfterLast: true, now })).toBeNull();
   });
+
+  it("keeps a repeated beneficiary that does not match the profile, and drops a one-off", () => {
+    const self = "Tunde Nwosu";
+    const other = (date: string) => row({ description: "TO CARBON - BOLA KEMI", merchantName: "Carbon", date: new Date(`${date}T12:00:00Z`) });
+    const two = groupLenderRepayments([other("2026-08-05"), other("2026-09-05")], self);
+    expect(two.get("Carbon")).toBeUndefined();
+    const three = groupLenderRepayments([other("2026-08-05"), other("2026-09-05"), other("2026-10-05")], self);
+    expect(three.get("Carbon")).toHaveLength(3);
+    const now = new Date("2026-10-30T12:00:00Z");
+    expect(closedRecently(new Date(now.getTime() - 14 * 86_400_000), now)).toBe(true);
+    expect(closedRecently(new Date(now.getTime() - 14 * 86_400_000 - 1), now)).toBe(false);
+  });
 });
 
 async function seed(name = "Tunde Ade") {
@@ -95,7 +114,7 @@ async function seed(name = "Tunde Ade") {
 async function tx(
   userId: string,
   accountId: string,
-  data: { date: string; amount: number; description: string; merchant?: string | null; type?: "DEBIT" | "CREDIT"; category?: string },
+  data: { date: string; amount: number; description: string; merchant?: string | null; counterparty?: string | null; type?: "DEBIT" | "CREDIT"; category?: string },
 ) {
   return db.transaction.create({
     data: {
@@ -110,6 +129,7 @@ async function tx(
       currency: "NGN",
       description: data.description,
       merchantName: data.merchant === undefined ? data.description : data.merchant,
+      counterparty: data.counterparty ?? null,
       category: data.category ?? "Debt",
       subcategory: "Loan repayment",
       classificationSource: "rule",
@@ -125,7 +145,9 @@ describe("inferred loans", () => {
     for (const date of ["2026-08-05", "2026-09-05", "2026-10-05"]) {
       await tx(user.id, account.id, { date, amount: 12_000, description: "TO RENMONEY - TUNDE ADE", merchant: "Renmoney" });
       await tx(user.id, account.id, { date, amount: 4_000, description: "POS PURCHASE AT SHOPRITE", merchant: "Carbon" });
-      await tx(user.id, account.id, { date, amount: 8_000, description: "TO CARBON - ADA OJO", merchant: "Carbon" });
+    }
+    for (const date of ["2026-08-05", "2026-09-05"]) {
+      await tx(user.id, account.id, { date, amount: 8_000, description: "TO CARBON - BOLA KEMI", merchant: "Carbon" });
     }
     await tx(user.id, account.id, { date: "2026-08-05", amount: 5_000, description: "PALMCREDIT REPAYMENT", merchant: "PalmCredit" });
     await tx(user.id, account.id, { date: "2026-09-05", amount: 5_000, description: "PALMCREDIT REPAYMENT", merchant: "PalmCredit" });
@@ -147,7 +169,7 @@ describe("inferred loans", () => {
   });
 
   it("marks a loan that had already ended as closed without a card, and fires the moment once when one ends later", async () => {
-    const old = await seed("Ada Ojo");
+    const old = await seed("Chioma Balogun");
     for (const date of ["2025-06-05", "2025-07-05", "2025-08-05"]) {
       await tx(old.user.id, old.account.id, { date, amount: 12_000, description: "FAIRMONEY LOAN REPAYMENT", merchant: "FairMoney" });
     }
@@ -286,6 +308,80 @@ describe("inferred loans", () => {
     await closeDueLoans(user.id, new Date("2026-10-30T12:00:00Z"));
     expect((await db.loan.findUniqueOrThrow({ where: { id: loan.id } })).status).toBe("open");
     expect(await db.loanClearedEvent.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it("treats TO LENDER - FULL NAME as the user when the stored name is only part of it", async () => {
+    const now = new Date("2026-10-20T12:00:00Z");
+    const dates = ["2026-08-05", "2026-09-05", "2026-10-05"];
+
+    const partial = await seed("Tunde");
+    for (const date of dates) {
+      await tx(partial.user.id, partial.account.id, { date, amount: 11_000, description: "TO RENMONEY - TUNDE NWOSU", merchant: "Renmoney" });
+    }
+    expect(await inferMissingLoans(partial.user.id, now)).toBe(1);
+    expect(await db.loan.findFirstOrThrow({ where: { userId: partial.user.id } })).toMatchObject({ lender: "Renmoney", source: "inferred" });
+
+    const holder = await seed("Guest");
+    await db.account.update({ where: { id: holder.account.id }, data: { holderName: "T NWOSU" } });
+    for (const date of dates) {
+      await tx(holder.user.id, holder.account.id, { date, amount: 11_000, description: "TO FAIRMONEY - TUNDE NWOSU", merchant: "FairMoney" });
+    }
+    expect((await db.loan.findMany({ where: { userId: holder.user.id } })).map((loan) => loan.lender)).toEqual([]);
+    expect(await inferMissingLoans(holder.user.id, now)).toBe(1);
+    expect(await db.loan.findFirstOrThrow({ where: { userId: holder.user.id } })).toMatchObject({ lender: "FairMoney", source: "inferred" });
+
+    const onboarded = await seed("T");
+    await db.person.create({ data: { userId: onboarded.user.id, displayName: "Tunde Nwosu", relationship: "me" } });
+    for (const date of dates) {
+      await tx(onboarded.user.id, onboarded.account.id, { date, amount: 11_000, description: "TO PALMCREDIT - TUNDE NWOSU", merchant: "PalmCredit" });
+    }
+    expect(await inferMissingLoans(onboarded.user.id, now)).toBe(1);
+
+    const credit = await seed("Guest");
+    await tx(credit.user.id, credit.account.id, {
+      date: "2026-07-01", amount: 20_000, description: "NIP FROM TUNDE NWOSU", merchant: null, counterparty: "Tunde Nwosu", type: "CREDIT", category: "Own transfer",
+    });
+    for (const date of dates) {
+      await tx(credit.user.id, credit.account.id, { date, amount: 11_000, description: "TO CARBON - TUNDE NWOSU", merchant: "Carbon" });
+    }
+    expect(await inferMissingLoans(credit.user.id, now)).toBe(1);
+    expect(await db.loan.findFirstOrThrow({ where: { userId: credit.user.id } })).toMatchObject({ lender: "Carbon" });
+
+    const repeated = await seed("Tunde Nwosu");
+    for (const date of dates) {
+      await tx(repeated.user.id, repeated.account.id, { date, amount: 7_000, description: "TO CARBON - BOLA KEMI", merchant: "Carbon" });
+    }
+    await tx(repeated.user.id, repeated.account.id, { date: "2026-08-05", amount: 4_000, description: "TO PALMCREDIT - SEYI BALOGUN", merchant: "PalmCredit" });
+    await tx(repeated.user.id, repeated.account.id, { date: "2026-09-05", amount: 4_000, description: "TO PALMCREDIT - SEYI BALOGUN", merchant: "PalmCredit" });
+    expect(await inferMissingLoans(repeated.user.id, now)).toBe(1);
+    const lenders = (await db.loan.findMany({ where: { userId: repeated.user.id } })).map((loan) => loan.lender);
+    expect(lenders).toEqual(["Carbon"]);
+  });
+
+  it("fires Loan cleared once for a loan closed in the last 14 days that never had a moment", async () => {
+    const now = new Date("2026-10-30T12:00:00Z");
+    const { user } = await seed("Chioma Balogun");
+    const fields = {
+      lender: "Renmoney" as const,
+      outstandingMinor: 0n,
+      instalmentMinor: N(15_000),
+      instalmentsPaid: null,
+      instalmentsTotal: null,
+      nextDueDate: null,
+      endDate: null,
+      notes: null,
+    };
+    const recent = await createLoan(user.id, fields);
+    await db.loan.update({ where: { id: recent.id }, data: { status: "closed", closedAt: new Date(now.getTime() - 5 * 86_400_000) } });
+    const stale = await createLoan(user.id, { ...fields, lender: "FairMoney" });
+    await db.loan.update({ where: { id: stale.id }, data: { status: "closed", closedAt: new Date(now.getTime() - 20 * 86_400_000) } });
+
+    expect(await backfillRecentCleared(user.id, now)).toBe(1);
+    const event = await db.loanClearedEvent.findUniqueOrThrow({ where: { loanId: recent.id } });
+    expect(event.silent).toBe(false);
+    expect(await db.loanClearedEvent.findUnique({ where: { loanId: stale.id } })).toBeNull();
+    expect(await syncLoanMoments(user.id, now)).toBeUndefined();
+    expect(await db.loanClearedEvent.count({ where: { userId: user.id } })).toBe(1);
   });
 });
 

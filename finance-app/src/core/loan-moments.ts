@@ -1,7 +1,8 @@
 import type { Loan } from "@prisma/client";
 import { db } from "@/lib/db";
 import { canonicalLender } from "./categorize";
-import { closeReason, expectedNext, freedPerMonth, inferLoanDraft, lenderOfRepayment, type RepaymentRow } from "./loan-cleared";
+import { loadOwners } from "./ledger";
+import { closedRecently, closeReason, expectedNext, freedPerMonth, groupLenderRepayments, inferLoanDraft, ownTransferCreditNames, type RepaymentRow } from "./loan-cleared";
 
 export interface LoanClearedCard {
   id: string;
@@ -33,24 +34,19 @@ function disbursedAfter(rows: RepaymentRow[], lender: string, last: Date): boole
   return rows.some((row) => row.type === "CREDIT" && row.date > last && canonicalLender(`${row.merchantName ?? ""} ${row.counterparty ?? ""} ${row.description}`) === lender);
 }
 
-async function ownerName(userId: string): Promise<string | null> {
-  return (await db.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? null;
+async function selfNames(userId: string, rows: RepaymentRow[]): Promise<string[]> {
+  const owners = await loadOwners(userId);
+  return [...new Set([...owners, ...ownTransferCreditNames(rows)])];
 }
 
 /** Create inferred loans from three or more lender repayments that have no Loan row yet. */
 export async function inferMissingLoans(userId: string, now = new Date()): Promise<number> {
-  const name = await ownerName(userId);
   const existing = await db.loan.findMany({ where: { userId }, select: { lender: true } });
   const have = new Set(existing.map((loan) => loan.lender));
   const rows = await repaymentRows(userId);
-  const groups = new Map<string, RepaymentRow[]>();
-  for (const row of rows) {
-    const lender = lenderOfRepayment(row, name);
-    if (!lender || have.has(lender)) continue;
-    const list = groups.get(lender) ?? [];
-    list.push(row);
-    groups.set(lender, list);
-  }
+  const names = await selfNames(userId, rows);
+  const groups = groupLenderRepayments(rows, names);
+  for (const lender of [...groups.keys()]) if (have.has(lender)) groups.delete(lender);
   let created = 0;
   for (const [lender, debits] of groups) {
     const last = debits.reduce((d, row) => (row.date > d ? row.date : d), debits[0].date);
@@ -79,9 +75,9 @@ export async function inferMissingLoans(userId: string, now = new Date()): Promi
 }
 
 async function totalsFor(userId: string, lender: string, instalmentMinor: bigint | null): Promise<{ total: bigint; freed: bigint; last: Date | null; disbursementAfter: boolean }> {
-  const name = await ownerName(userId);
   const rows = await repaymentRows(userId);
-  const debits = rows.filter((row) => lenderOfRepayment(row, name) === lender).sort((a, b) => a.date.getTime() - b.date.getTime());
+  const names = await selfNames(userId, rows);
+  const debits = (groupLenderRepayments(rows, names).get(lender) ?? []).sort((a, b) => a.date.getTime() - b.date.getTime());
   const last = debits.at(-1)?.date ?? null;
   return {
     total: debits.reduce((s, row) => s + row.amountMinor, 0n),
@@ -120,11 +116,12 @@ function toCard(row: { id: string; loanId: string; lender: string; totalRepaidMi
 
 /** Close open loans whose repayments have finished, and fire the moment once. */
 export async function closeDueLoans(userId: string, now = new Date()): Promise<void> {
-  const name = await ownerName(userId);
   const loans = await db.loan.findMany({ where: { userId, status: "open" } });
   const rows = await repaymentRows(userId);
+  const names = await selfNames(userId, rows);
+  const grouped = groupLenderRepayments(rows, names);
   for (const loan of loans) {
-    const debits = rows.filter((row) => lenderOfRepayment(row, name) === loan.lender).sort((a, b) => a.date.getTime() - b.date.getTime());
+    const debits = (grouped.get(loan.lender) ?? []).sort((a, b) => a.date.getTime() - b.date.getTime());
     const last = debits.at(-1)?.date ?? null;
     const repaid = debits.reduce((s, row) => s + row.amountMinor, 0n);
     const reason = closeReason({
@@ -151,9 +148,23 @@ export async function closeDueLoans(userId: string, now = new Date()): Promise<v
   }
 }
 
+/**
+ * Loans closed in the last 14 days before this moment existed never passed through the
+ * open-loan scan or a status-text transition. Fire the moment once for each of them.
+ */
+export async function backfillRecentCleared(userId: string, now = new Date()): Promise<number> {
+  const loans = await db.loan.findMany({
+    where: { userId, status: "closed", cleared: { is: null }, closedAt: { not: null } },
+  });
+  const recent = loans.filter((loan) => closedRecently(loan.closedAt, now));
+  for (const loan of recent) await recordLoanCleared(userId, loan, { silent: false, closedAt: loan.closedAt ?? now });
+  return recent.length;
+}
+
 export async function syncLoanMoments(userId: string, now = new Date()): Promise<void> {
   await inferMissingLoans(userId, now);
   await closeDueLoans(userId, now);
+  await backfillRecentCleared(userId, now);
 }
 
 export async function loanClearedCards(userId: string): Promise<LoanClearedCard[]> {
