@@ -75,7 +75,13 @@ function LoanCard({ v }: { v: LoanView }) {
         <h2 className="font-semibold">{loan.lender}</h2>
         <span className="text-xs text-ink-3">Entered {day(loan.balanceAsOf)}{v.lastUpdate ? ` · Last update ${day(v.lastUpdate.at)}` : ""}</span>
       </div>
-      <p><span className="num text-2xl font-semibold tracking-tight text-brand">{money(loan.outstandingMinor)}</span> <span className="text-sm text-ink-2">left</span></p>
+      <p>
+        {loan.outstandingMinor === null ? (
+          <span className="text-2xl font-semibold tracking-tight text-ink-2">Balance not seen</span>
+        ) : (
+          <><span className="num text-2xl font-semibold tracking-tight text-brand">{money(loan.outstandingMinor)}</span> <span className="text-sm text-ink-2">left</span></>
+        )}
+      </p>
       {facts.length > 0 && <p className="text-sm text-ink-2">{facts.join(" · ")}</p>}
       {loan.notes && <p className="text-sm text-ink-3">{loan.notes}</p>}
       {since.length > 0 && (

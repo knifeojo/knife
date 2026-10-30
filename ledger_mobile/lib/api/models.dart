@@ -1568,7 +1568,7 @@ class AdviceLoan {
   });
 
   final String id;
-  final String outstandingMinor;
+  final String? outstandingMinor;
   final DateTime balanceAsOf;
   final DateTime? endsOn;
   final int? instalmentsLeft;
@@ -1580,7 +1580,7 @@ class AdviceLoan {
   factory AdviceLoan.fromJson(Map<String, dynamic> json) {
     return AdviceLoan(
       id: _string(json, 'id'),
-      outstandingMinor: _minor(json, 'outstandingMinor'),
+      outstandingMinor: _optionalMinor(json, 'outstandingMinor'),
       balanceAsOf: DateTime.parse(_string(json, 'balanceAsOf')),
       endsOn: _optionalDate(json, 'endsOn'),
       instalmentsLeft: _optionalInt(json, 'instalmentsLeft'),
@@ -1618,7 +1618,7 @@ class LedgerLoan {
 
   final String id;
   final String lender;
-  final String outstandingMinor;
+  final String? outstandingMinor;
   final String? instalmentMinor;
   final int? instalmentsPaid;
   final int? instalmentsTotal;
@@ -1653,7 +1653,7 @@ class LedgerLoan {
     return LedgerLoan(
       id: _string(json, 'id'),
       lender: _string(json, 'lender'),
-      outstandingMinor: _minor(json, 'outstandingMinor'),
+      outstandingMinor: _optionalMinor(json, 'outstandingMinor'),
       instalmentMinor: _optionalMinor(json, 'instalmentMinor'),
       instalmentsPaid: _optionalInt(json, 'instalmentsPaid'),
       instalmentsTotal: _optionalInt(json, 'instalmentsTotal'),

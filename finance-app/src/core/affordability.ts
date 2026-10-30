@@ -170,7 +170,7 @@ export interface AdviceLine {
 
 export interface AdviceLoan {
   id: string;
-  outstandingMinor: bigint;
+  outstandingMinor: bigint | null;
   balanceAsOf: Date;
   endsOn: Date | null;
   instalmentsLeft: number | null;
@@ -691,29 +691,42 @@ function adviceLoan(o: OpenLoan): AdviceLoan {
   };
 }
 
+/** An inferred loan has a usual repayment and no balance. "Clear Renmoney: about ₦130,000 a month." */
+function estimatedObligation(name: string, monthly: bigint | null, lead: "clear" | "still"): string {
+  const amount = monthly === null ? "a monthly repayment" : `about ${whole(monthly)} a month`;
+  const estimate = "Ledger has not seen the balance, so this is only the usual repayment.";
+  return lead === "clear" ? `Clear ${name}: ${amount}. ${estimate}` : `You still repay ${name} ${amount}. ${estimate}`;
+}
+
 /** A real balance from the user's loan app: "Clear Renmoney: ₦1.28m left, last payment 30 Oct." */
 function manualDebtAdvice(l: Lender, o: OpenLoan): AdviceLine {
   const { loan, payoff } = o;
   const m = l.monthlyMinor;
+  if (loan.outstandingMinor === null) {
+    return { kind: "debt", text: estimatedObligation(l.name, m, "clear"), subject: l.name, monthlyMinor: m, openMinor: null, loan: adviceLoan(o) };
+  }
+  const balance = loan.outstandingMinor;
   // The user's own instalment is exact; one read off statements is rounded.
   const monthly = m === null ? "" : loan.instalmentMinor !== null ? whole(m) : `about ${about(m)}`;
-  let text = `Clear ${l.name}: ${short(loan.outstandingMinor)} left${payoff ? `, last payment ${dayLabel(payoff)}` : ""}.`;
+  let text = `Clear ${l.name}: ${short(balance)} left${payoff ? `, last payment ${dayLabel(payoff)}` : ""}.`;
   const left = instalmentsLeft(loan);
   if (left !== null && loan.instalmentsTotal !== null) text += ` ${left} of ${plural(loan.instalmentsTotal, "instalment")} to go.`;
   if (m !== null) {
     text += payoff
       ? ` After that, ${monthly} a month is free.`
-      : ` At ${monthly} a month that takes about ${plural(Number(ceilDiv(loan.outstandingMinor, m)), "more month")}, then that money is free.`;
+      : ` At ${monthly} a month that takes about ${plural(Number(ceilDiv(balance, m)), "more month")}, then that money is free.`;
   }
   text += outOfDate(l.name, o);
-  return { kind: "debt", text, subject: l.name, monthlyMinor: m, openMinor: loan.outstandingMinor, loan: adviceLoan(o) };
+  return { kind: "debt", text, subject: l.name, monthlyMinor: m, openMinor: balance, loan: adviceLoan(o) };
 }
 
 /** " Your bank shows ₦120,000 repaid to Renmoney since …", or "" when the balance is up to date. */
 function outOfDate(name: string, o: OpenLoan): string {
-  if (!o.since.length) return "";
+  if (!o.since.length || o.loan.outstandingMinor === null) return "";
   const { loan } = o;
-  const rest = loan.outstandingMinor > o.sinceMinor ? loan.outstandingMinor - o.sinceMinor : 0n;
+  const balance = loan.outstandingMinor;
+  if (balance === null) return "";
+  const rest = balance > o.sinceMinor ? balance - o.sinceMinor : 0n;
   return ` Your bank shows ${whole(o.sinceMinor)} repaid to ${name} since you entered this on ${dayLabel(loan.balanceAsOf)}, so it may be ${rest > 0n ? `down to ${short(rest)}` : "paid off"}. Update it under Loans.`;
 }
 
@@ -829,6 +842,12 @@ function buildAdvice(c: AdviceContext): AdviceLine[] {
     if (!l) return [];
     if (l.manual) {
       const { loan, payoff } = l.manual;
+      if (loan.outstandingMinor === null) {
+        return [{
+          kind: "debt", subject: l.name, monthlyMinor: l.monthlyMinor, openMinor: null, loan: adviceLoan(l.manual),
+          text: estimatedObligation(l.name, l.monthlyMinor, "still"),
+        }];
+      }
       const left = `${short(loan.outstandingMinor)} left${payoff ? ` and the last payment on ${dayLabel(payoff)}` : ""}`;
       const each = loan.instalmentMinor !== null ? whole(l.monthlyMinor!) : `about ${about(l.monthlyMinor!)}`;
       return [{

@@ -16,7 +16,8 @@ export { LENDER_NAMES };
 export interface ManualLoan {
   id: string;
   lender: string;
-  outstandingMinor: bigint;
+  /** Null when the loan was inferred and no balance has been seen. */
+  outstandingMinor: bigint | null;
   instalmentMinor: bigint | null;
   instalmentsPaid: number | null;
   instalmentsTotal: number | null;
@@ -253,10 +254,12 @@ export async function deleteLoan(userId: string, id: string): Promise<boolean> {
  */
 export async function countRepayments(userId: string, id: string): Promise<{ loan: Loan; counted: number; repaidMinor: bigint } | null> {
   const view = await getLoan(userId, id);
-  if (!view || view.loan.status === "closed" || !view.since.length) return null;
+  if (!view || view.loan.status === "closed" || !view.since.length || view.loan.outstandingMinor === null) return null;
   const { loan, since, sinceMinor } = view;
+  const balance = loan.outstandingMinor;
+  if (balance === null) return null;
   const n = instalmentsCovered(loan, since);
-  const outstanding = loan.outstandingMinor > sinceMinor ? loan.outstandingMinor - sinceMinor : 0n;
+  const outstanding = balance > sinceMinor ? balance - sinceMinor : 0n;
   const paid = loan.instalmentsPaid === null ? null : Math.min(loan.instalmentsTotal ?? MAX_INSTALMENTS, loan.instalmentsPaid + n);
   const last = since[since.length - 1].date;
   const updated = await db.loan.update({
@@ -280,7 +283,7 @@ export function loanJson(v: LoanView) {
   return {
     id: l.id,
     lender: l.lender,
-    outstandingMinor: l.outstandingMinor.toString(),
+    outstandingMinor: l.outstandingMinor?.toString() ?? null,
     instalmentMinor: l.instalmentMinor?.toString() ?? null,
     instalmentsPaid: l.instalmentsPaid,
     instalmentsTotal: l.instalmentsTotal,

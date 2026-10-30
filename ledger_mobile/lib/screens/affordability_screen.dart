@@ -277,7 +277,9 @@ class _LoanBalance extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              '${formatMinor(loan.outstandingMinor)} left$end${loan.repaymentsSince > 0 ? ' · out of date' : ''}',
+              loan.outstandingMinor == null
+                  ? 'Usual repayment'
+                  : '${formatMinor(loan.outstandingMinor)} left$end${loan.repaymentsSince > 0 ? ' · out of date' : ''}',
               key: Key('loan-balance-${loan.id}'),
               style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w600),
             ),

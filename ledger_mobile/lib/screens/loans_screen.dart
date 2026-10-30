@@ -182,7 +182,10 @@ class _LoanCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text('${formatMinor(loan.outstandingMinor)} left', style: theme.textTheme.headlineSmall?.copyWith(color: scheme.primary)),
+            Text(
+              loan.outstandingMinor == null ? 'Balance not seen' : '${formatMinor(loan.outstandingMinor)} left',
+              style: theme.textTheme.headlineSmall?.copyWith(color: scheme.primary),
+            ),
             if (facts.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(facts.join(' · '))),
             if (loan.notes != null)
               Padding(

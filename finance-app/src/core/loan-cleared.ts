@@ -4,6 +4,10 @@ import { COMPANY, canonicalLender, extractCounterparty } from "./categorize";
 export const STOPPED_AFTER_DAYS = 45;
 /** A loan closed this recently, with no moment yet, still gets "Loan cleared" once. */
 export const CLEARED_BACKFILL_DAYS = 14;
+/** An inferred loan's expected repayment is late enough to ask if it is paid off. */
+export const REVIEW_OVERDUE_DAYS = 7;
+/** "No" on that question waits this long before asking again. */
+export const REVIEW_SNOOZE_DAYS = 30;
 /** The same beneficiary on this many lender debits is the user's own repayment, not a one-off transfer. */
 export const REPEAT_SELF_COUNT = 3;
 const MONTH_DAYS = 30;
@@ -17,10 +21,24 @@ export function medianMinor(amounts: bigint[]): bigint | null {
   return (sorted[mid - 1] + sorted[mid]) / 2n;
 }
 
-/** Typical instalment: median of the last three repayments, otherwise the figure on the loan. */
+/** Latest payment is a payoff when it is at least 2.5× the median of the repayments before it. */
+export function isLumpSum(amounts: bigint[]): boolean {
+  if (amounts.length < 2) return false;
+  const typical = medianMinor(amounts.slice(0, -1));
+  if (typical === null || typical <= 0n) return false;
+  return amounts[amounts.length - 1] * 2n >= typical * 5n;
+}
+
+/** Typical instalment: median of the last three repayments, otherwise the figure on the loan. A trailing payoff is left out of that median. */
 export function freedPerMonth(repayments: bigint[], instalmentMinor: bigint | null): bigint {
-  const recent = repayments.slice(-3);
+  const base = isLumpSum(repayments) ? repayments.slice(0, -1) : repayments;
+  const recent = base.slice(-3);
   return medianMinor(recent) ?? instalmentMinor ?? 0n;
+}
+
+/** The payoff is final once a full cycle plus 7 days passes with no later repayment. */
+export function lumpSumSettled(last: Date, now: Date): boolean {
+  return now.getTime() > expectedNext(last).getTime() + REVIEW_OVERDUE_DAYS * 86_400_000;
 }
 
 export function expectedNext(last: Date, gapDays = MONTH_DAYS): Date {
@@ -40,6 +58,15 @@ export function endedLongAgo(when: Date, now: Date): boolean {
 export function closedRecently(closedAt: Date | null, now: Date): boolean {
   if (!closedAt) return false;
   return closedAt.getTime() >= now.getTime() - CLEARED_BACKFILL_DAYS * 86_400_000;
+}
+
+/** True when `now` is more than 7 days after the repayment that was expected. */
+export function repaymentOverdue(expected: Date, now: Date): boolean {
+  return now.getTime() > expected.getTime() + REVIEW_OVERDUE_DAYS * 86_400_000;
+}
+
+export function reviewSnoozeUntil(now: Date): Date {
+  return new Date(now.getTime() + REVIEW_SNOOZE_DAYS * 86_400_000);
 }
 
 const MERCHANT = /\b(pos|web purchase|purchase at|paystack|flutterwave|shoprite|supermarket|filling station|atm)\b/i;
@@ -223,36 +250,43 @@ export function inferLoanDraft(lender: string, debits: { date: Date; amountMinor
   if (debits.length < 3) return null;
   const sorted = [...debits].sort((a, b) => a.date.getTime() - b.date.getTime());
   const last = sorted[sorted.length - 1];
-  const stopped = repaymentsStopped(last.date, now) && !disbursementAfterLast;
-  const instalment = freedPerMonth(sorted.map((d) => d.amountMinor), null);
+  const amounts = sorted.map((d) => d.amountMinor);
+  const lump = isLumpSum(amounts) && !disbursementAfterLast && lumpSumSettled(last.date, now);
+  const stopped = !lump && repaymentsStopped(last.date, now) && !disbursementAfterLast;
+  const instalment = freedPerMonth(amounts, null);
+  const closed = lump || stopped;
   return {
     lender,
     instalmentMinor: instalment,
     totalRepaidMinor: sorted.reduce((s, d) => s + d.amountMinor, 0n),
     firstPayment: sorted[0].date,
     lastPayment: last.date,
-    closed: stopped,
-    silent: stopped && endedLongAgo(last.date, now),
-    closedAt: stopped ? last.date : null,
+    closed,
+    silent: closed && endedLongAgo(last.date, now),
+    closedAt: closed ? last.date : null,
   };
 }
 
 export interface CloseInput {
   source: "manual" | "inferred";
-  outstandingMinor: bigint;
+  outstandingMinor: bigint | null;
   instalmentsPaid: number | null;
   instalmentsTotal: number | null;
   lastRepayment: Date | null;
+  /** Latest repayment is at least 2.5× the median of the ones before it. */
+  lumpSum: boolean;
   disbursementAfterLast: boolean;
   now: Date;
 }
 
 /** Why an open loan should close, or null while it is still being repaid. */
-export function closeReason(input: CloseInput): "zero" | "final" | "stopped" | null {
+export function closeReason(input: CloseInput): "zero" | "final" | "lump_sum" | "stopped" | null {
   if (input.outstandingMinor === 0n) return "zero";
   const finalInstalment = input.instalmentsTotal !== null && input.instalmentsTotal > 0 && input.instalmentsPaid !== null && input.instalmentsPaid >= input.instalmentsTotal;
   if (finalInstalment) return "final";
   if (input.source !== "inferred") return null;
-  if (!input.lastRepayment || input.disbursementAfterLast || !repaymentsStopped(input.lastRepayment, input.now)) return null;
+  if (!input.lastRepayment || input.disbursementAfterLast) return null;
+  if (input.lumpSum && lumpSumSettled(input.lastRepayment, input.now)) return "lump_sum";
+  if (!repaymentsStopped(input.lastRepayment, input.now)) return null;
   return "stopped";
 }
