@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import '../storage/settings_store.dart';
+import 'classifier.dart';
 import 'queue.dart';
-import 'senders.dart';
 import 'source_id.dart';
 
 class SmsSyncStats {
@@ -20,7 +20,7 @@ class AcceptResult {
 
   final int added;
 
-  /// Native queue ids to drop: bank messages now in the outbox, and non-bank messages we will not send.
+  /// Native queue ids to drop now. Financial texts stay until the server returns 2xx.
   final List<String> ackIds;
 }
 
@@ -30,12 +30,14 @@ class FlushResult {
     required this.kept,
     required this.ok,
     this.error,
+    this.sentIds = const [],
   });
 
   final int sent;
   final int kept;
   final bool ok;
   final Object? error;
+  final List<String> sentIds;
 }
 
 /// Accepts bank SMS into the outbox and uploads them. Non-bank senders are removed and never posted.
@@ -69,7 +71,11 @@ class SmsQueueSync {
 
   Future<void> markBackfillOffered() => store.setString(backfillKey, '1');
 
-  Future<AcceptResult> accept(List<QueuedSms> incoming) async {
+  Future<AcceptResult> accept(
+    List<QueuedSms> incoming, {
+    Set<String> approved = const {},
+    Set<String> denied = const {},
+  }) async {
     await outbox.load();
     final seen = await _readSeen();
     final existing = outbox.items
@@ -86,8 +92,17 @@ class SmsQueueSync {
               body: raw.body,
               receivedAt: raw.receivedAt,
             );
-      ack.add(id);
-      if (!isAllowedSmsSender(raw.sender)) continue;
+      final action = senderAction(
+        raw.sender,
+        raw.body,
+        approved: approved,
+        denied: denied,
+      );
+      if (action == SenderAction.drop) {
+        ack.add(id);
+        continue;
+      }
+      if (action == SenderAction.ask) continue;
       if (seen.contains(id) || existing.contains(id)) continue;
       fresh.add(
         QueuedSms(
@@ -116,7 +131,7 @@ class SmsQueueSync {
     await outbox.load();
     await _ensureIds();
     final dropped = outbox.items
-        .where((item) => !isAllowedSmsSender(item.sender))
+        .where((item) => !classifyFinancialSms(item.sender, item.body).financial)
         .map((item) => item.sourceId)
         .whereType<String>()
         .toSet();
@@ -127,6 +142,7 @@ class SmsQueueSync {
 
     var sent = 0;
     var kept = 0;
+    final sentIds = <String>[];
     final chunks = chunkSmsUploads(pending, maxBytes: maxBytes);
     for (var index = 0; index < chunks.length; index++) {
       final chunk = chunks[index];
@@ -139,10 +155,16 @@ class SmsQueueSync {
           kept: _rest(chunks, index),
           ok: false,
           error: error,
+          sentIds: sentIds,
         );
       }
       if (results.length != chunk.length) {
-        return _finish(sent: sent, kept: _rest(chunks, index), ok: false);
+        return _finish(
+          sent: sent,
+          kept: _rest(chunks, index),
+          ok: false,
+          sentIds: sentIds,
+        );
       }
       final remove = <String>[];
       for (var i = 0; i < chunk.length; i++) {
@@ -150,6 +172,7 @@ class SmsQueueSync {
         if (id == null) continue;
         if (results[i]) {
           remove.add(id);
+          sentIds.add(id);
           sent++;
         } else {
           await outbox.markRetried(id);
@@ -158,7 +181,7 @@ class SmsQueueSync {
       }
       await outbox.removeSourceIds(remove.toSet());
     }
-    return _finish(sent: sent, kept: kept, ok: kept == 0);
+    return _finish(sent: sent, kept: kept, ok: kept == 0, sentIds: sentIds);
   }
 
   Future<void> _ensureIds() async {
@@ -192,12 +215,19 @@ class SmsQueueSync {
     required int kept,
     required bool ok,
     Object? error,
+    List<String> sentIds = const [],
   }) async {
     if (sent > 0) {
       await _bump(sentKey, sent);
       await store.setString(lastSyncKey, now().toUtc().toIso8601String());
     }
-    return FlushResult(sent: sent, kept: kept, ok: ok, error: error);
+    return FlushResult(
+      sent: sent,
+      kept: kept,
+      ok: ok,
+      error: error,
+      sentIds: sentIds,
+    );
   }
 
   int _rest(List<List<QueuedSms>> chunks, int from) {

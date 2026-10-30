@@ -6,8 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
-import android.provider.Telephony
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -33,6 +34,9 @@ class SmsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
         messenger.setMethodCallHandler(this)
         SmsCapture.onQueued = {
             channel?.invokeMethod("onCaptured", null)
+        }
+        if (contextOptedIn(binding.applicationContext)) {
+            SmsSyncScheduler.ensurePeriodic(binding.applicationContext)
         }
     }
 
@@ -69,7 +73,7 @@ class SmsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
         val status = currentPermission()
         val context = app
         if (context != null && !hasSmsPermissions(context)) {
-            context.getSharedPreferences(BankSmsReceiver.PREFS, Context.MODE_PRIVATE).edit().putBoolean(DENIED_ONCE, true).apply()
+            context.getSharedPreferences(SmsQueues.PREFS, Context.MODE_PRIVATE).edit().putBoolean(DENIED_ONCE, true).apply()
         }
         complete(status)
         return true
@@ -81,27 +85,55 @@ class SmsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
             result.error("no_context", "SMS plugin is not attached", null)
             return
         }
-        val prefs = context.getSharedPreferences(BankSmsReceiver.PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(SmsQueues.PREFS, Context.MODE_PRIVATE)
         when (call.method) {
             "setOptIn" -> {
-                prefs.edit().putBoolean("opt_in", call.argument<Boolean>("value") == true).apply()
+                val on = call.argument<Boolean>("value") == true
+                prefs.edit().putBoolean("opt_in", on).apply()
+                if (on) SmsSyncScheduler.ensurePeriodic(context) else SmsSyncScheduler.cancel(context)
                 result.success(true)
             }
             "isOptedIn" -> result.success(prefs.getBoolean("opt_in", false))
+            "ensureBackgroundSync" -> {
+                if (prefs.getBoolean("opt_in", false)) SmsSyncScheduler.ensurePeriodic(context)
+                result.success(true)
+            }
+            "uploadNow" -> {
+                val reply = result
+                Thread {
+                    val outcome = try {
+                        SmsSyncRunner.upload(context)
+                    } catch (_: Exception) {
+                        UploadOutcome(0, 0, retry = true, queued = 0, error = "Could not reach the Ledger server. Bank SMS stay on this phone until the next sync.")
+                    }
+                    Handler(Looper.getMainLooper()).post {
+                        try {
+                            reply.success(outcome.toMap())
+                        } catch (_: Exception) {
+                            // The engine was detached before the upload finished.
+                        }
+                    }
+                }.start()
+            }
+            "pendingSenders" -> result.success(SmsQueues.pendingSenderNames(context))
+            "approvedSenders" -> result.success(SmsQueues.approvedSenders(context))
+            "deniedSenders" -> result.success(SmsQueues.deniedSenders(context))
+            "approveSender" -> {
+                SmsQueues.approve(context, call.argument<String>("sender") ?: "")
+                SmsSyncScheduler.enqueueUpload(context)
+                result.success(true)
+            }
+            "denySender" -> {
+                SmsQueues.deny(context, call.argument<String>("sender") ?: "")
+                result.success(true)
+            }
             "pending" -> result.success(normalizeQueue(prefs.getString("queue", "[]")).toString())
             "clearPending" -> {
                 prefs.edit().putString("queue", "[]").apply()
                 result.success(true)
             }
             "ack" -> {
-                val drop = stringList(call.argument<List<*>>("ids"))
-                val queue = JSONArray(prefs.getString("queue", "[]"))
-                val next = JSONArray()
-                for (i in 0 until queue.length()) {
-                    val obj = queue.optJSONObject(i) ?: continue
-                    if (queueItemId(obj) !in drop) next.put(obj)
-                }
-                prefs.edit().putString("queue", next.toString()).apply()
+                SmsQueues.remove(context, stringList(call.argument<List<*>>("ids")))
                 result.success(true)
             }
             "hasPermission" -> result.success(hasSmsPermissions(context))
@@ -144,43 +176,15 @@ class SmsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
         }
         val from = asLong(call.argument<Any>("fromMs")) ?: 0L
         val to = asLong(call.argument<Any>("toMs")) ?: System.currentTimeMillis()
-        val allowed = BankSenders.allowed.toTypedArray()
-        val marks = allowed.joinToString(",") { "?" }
-        val selection = "${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.DATE} <= ? AND trim(lower(${Telephony.Sms.ADDRESS})) IN ($marks)"
-        val args = arrayOf(from.toString(), to.toString(), *allowed)
-        val out = JSONArray()
-        val cursor = context.contentResolver.query(
-            Telephony.Sms.Inbox.CONTENT_URI,
-            arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
-            selection,
-            args,
-            "${Telephony.Sms.DATE} ASC",
-        )
-        cursor?.use {
-            val iAddr = it.getColumnIndex(Telephony.Sms.ADDRESS)
-            val iBody = it.getColumnIndex(Telephony.Sms.BODY)
-            val iDate = it.getColumnIndex(Telephony.Sms.DATE)
-            while (it.moveToNext()) {
-                val sender = it.getString(iAddr) ?: continue
-                if (!BankSenders.isAllowed(sender)) continue
-                val body = it.getString(iBody) ?: ""
-                val receivedAt = it.getLong(iDate)
-                val item = JSONObject()
-                item.put("id", smsSourceId(sender, body, receivedAt))
-                item.put("sender", sender)
-                item.put("body", body)
-                item.put("receivedAt", receivedAt)
-                out.put(item)
-            }
-        }
-        result.success(out.toString())
+        result.success(SmsQueues.importInbox(context, from, to).toString())
+        SmsSyncScheduler.enqueueUpload(context)
     }
 
     private fun currentPermission(): String {
         val context = app ?: return "unavailable"
         if (hasSmsPermissions(context)) return "granted"
         val host = activity ?: return "denied"
-        val prefs = context.getSharedPreferences(BankSmsReceiver.PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(SmsQueues.PREFS, Context.MODE_PRIVATE)
         val asked = prefs.getBoolean(ASKED, false)
         if (!asked) return "denied"
         val show = ActivityCompat.shouldShowRequestPermissionRationale(host, Manifest.permission.READ_SMS) ||
@@ -201,6 +205,9 @@ class SmsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
             context.startActivity(intent)
         }
     }
+
+    private fun contextOptedIn(context: Context): Boolean =
+        context.getSharedPreferences(SmsQueues.PREFS, Context.MODE_PRIVATE).getBoolean("opt_in", false)
 
     private fun complete(status: String) {
         val result = pending ?: return

@@ -7,6 +7,9 @@ abstract class SettingsStore {
   Future<String?> getString(String key);
   Future<void> setString(String key, String value);
   Future<void> remove(String key);
+
+  /// Picks up writes from the Android background uploader (`FlutterPrefs`).
+  Future<void> reload() async {}
 }
 
 class MemorySettingsStore implements SettingsStore {
@@ -22,6 +25,9 @@ class MemorySettingsStore implements SettingsStore {
 
   @override
   Future<void> remove(String key) async => _values.remove(key);
+
+  @override
+  Future<void> reload() async {}
 }
 
 class PrefsSettingsStore implements SettingsStore {
@@ -37,4 +43,7 @@ class PrefsSettingsStore implements SettingsStore {
 
   @override
   Future<void> remove(String key) => _prefs.remove(key);
+
+  @override
+  Future<void> reload() => _prefs.reload();
 }

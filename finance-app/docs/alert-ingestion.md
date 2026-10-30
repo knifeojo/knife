@@ -71,11 +71,11 @@ Verify with `X-Inbound-Secret` (or Postmark signature). The `to` address maps th
 
 Google Play restricts `RECEIVE_SMS` / `READ_SMS`. This path is for the sideloaded Samsung APK, not a Play listing.
 
-1. Settings → Bank alerts → turn on **SMS bank alerts**. The app explains that only `GTBank`, `GTWorld`, `FirstBank`, `Sterling` and `Providus` are read.
-2. Grant SMS permission when Android asks (`READ_SMS` and `RECEIVE_SMS`). The opt-in flag is set only if you allow it. Denying leaves the switch off. If Android will not ask again, the dialog opens the app’s settings.
-3. The first time you enable it, Ledger offers a one-time import of bank SMS from the start of the current month. Same sender filter as the live receiver. Personal numbers and telcos (`303`, `GloDataSale`, …) are dropped on the phone and never uploaded. SMS bodies are not logged.
-4. Queued bank SMS go to `POST /api/v1/alerts/sms` as `{ sender, body, receivedAt, sourceId }` (or `messages: [...]`). `sourceId` is a stable hash of sender, timestamp and body so a retry is the same SMS. The server dedups that id within SMS, and parses `body` (amount, direction, account, narration, balance, date in the text) to merge with email and statement rows. `receivedAt` is the original SMS time, used when the text has no date. Upload runs on **Sync now**, when the app opens, and right after capture while the app is online. A message is removed from the phone queue only after the server accepts it.
-5. Bank alerts shows the last SMS sync time and the captured / sent counts.
+1. Settings → Bank alerts → turn on **SMS bank alerts**. Known banks (`GTBank`, `GTWorld`, `FirstBank`, `Sterling`, `Providus`) are tracked automatically. A new sender that looks financial asks once.
+2. Grant SMS permission when Android asks (`READ_SMS` and `RECEIVE_SMS`). The opt-in flag is set only if you allow it. Denying leaves the switch off. If Android will not ask again, the dialog opens the app’s settings. Set Battery to Unrestricted so uploads run while the app is closed.
+3. The first time you enable it, Ledger offers a one-time import of account texts from the start of the current month. Personal numbers, OTPs, promos and telcos (`303`, `GloDataSale`, …) are dropped on the phone and never uploaded. SMS bodies are not logged.
+4. Queued texts go to `POST /api/v1/alerts/sms` as `{ sender, body, receivedAt, sourceId }` (or `messages: [...]`). `sourceId` is a stable hash of sender, timestamp and body so a retry is the same SMS. The server dedups that id within SMS. A known bank parser posts when it matches. Any other financial sender uses the generic parser (amount, direction, balance, masked last-4, narration) and goes to Review instead of posting. `receivedAt` is the original SMS time, used when the text has no date. Upload is a WorkManager job (expedited, network required, exponential backoff) plus a 15-minute periodic flush, and also on app start, resume, and **Sync now**. A message is removed from the phone queue only after a 2xx.
+5. Bank alerts shows **Last synced** and the captured / sent counts.
 
 A `NotificationListenerService` stub exists for bank-app push notifications as a fallback if SMS permission is unavailable later.
 

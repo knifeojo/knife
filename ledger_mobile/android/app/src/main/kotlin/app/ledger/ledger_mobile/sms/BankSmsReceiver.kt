@@ -7,38 +7,35 @@ import android.provider.Telephony
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Incoming SMS. Personal senders are dropped here and never handed to Flutter or uploaded. */
+/**
+ * Incoming SMS, including while the Flutter activity is dead.
+ * Personal numbers are dropped before the body is kept. Financial texts from a known or
+ * approved sender are queued and an expedited WorkManager upload is scheduled. A new
+ * financial sender is held until the app asks "Track texts from X?".
+ */
 class BankSmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("opt_in", false)) return
+        if (!SmsQueues.isOptedIn(context)) return
         val extras = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
         val bySender = extras.groupBy { it.displayOriginatingAddress ?: "" }
-        val queue = JSONArray(prefs.getString("queue", "[]"))
-        val seen = existingIds(queue)
-        var added = 0
+        var schedule = false
+        var notify = false
         for ((sender, parts) in bySender) {
-            if (!BankSenders.isAllowed(sender)) continue
+            if (isPersonalSender(sender)) continue
             val body = parts.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }
-            val receivedAt = parts.map { it.timestampMillis }.filter { it > 0L }.maxOrNull() ?: System.currentTimeMillis()
-            val id = smsSourceId(sender, body, receivedAt)
-            if (!seen.add(id)) continue
-            val item = JSONObject()
-            item.put("id", id)
-            item.put("sender", sender)
-            item.put("body", body)
-            item.put("receivedAt", receivedAt)
-            queue.put(item)
-            added += 1
+            val receivedAt = parts.map { it.timestampMillis }.filter { it > 0L }.maxOrNull()
+                ?: System.currentTimeMillis()
+            val incoming = SmsQueues.handleIncoming(context, sender, body, receivedAt)
+            schedule = schedule || incoming.schedule
+            notify = notify || incoming.notify
         }
-        if (added == 0) return
-        prefs.edit().putString("queue", queue.toString()).apply()
-        SmsCapture.queued()
+        if (schedule) SmsSyncScheduler.enqueueUpload(context)
+        if (schedule || notify) SmsCapture.queued()
     }
 
     companion object {
-        const val PREFS = "ledger_sms"
+        const val PREFS = SmsQueues.PREFS
     }
 }
 

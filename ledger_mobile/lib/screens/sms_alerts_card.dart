@@ -93,7 +93,7 @@ class _SmsBankAlertsCardState extends State<SmsBankAlertsCard>
           contentPadding: EdgeInsets.zero,
           title: const Text('SMS bank alerts'),
           subtitle: const Text(
-            'Only $smsBankSenderPhrase. Other messages are never uploaded.',
+            '$smsBankSenderPhrase are tracked automatically. A new account sender asks once. Personal chats, OTPs and promos stay on the phone.',
           ),
           value: optIn,
           onChanged: onChanged,
@@ -203,7 +203,7 @@ class _SmsBankAlertsCardState extends State<SmsBankAlertsCard>
       builder: (context) => AlertDialog(
         title: const Text('SMS bank alerts'),
         content: const Text(
-          'Ledger only reads messages from bank senders: $smsBankSenderPhrase. Personal messages and other senders are ignored on this phone and are never uploaded.',
+          'Ledger reads account alerts. $smsBankSenderPhrase are tracked automatically. A new sender that looks like a bank or fintech asks once before its texts are uploaded. Personal chats, OTPs and promos never leave this phone. On Android, set Battery to Unrestricted so texts can upload while Ledger is closed.',
         ),
         actions: [
           TextButton(
@@ -227,7 +227,7 @@ class _SmsBankAlertsCardState extends State<SmsBankAlertsCard>
       builder: (context) => AlertDialog(
         title: const Text('Import this month?'),
         content: Text(
-          'Read bank SMS since $since, the start of this month, so those transactions can show up. Only $smsBankSenderPhrase. Nothing else leaves the phone.',
+          'Read account texts since $since, the start of this month. $smsBankSenderPhrase upload now. A new sender asks once before its texts leave the phone. Personal chats, OTPs and promos are ignored.',
         ),
         actions: [
           TextButton(

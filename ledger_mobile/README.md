@@ -96,11 +96,15 @@ flutter test
 
 Google Play does not allow `RECEIVE_SMS` / `READ_SMS` for a personal-finance listing. This works on the sideloaded Samsung APK.
 
-Turn it on under **Settings → Bank alerts → SMS bank alerts**. The switch explains that only `GTBank`, `GTWorld`, `FirstBank`, `Sterling` and `Providus` are read, then Android asks for SMS access. The opt-in is saved only if you allow it. If you deny it, the switch stays off. If Android will not ask again, the app links to its settings page. Turning the switch off clears the opt-in.
+Turn it on under **Settings → Bank alerts → SMS bank alerts**. Android asks for SMS access once. The opt-in is saved only if you allow it. If you deny it, the switch stays off. If Android will not ask again, the app links to its settings page. Turning the switch off clears the opt-in.
 
-The first time you turn it on, Ledger offers to read bank SMS from the start of the current month (same sender filter) so this month’s transactions can show up.
+Also set **Battery → Unrestricted** for Ledger once (Samsung: Settings → Apps → Ledger → Battery). Android will not run the background upload reliably while the app is closed if the app is battery-optimised. Do not force-stop Ledger; that blocks SMS delivery until you open the app again.
 
-Phone numbers and telco/promo IDs are dropped on the device and never uploaded. Bank messages go to `POST /api/v1/alerts/sms` with `sender`, `body`, `receivedAt` and a stable `sourceId` (that is what the server uses to dedup SMS against itself, email and statements). They send on **Sync now**, when you open the app, and right after a message arrives while the app is online. A message leaves the phone queue only after the server accepts it. The Bank alerts section shows the last SMS sync time and how many were captured and sent. SMS bodies are not written to logs.
+The phone keeps texts that look like account alerts (amount, debit/credit, balance, masked account, bank-style sender). `GTBank`, `GTWorld`, `FirstBank`, `Sterling` and `Providus` are tracked automatically. A new sender asks once: **Track texts from X?** Personal chats, OTPs and promos never leave the phone.
+
+The first time you turn it on, Ledger offers to read this month’s account texts. Known banks upload. A new sender still asks once.
+
+Messages go to `POST /api/v1/alerts/sms` with `sender`, `body`, `receivedAt` and a stable `sourceId`. The server dedups that id, so a retry or an overlapping flush does not create a second transaction. A message leaves the phone queue only after a 2xx. Upload runs from a WorkManager job as soon as a text arrives (even if the app is closed), every 15 minutes as a safety net, on app start, on resume, and from **Sync now**. The Bank alerts section shows **Last synced** and how many were captured and sent. The worker reads the server URL and session token from Flutter’s `FlutterSharedPreferences` (`flutter.server_url`, `flutter.session_token`). SMS bodies are not written to logs.
 
 A `NotificationListenerService` stub is in the Android tree as a fallback for bank-app push notifications.
 

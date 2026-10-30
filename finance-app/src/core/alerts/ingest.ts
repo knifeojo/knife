@@ -6,7 +6,7 @@ import { scanBalanceGaps } from "./balance";
 import { linkAdjacentFee } from "./fees";
 import { alertSourceId, parseAlert } from "./registry";
 import { storeAlertSample } from "./samples";
-import { isAllowedSmsSender } from "./senders";
+import { isIngestibleSmsSender } from "./senders";
 import type { AlertMessage, ParsedAlert } from "./types";
 
 export type AlertIngestResult =
@@ -77,7 +77,7 @@ export async function ingestAlertMessage(
   msg: AlertMessage,
   opts: { source: SourceType; sourceId?: string } = { source: msg.channel === "sms" ? "sms" : "inbound" },
 ): Promise<AlertIngestResult> {
-  if (msg.channel === "sms" && !isAllowedSmsSender(msg.sender)) return { status: "skipped" };
+  if (msg.channel === "sms" && !isIngestibleSmsSender(msg.sender)) return { status: "skipped" };
 
   const sourceId = alertSourceId(msg, opts.sourceId);
   const seen = await db.processedAlert.findUnique({

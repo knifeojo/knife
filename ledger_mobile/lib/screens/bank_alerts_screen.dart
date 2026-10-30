@@ -15,7 +15,7 @@ class BankAlertsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         children: [
           Text(
-            'Email sync runs on the Ledger server. SMS bank alerts are the switch below: only $smsBankSenderPhrase are read. Personal messages are never uploaded.',
+            'Email sync runs on the Ledger server. SMS alerts read account texts on this phone. $smsBankSenderPhrase are tracked automatically. A new sender asks once. Personal chats, OTPs and promos are never uploaded.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 16),

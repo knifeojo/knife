@@ -47,6 +47,40 @@ describe("SMS ingest API", () => {
     expect((await res.json()).results[0].status).toBe("skipped");
   });
 
+  it("reviews an unknown fintech sender once and skips OTP and promo", async () => {
+    const user = await db.user.findUniqueOrThrow({ where: { email: "sms-api@test.dev" } });
+    const before = await db.transaction.count({ where: { userId: user.id } });
+    const body = "Credit of NGN15,000.00 into wallet ****4821. Avl Bal: NGN27,430.50. Desc: WALLET FUNDING FROM EMPLOYER";
+    const first = await sms(
+      post("/api/v1/alerts/sms", { sender: "Renmoney", body, receivedAt: "2026-10-20T09:00:00.000Z", sourceId: "ren-1" }, { authorization: `Bearer ${token}` }),
+    );
+    expect(first.status).toBe(200);
+    const created = await first.json();
+    expect(created.results[0].status).toBe("review");
+    expect(created.results[0].parser).toBe("GenericFallback");
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(before);
+
+    const again = await sms(
+      post("/api/v1/alerts/sms", { sender: "Renmoney", body, receivedAt: "2026-10-20T09:00:00.000Z", sourceId: "ren-1" }, { authorization: `Bearer ${token}` }),
+    );
+    expect((await again.json()).results[0].status).toBe("review");
+    expect(await db.unparsedAlert.count({ where: { userId: user.id, sender: "Renmoney" } })).toBe(1);
+    expect(await db.transaction.count({ where: { userId: user.id } })).toBe(before);
+
+    const otp = await sms(
+      post("/api/v1/alerts/sms", { sender: "GTBank", body: "Your OTP is 482193. Do not share this code." }, { authorization: `Bearer ${token}` }),
+    );
+    expect((await otp.json()).results[0].status).toBe("skipped");
+    const promo = await sms(
+      post(
+        "/api/v1/alerts/sms",
+        { sender: "Renmoney", body: "Congratulations! You have won N500,000. Dial *123# to claim." },
+        { authorization: `Bearer ${token}` },
+      ),
+    );
+    expect((await promo.json()).results[0].status).toBe("skipped");
+  });
+
   it("serves the parser registry", async () => {
     const res = await parsers(new Request("http://localhost/api/v1/alerts/parsers", { headers: { authorization: `Bearer ${token}` } }));
     expect(res.status).toBe(200);

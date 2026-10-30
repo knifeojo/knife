@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import '../api/models.dart';
 import '../storage/settings_store.dart';
 import 'queue.dart';
 import 'sms_platform.dart';
@@ -49,6 +50,7 @@ class SmsAlertController extends ChangeNotifier {
   bool backfillOffered = false;
   SmsSyncStats stats = SmsSyncStats.empty;
   int queued = 0;
+  List<String> pendingSenders = const [];
   bool _closed = false;
   Future<void>? _tail;
 
@@ -97,11 +99,41 @@ class SmsAlertController extends ChangeNotifier {
     return _lock(() async {
       final start = startOfMonth(queue.now());
       final rows = await platform.importInbox(from: start, to: queue.now());
-      final accepted = await queue.accept(rows);
+      final native = await platform.uploadNow();
+      if (native != null) {
+        _nativeQueued = native.queued;
+        await queue.store.reload();
+        pendingSenders = await platform.pendingSenders();
+        await _publish();
+        return rows.length;
+      }
+      final accepted = await queue.accept(
+        rows,
+        approved: await _approved(),
+        denied: await _denied(),
+      );
       if (accepted.ackIds.isNotEmpty) await platform.ack(accepted.ackIds);
-      await _flushUnlocked();
+      final result = await queue.flush(post: upload);
+      if (result.sentIds.isNotEmpty) await platform.ack(result.sentIds);
+      pendingSenders = await platform.pendingSenders();
       await _publish();
       return accepted.added;
+    });
+  }
+
+  Future<void> approveSender(String sender) {
+    return _lock(() async {
+      await platform.approveSender(sender);
+      await _flushUnlocked();
+      await _publish();
+    });
+  }
+
+  Future<void> denySender(String sender) {
+    return _lock(() async {
+      await platform.denySender(sender);
+      pendingSenders = await platform.pendingSenders();
+      if (!_closed) notifyListeners();
     });
   }
 
@@ -127,6 +159,7 @@ class SmsAlertController extends ChangeNotifier {
     }
     await platform.setOptIn(value);
     optIn = value;
+    if (value) await platform.ensureBackgroundSync();
     notifyListeners();
   }
 
@@ -144,19 +177,53 @@ class SmsAlertController extends ChangeNotifier {
     backfillOffered = await queue.backfillOffered();
   }
 
+  int? _nativeQueued;
+
   Future<FlushResult> _flushUnlocked() async {
+    await platform.ensureBackgroundSync();
+    final native = await platform.uploadNow();
+    pendingSenders = await platform.pendingSenders();
+    if (native != null) {
+      _nativeQueued = native.queued;
+      await queue.store.reload();
+      final message = native.error;
+      return FlushResult(
+        sent: native.sent,
+        kept: native.kept,
+        ok: native.ok,
+        error: message == null ? null : ApiException(0, message),
+      );
+    }
+    _nativeQueued = null;
     final pending = await platform.pending();
     if (pending.isNotEmpty) {
-      final accepted = await queue.accept(pending);
+      final accepted = await queue.accept(
+        pending,
+        approved: await _approved(),
+        denied: await _denied(),
+      );
       if (accepted.ackIds.isNotEmpty) await platform.ack(accepted.ackIds);
     }
-    return queue.flush(post: upload);
+    final result = await queue.flush(post: upload);
+    if (result.sentIds.isNotEmpty) await platform.ack(result.sentIds);
+    return result;
   }
+
+  Future<Set<String>> _approved() async =>
+      (await platform.approvedSenders()).map((s) => s.toLowerCase()).toSet();
+
+  Future<Set<String>> _denied() async =>
+      (await platform.deniedSenders()).map((s) => s.toLowerCase()).toSet();
 
   Future<void> _publish() async {
     stats = await queue.readStats();
-    await queue.outbox.load();
-    queued = queue.outbox.items.length;
+    final nativeQueued = _nativeQueued;
+    if (nativeQueued != null) {
+      queued = nativeQueued;
+    } else {
+      await queue.outbox.load();
+      queued = queue.outbox.items.length;
+    }
     if (!_closed) notifyListeners();
   }
 }
