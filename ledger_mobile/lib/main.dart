@@ -6,6 +6,7 @@ import 'alerts/sms_platform.dart';
 import 'app.dart';
 import 'state/ledger_controller.dart';
 import 'storage/settings_store.dart';
+import 'updates/app_update.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +14,7 @@ Future<void> main() async {
   final store = PrefsSettingsStore(prefs);
   final controller = LedgerController(store);
   final sms = SmsAlertController(store: store, platform: MethodChannelSmsPlatform(), upload: controller.uploadSmsBatch);
+  final updates = AppUpdateController(platform: MethodChannelAppUpdate());
   await controller.load();
-  runApp(LedgerApp(controller: controller, sms: sms));
+  runApp(LedgerApp(controller: controller, sms: sms, updates: updates));
 }
