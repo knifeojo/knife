@@ -32,9 +32,12 @@ function post(body: unknown, token?: string) {
 
 describe("Ask", () => {
   it("parses naira amounts with k, m and the naira sign", () => {
-    expect(parseAffordAsk("Can I afford N50k?")).toMatchObject({ amountMinor: 5_000_000n });
-    expect(parseAffordAsk("can I afford ₦50,000")).toMatchObject({ amountMinor: 5_000_000n });
-    expect(parseAffordAsk("Can I afford 2.5m for a car")).toMatchObject({ amountMinor: 250_000_000n });
+    expect(parseAffordAsk("Can I afford N50k?")).toEqual({ amountMinor: 5_000_000n });
+    expect(parseAffordAsk("can I afford ₦50,000")).toEqual({ amountMinor: 5_000_000n });
+    expect(parseAffordAsk("Can I afford 50k naira")).toEqual({ amountMinor: 5_000_000n });
+    expect(parseAffordAsk("Can I afford NGN 2.5m")).toEqual({ amountMinor: 250_000_000n });
+    expect(parseAffordAsk("Can I afford 2.5m for a car")).toEqual({ amountMinor: 250_000_000n, description: "a car" });
+    expect(parseAffordAsk("Can I afford N50k for rent")).toEqual({ amountMinor: 5_000_000n, description: "rent" });
     expect(parseAffordAsk("Can I afford...?")).toEqual({ needAmount: true });
     expect(parseAffordAsk("Where did my money go this month?")).toBeNull();
   });
@@ -80,6 +83,8 @@ describe("Ask", () => {
     expect(affordBody.message.card.freedLoans).toEqual([{ lender: "FairMoney", freedPerMonthMinor: "5000000" }]);
     expect(affordBody.message.text).toBe(affordBody.message.card.affordability.headline.replace(/[\u2013\u2014]/g, ", ").replace(/\s+/g, " ").trim());
     expect(affordBody.message.text).not.toMatch(/[\u2013\u2014]/);
+    expect(affordBody.message.text).not.toMatch(/\bfor N\b/);
+    expect(affordBody.message.card.affordability.description).toBeUndefined();
 
     const spent = await post({ question: "Where did my money go this month?" }, token);
     const spentBody = await spent.json();

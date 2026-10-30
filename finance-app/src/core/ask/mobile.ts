@@ -19,7 +19,9 @@ export const ASK_CHIPS = [
   "How much is left until payday?",
 ] as const;
 
-const AMOUNT = /(?:₦|ngn|\bn\b)?\s*\d[\d,]*(?:\.\d+)?\s*(?:k|m|million|thousand)?/gi;
+const CURRENCY = "₦|ngn|naira|n";
+/** Amount, including a currency prefix (N50k) or suffix (50k naira). A trailing N must be its own word. */
+const AMOUNT = new RegExp(`(?:(?:${CURRENCY})\\s*)?\\d[\\d,]*(?:\\.\\d+)?\\s*(?:k|m|million|thousand)?(?:\\s*(?:₦|ngn|naira|\\bn\\b))?`, "gi");
 
 export type FreedLoan = { lender: string; freedPerMonthMinor: string };
 
@@ -43,16 +45,35 @@ export type AskMessage = {
   card: AskCard | null;
 };
 
+function amountToken(raw: string): string {
+  return raw
+    .replace(/million/gi, "m")
+    .replace(/thousand/gi, "k")
+    .replace(new RegExp(`^(?:${CURRENCY})\\s*`, "i"), "")
+    .replace(new RegExp(`\\s*(?:${CURRENCY}|\\bn\\b)\\s*$`, "i"), "")
+    .replace(/\s+/g, "");
+}
+
+/** What the purchase is, after the amount and currency words are gone. */
+function purchaseDescription(question: string, amountRaw: string): string | undefined {
+  const rest = question.replace(amountRaw, " ").replace(/\bcan i afford\b/gi, " ").replace(/[?]/g, " ");
+  const stripped = (cleanDescription(rest) ?? "")
+    .replace(new RegExp(`^(?:(?:${CURRENCY}|for)\\b\\s*)+`, "i"), "")
+    .replace(new RegExp(`(?:\\s+\\b(?:${CURRENCY})\\b)+$`, "i"), "")
+    .trim();
+  return cleanDescription(stripped);
+}
+
 /** Pulls a naira amount out of "Can I afford N50k?". Null when the question is not about affording. */
 export function parseAffordAsk(question: string): { amountMinor: bigint; description?: string } | { needAmount: true } | null {
   if (!/\bafford\b/i.test(question)) return null;
+  AMOUNT.lastIndex = 0;
   const hits = question.match(AMOUNT) ?? [];
   for (const raw of hits) {
-    const normalized = raw.replace(/million/gi, "m").replace(/thousand/gi, "k").replace(/\s+/g, "");
-    const amountMinor = parseAmountInput(normalized);
+    const amountMinor = parseAmountInput(amountToken(raw));
     if (amountMinor === null) continue;
-    const rest = question.replace(raw, " ").replace(/\bcan i afford\b/i, " ").replace(/[?]/g, " ");
-    return { amountMinor, description: cleanDescription(rest) };
+    const description = purchaseDescription(question, raw);
+    return description ? { amountMinor, description } : { amountMinor };
   }
   return { needAmount: true };
 }
