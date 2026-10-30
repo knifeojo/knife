@@ -74,6 +74,14 @@ adb install -r build/app/outputs/flutter-apk/app-debug.apk
 
 Or copy the APK onto the phone and open it. Android will ask you to allow installs from that source.
 
+## Updates
+
+From `finance-app`, `npm run app:release` builds the debug APK and writes `latest.apk` plus `latest.json` (version, build number, sha256, size) under `~/ledger-private/releases`, or `APP_RELEASE_DIR`. The server serves those to a signed-in phone at `GET /api/v1/app/latest` and `GET /api/v1/app/apk`.
+
+The app checks on start, on resume, and once a day. A newer build number is downloaded in the background. The file is kept only when the sha256 matches. A notification and an **Update ready** banner then open the Android package installer.
+
+The first time, Android asks you to allow installs from this source (Ledger). Allow it once. After that, **Update ready** installs the new APK.
+
 ## Tests
 
 ```bash
