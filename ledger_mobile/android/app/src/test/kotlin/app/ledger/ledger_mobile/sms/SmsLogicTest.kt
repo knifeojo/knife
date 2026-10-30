@@ -71,6 +71,25 @@ class SmsLogicTest {
                 "Debit: 301XXXX123 Amt: NGN12,500.00 Desc: POS SHOP Bal: NGN41,280.44CR. Dial *894*11# to get loan",
             ).financial,
         )
+
+        assertEquals(
+            "telco",
+            classifyFinancialSms("Globacom", "Your data bundle of 1.5GB is active. Dial *123#").reason,
+        )
+        assertEquals(
+            "telco",
+            classifyFinancialSms("Glo Nigeria", "You have successfully recharged NGN500 airtime.").reason,
+        )
+        assertEquals("telco", classifyFinancialSms("AirtelNG", "Data plan NGN1,500 activated. Bal NGN2,000.").reason)
+        assertEquals("telco", classifyFinancialSms("9mobile", "Airtime recharge of NGN200 was successful.").reason)
+        assertEquals(
+            "telco",
+            classifyFinancialSms("Info", "Your data bundle of NGN1,500 is active. Bal: NGN2,000.00").reason,
+        )
+        assertEquals("telco", classifyFinancialSms("Info", "NGN1,500 debited for a data bundle.").reason)
+        val airtimeDebit = "Acct:******1234\nAmt:NGN500.00 DR\nDesc: AIRTIME\nBal:NGN9,500.00"
+        assertEquals("financial", classifyFinancialSms("GTBank", airtimeDebit).reason)
+        assertEquals(SenderAction.UPLOAD, senderAction("GTBank", airtimeDebit))
     }
 
     @Test

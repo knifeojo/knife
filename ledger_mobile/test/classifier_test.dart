@@ -72,5 +72,36 @@ void main() {
     );
     expect(realDebit.reason, 'financial');
     expect(realDebit.financial, isTrue);
+
+    expect(
+      classifyFinancialSms('Globacom', 'Your data bundle of 1.5GB is active. Dial *123#').reason,
+      'telco',
+    );
+    expect(
+      classifyFinancialSms('Glo Nigeria', 'You have successfully recharged NGN500 airtime.').reason,
+      'telco',
+    );
+    expect(
+      classifyFinancialSms('AirtelNG', 'Data plan NGN1,500 activated. Bal NGN2,000.').reason,
+      'telco',
+    );
+    expect(
+      classifyFinancialSms('9mobile', 'Airtime recharge of NGN200 was successful.').reason,
+      'telco',
+    );
+    expect(
+      classifyFinancialSms('Info', 'Your data bundle of NGN1,500 is active. Bal: NGN2,000.00').reason,
+      'telco',
+    );
+    expect(
+      classifyFinancialSms('Info', 'NGN1,500 debited for a data bundle.').reason,
+      'telco',
+    );
+
+    const airtimeDebit = 'Acct:******1234\nAmt:NGN500.00 DR\nDesc: AIRTIME\nBal:NGN9,500.00';
+    final bankAirtime = classifyFinancialSms('GTBank', airtimeDebit);
+    expect(bankAirtime.reason, 'financial');
+    expect(bankAirtime.financial, isTrue);
+    expect(senderAction('GTBank', airtimeDebit), SenderAction.upload);
   });
 }

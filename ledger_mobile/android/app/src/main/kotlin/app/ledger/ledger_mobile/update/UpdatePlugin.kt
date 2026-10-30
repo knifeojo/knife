@@ -67,6 +67,15 @@ class UpdatePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
                 AppUpdateInstaller.launch(activity ?: context)
                 result.success(true)
             }
+            "showNotice" -> {
+                val id = call.argument<String>("id")?.trim().orEmpty()
+                val text = call.argument<String>("text")?.trim().orEmpty()
+                if (id.length > 80 || text.length > 240) {
+                    result.success("failed")
+                    return
+                }
+                result.success(LoanNotices.show(context, id, text))
+            }
             "check" -> {
                 askNotify()
                 val reply = result

@@ -14,7 +14,8 @@ import 'senders.dart';
 /// - alphanumeric bank-style sender id: +1
 ///
 /// Exclusions win: OTP, promo (unless a real amount sits with a direction or a balance),
-/// personal phone chats, telco/promo sender ids.
+/// personal phone chats, telco senders (Globacom, Glo, MTN, Airtel, 9mobile), and
+/// airtime or data-bundle texts. A bank debit (debit/DR plus a masked account, sender not a telco) still counts.
 /// Known banks ([defaultBankSenders]) skip the prompt. A new financial sender is [SenderAction.ask].
 const financialScoreThreshold = 5;
 
@@ -63,6 +64,13 @@ final _promo = RegExp(
   caseSensitive: false,
 );
 
+final _telcoWord = RegExp(
+  r'\b(?:globacom|glo|mtn|airtel|9\s*mobile|nine\s*mobile|etisalat)\b',
+  caseSensitive: false,
+);
+final _telcoCompact = RegExp(r'^(?:globacom|glodata|gloroam|mtn|airtel|9mobile|ninemobile|etisalat)');
+final _airtime = RegExp(r'\b(?:airtime|data bundle|data plan|recharge)\b', caseSensitive: false);
+
 final _loanWord = RegExp(r'\bloan\b', caseSensitive: false);
 final _loanSignal = RegExp(
   r'\b(outstanding|amount due|due date|overdue)\b|\binstalments?\s+\d+\s+of\s+\d+\b|\bcleared\b|\bfully (?:paid|repaid)\b',
@@ -71,6 +79,21 @@ final _loanSignal = RegExp(
 
 /// Lender balance / due-date / instalment texts. Not a payment, an OTP, or a loan advert.
 bool isLoanStatusBody(String body) => _loanWord.hasMatch(body) && _loanSignal.hasMatch(body);
+
+/// Telco and promo sender ids. Fuzzy, so Globacom matches as well as the exact blocked list.
+bool isTelcoSender(String sender) {
+  if (isBlockedSender(sender)) return true;
+  if (_telcoWord.hasMatch(sender)) return true;
+  final compact = sender.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  return compact == 'glo' || _telcoCompact.hasMatch(compact);
+}
+
+/// Debit/DR (or money out / spent) on a masked account, from a sender that is not a telco.
+bool isClearBankDebit(String sender, String body) {
+  if (isTelcoSender(sender)) return false;
+  if (!_direction.hasMatch(body)) return false;
+  return _masked.hasMatch(body);
+}
 
 bool isKnownBankSender(String sender) {
   final n = sender.trim().toLowerCase();
@@ -99,11 +122,14 @@ SmsClassification classifyFinancialSms(String sender, String body) {
   if (isPersonalChatSender(trimmed)) {
     return const SmsClassification(financial: false, score: 0, reason: 'personal');
   }
-  if (isBlockedSender(trimmed)) {
+  if (isTelcoSender(trimmed)) {
     return const SmsClassification(financial: false, score: 0, reason: 'telco');
   }
   if (_otp.hasMatch(body)) {
     return const SmsClassification(financial: false, score: 0, reason: 'otp');
+  }
+  if (_airtime.hasMatch(body) && !isClearBankDebit(trimmed, body)) {
+    return const SmsClassification(financial: false, score: 0, reason: 'telco');
   }
   final currency = _currency.hasMatch(body);
   final direction = _direction.hasMatch(body);

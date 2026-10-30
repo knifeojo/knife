@@ -15,7 +15,8 @@ package app.ledger.ledger_mobile.sms
  * - alphanumeric bank-style sender id: +1
  *
  * Exclusions win: OTP, promo (unless a real amount sits with a direction or a balance),
- * personal phone chats, telco/promo sender ids.
+ * personal phone chats, telco senders (Globacom, Glo, MTN, Airtel, 9mobile), and
+ * airtime or data-bundle texts. A bank debit (debit/DR plus a masked account, sender not a telco) still counts.
  * Known banks skip the prompt. A new sender that scores as financial is [SenderAction.ASK].
  */
 const val FINANCIAL_SCORE_THRESHOLD = 5
@@ -59,11 +60,37 @@ private val promoRegex = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+private val telcoWord = Regex(
+    """\b(?:globacom|glo|mtn|airtel|9\s*mobile|nine\s*mobile|etisalat)\b""",
+    RegexOption.IGNORE_CASE,
+)
+private val telcoCompact = Regex("""^(?:globacom|glodata|gloroam|mtn|airtel|9mobile|ninemobile|etisalat)""")
+private val airtimeRegex = Regex(
+    """\b(?:airtime|data bundle|data plan|recharge)\b""",
+    RegexOption.IGNORE_CASE,
+)
+private val compactNoise = Regex("""[^a-z0-9]""")
+
 private val loanWord = Regex("""\bloan\b""", RegexOption.IGNORE_CASE)
 private val loanSignal = Regex(
     """\b(outstanding|amount due|due date|overdue)\b|\binstalments?\s+\d+\s+of\s+\d+\b|\bcleared\b|\bfully (?:paid|repaid)\b""",
     RegexOption.IGNORE_CASE,
 )
+
+/** Telco and promo sender ids. Fuzzy, so Globacom matches as well as the exact blocked list. */
+fun isTelcoSender(sender: String): Boolean {
+    if (BankSenders.isBlocked(sender)) return true
+    if (telcoWord.containsMatchIn(sender)) return true
+    val compact = sender.trim().lowercase().replace(compactNoise, "")
+    return compact == "glo" || telcoCompact.containsMatchIn(compact)
+}
+
+/** Debit/DR (or money out / spent) on a masked account, from a sender that is not a telco. */
+fun isClearBankDebit(sender: String, body: String): Boolean {
+    if (isTelcoSender(sender)) return false
+    if (!directionRegex.containsMatchIn(body)) return false
+    return maskedRegex.containsMatchIn(body)
+}
 
 /** Lender balance / due-date / instalment texts. Not a payment, an OTP, or a loan advert. */
 fun isLoanStatusBody(body: String): Boolean = loanWord.containsMatchIn(body) && loanSignal.containsMatchIn(body)
@@ -86,8 +113,11 @@ fun classifyFinancialSms(sender: String, body: String): SmsClassification {
     val trimmed = sender.trim()
     if (trimmed.isEmpty()) return SmsClassification(false, 0, "low_score")
     if (isPersonalSender(trimmed)) return SmsClassification(false, 0, "personal")
-    if (BankSenders.isBlocked(trimmed)) return SmsClassification(false, 0, "telco")
+    if (isTelcoSender(trimmed)) return SmsClassification(false, 0, "telco")
     if (otpRegex.containsMatchIn(body)) return SmsClassification(false, 0, "otp")
+    if (airtimeRegex.containsMatchIn(body) && !isClearBankDebit(trimmed, body)) {
+        return SmsClassification(false, 0, "telco")
+    }
     val currency = currencyRegex.containsMatchIn(body)
     val direction = directionRegex.containsMatchIn(body)
     val balance = balanceRegex.containsMatchIn(body)

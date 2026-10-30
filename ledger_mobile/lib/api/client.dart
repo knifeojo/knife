@@ -306,6 +306,12 @@ class LedgerApi {
     return _loans(_parse(_object(_loanUri(id), (uri) => _patch(uri, draft.toJson())), LedgerLoan.fromJson));
   }
 
+  /// Hides one "Loan cleared" card. The moment is not created again.
+  Future<bool> dismissLoanCleared(String id) async {
+    final json = await _object(_uri('/api/v1/loans/cleared'), (uri) => _post(uri, {'id': id}));
+    return json['ok'] == true;
+  }
+
   /// `status` is "closed" (paid off) or "open".
   Future<LedgerLoan> setLoanStatus(String id, String status) {
     return _loans(_parse(_object(_loanUri(id), (uri) => _patch(uri, {'status': status})), LedgerLoan.fromJson));

@@ -856,6 +856,8 @@ function buildAdvice(c: AdviceContext): AdviceLine[] {
 
 /** Reads everything the check needs from the user's ledger. Scoped by the server-derived userId. */
 export async function loadAffordabilityData(userId: string, now = new Date()): Promise<AffordabilityData> {
+  const { syncLoanMoments } = await import("./loan-moments");
+  await syncLoanMoments(userId, now);
   const [accounts, first, obligations, income, loans] = await Promise.all([
     db.account.findMany({ where: { userId } }),
     db.transaction.findFirst({ where: { userId }, orderBy: { transactionDate: "asc" }, select: { transactionDate: true } }),

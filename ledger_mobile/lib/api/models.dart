@@ -608,6 +608,35 @@ class OverviewCategory {
   }
 }
 
+class LoanClearedNotice {
+  const LoanClearedNotice({
+    required this.id,
+    required this.loanId,
+    required this.lender,
+    required this.totalRepaidMinor,
+    required this.freedPerMonthMinor,
+    required this.closedAt,
+  });
+
+  final String id;
+  final String loanId;
+  final String lender;
+  final String totalRepaidMinor;
+  final String freedPerMonthMinor;
+  final DateTime? closedAt;
+
+  factory LoanClearedNotice.fromJson(Map<String, dynamic> json) {
+    return LoanClearedNotice(
+      id: _string(json, 'id'),
+      loanId: _string(json, 'loanId'),
+      lender: _string(json, 'lender'),
+      totalRepaidMinor: _minor(json, 'totalRepaidMinor'),
+      freedPerMonthMinor: _minor(json, 'freedPerMonthMinor'),
+      closedAt: _optionalDate(json, 'closedAt'),
+    );
+  }
+}
+
 class MonthOverview {
   const MonthOverview({
     required this.periodLabel,
@@ -615,6 +644,8 @@ class MonthOverview {
     required this.inMinor,
     required this.outMinor,
     required this.leftMinor,
+    this.projectedLeftMinor,
+    this.loanCleared = const [],
     this.keptBp,
     required this.prevOutMinor,
     required this.reviewCount,
@@ -631,11 +662,18 @@ class MonthOverview {
   final String inMinor;
   final String outMinor;
   final String leftMinor;
+
+  /// This month's Left plus instalments freed by loans cleared so far. Absent on an older server.
+  final String? projectedLeftMinor;
+  final List<LoanClearedNotice> loanCleared;
   final int? keptBp;
   final String prevOutMinor;
   final int reviewCount;
   final List<OverviewCategory> categories;
   final List<IncomeSource> incomeSources;
+
+  /// The figure on the LEFT card: the projection when this month is the current one, otherwise Left itself.
+  String get displayLeftMinor => projectedLeftMinor ?? leftMinor;
 
   factory MonthOverview.fromJson(Map<String, dynamic> json) {
     final period = _map(json, 'period');
@@ -647,6 +685,8 @@ class MonthOverview {
       inMinor: _minor(json, 'inMinor'),
       outMinor: _minor(json, 'outMinor'),
       leftMinor: _minor(json, 'leftMinor'),
+      projectedLeftMinor: _optionalMinor(json, 'projectedLeftMinor'),
+      loanCleared: _optionalList(json, 'loanCleared').map(LoanClearedNotice.fromJson).toList(),
       keptBp: _optionalInt(json, 'keptBp'),
       prevOutMinor: _minor(json, 'prevOutMinor'),
       reviewCount: _optionalInt(json, 'reviewCount') ?? 0,
@@ -1571,6 +1611,9 @@ class LedgerLoan {
     this.repaidSinceMinor = '0',
     this.lastRepaymentSince,
     this.lastUpdateAt,
+    this.source = 'manual',
+    this.firstPayment,
+    this.totalRepaidMinor,
   });
 
   final String id;
@@ -1596,6 +1639,13 @@ class LedgerLoan {
   /// When a lender SMS last changed this loan. Absent on a server from before loan updates.
   final DateTime? lastUpdateAt;
 
+  /// `manual` when the user typed it, `inferred` when repayments created it.
+  final String source;
+  final DateTime? firstPayment;
+  final String? totalRepaidMinor;
+
+  bool get isInferred => source == 'inferred';
+
   bool get isOpen => status != 'closed';
 
   factory LedgerLoan.fromJson(Map<String, dynamic> json) {
@@ -1619,6 +1669,9 @@ class LedgerLoan {
       repaidSinceMinor: _optionalMinor(since, 'totalMinor') ?? '0',
       lastRepaymentSince: _optionalDate(since, 'lastDate'),
       lastUpdateAt: _lastUpdateAt(json['lastUpdate']),
+      source: _optionalString(json, 'source') ?? 'manual',
+      firstPayment: _optionalDate(json, 'firstPayment'),
+      totalRepaidMinor: _optionalMinor(json, 'totalRepaidMinor'),
     );
   }
 }
