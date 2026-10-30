@@ -48,7 +48,7 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
     }),
   ]);
   const issues = await openIssues(user.id);
-  const gmail = connections.find((c) => c.provider === "gmail" && c.status !== "revoked");
+  const gmails = connections.filter((c) => c.provider === "gmail" && c.status !== "revoked");
   const imap = connections.find((c) => c.provider === "imap" && c.status !== "revoked");
   const notice =
     sp.gmail === "connected"
@@ -90,26 +90,39 @@ export default async function Accounts({ searchParams }: { searchParams: Promise
           <p className="mt-3 text-xs text-ink-3">Balances are the latest balance reported in an alert or statement, not a live bank balance.</p>
         </Card>
 
-        <Card title="Gmail bank alerts" action={gmail && <Badge tone={gmail.status === "active" ? "accent" : "warn"}>{gmail.status === "active" ? "Connected" : "Needs attention"}</Badge>}>
-          {gmail ? (
+        <Card title="Gmail bank alerts" action={gmails.length > 0 && <Badge tone={gmails.every((c) => c.status === "active") ? "accent" : "warn"}>{gmails.length === 1 ? "1 inbox" : `${gmails.length} inboxes`}</Badge>}>
+          {gmails.length ? (
             <div className="space-y-4">
-              <dl className="grid grid-cols-2 gap-3 text-sm">
-                <div><dt className="text-ink-3 text-xs">Mailbox</dt><dd className="truncate">{gmail.providerAccountId}</dd></div>
-                <div><dt className="text-ink-3 text-xs">Last synced</dt><dd>{relativeTime(gmail.lastSyncedAt)}</dd></div>
-                <div><dt className="text-ink-3 text-xs">Access</dt><dd>Read-only</dd></div>
-                <div><dt className="text-ink-3 text-xs">Background</dt><dd>Every {gmail.syncIntervalMinutes ?? defaultSyncMinutes()} min</dd></div>
-              </dl>
-              {gmail.lastError && <p className="text-sm text-warn-ink bg-warn-bg rounded-lg px-3 py-2">{gmail.lastError}</p>}
-              <div className="flex flex-wrap gap-3 items-start">
-                <SyncButton action={syncNow} provider="gmail" />
-                <SyncButton action={importPastAlerts} provider="gmail" label="Import past alerts" />
-                <form action={disconnectGmail}><button className="btn btn-danger">Disconnect Gmail</button></form>
-              </div>
-              <p className="text-xs text-ink-3">Disconnecting revokes our access at Google and deletes the stored tokens. Your ledger stays until you delete it in Settings.</p>
+              <ul className="divide-y divide-border">
+                {gmails.map((gmail) => (
+                  <li key={gmail.id} className="py-3 space-y-3">
+                    <div className="flex justify-between gap-3">
+                      <div>
+                        <div className="font-medium truncate">{gmail.providerAccountId ?? "Gmail"}</div>
+                        <div className="text-xs text-ink-3">Read-only · last synced {relativeTime(gmail.lastSyncedAt)} · every {gmail.syncIntervalMinutes ?? defaultSyncMinutes()} min</div>
+                      </div>
+                      <Badge tone={gmail.status === "active" ? "accent" : "warn"}>{gmail.status === "active" ? "Connected" : "Needs attention"}</Badge>
+                    </div>
+                    {gmail.lastError && <p className="text-sm text-warn-ink bg-warn-bg rounded-lg px-3 py-2">{gmail.lastError}</p>}
+                    <div className="flex flex-wrap gap-3 items-start">
+                      <SyncButton action={syncNow} provider="gmail" connectionId={gmail.id} />
+                      <SyncButton action={importPastAlerts} provider="gmail" connectionId={gmail.id} label="Import past alerts" />
+                      <form action={disconnectGmail}>
+                        <input type="hidden" name="connectionId" value={gmail.id} />
+                        <button className="btn btn-danger">Disconnect</button>
+                      </form>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <form action="/api/gmail/connect" method="post">
+                <button className="btn btn-primary">Add another Gmail</button>
+              </form>
+              <p className="text-xs text-ink-3">Add another Gmail asks Google which account to use, so it can be a different inbox. Disconnect revokes that inbox only. Your ledger stays until you delete it in Settings.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-ink-2">Connect Gmail with read-only access. We scan for bank alerts and for statement emails (PDF, CSV, Excel) and turn them into your ledger.</p>
+              <p className="text-sm text-ink-2">Connect Gmail with read-only access. We scan for bank alerts and for statement emails (PDF, CSV, Excel) and turn them into your ledger. You can connect more than one inbox.</p>
               <Link href="/app/accounts/connect" className="btn btn-primary">Connect Gmail</Link>
               {!googleConfigured() && <p className="text-xs text-ink-3">Google OAuth is not configured on this server yet.</p>}
             </div>

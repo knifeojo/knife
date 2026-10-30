@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { decrypt } from "@/lib/crypto";
 import { log } from "@/lib/log";
 import { ALL_CATEGORIES } from "@/core/categorize";
 import { NotFoundError, monthPeriod, recategorize } from "@/core/analytics";
@@ -21,7 +20,7 @@ import { chatForUser, phraseForUser } from "@/core/ai/router";
 import { redactorFor } from "@/core/ai/redact";
 import { rulesClassifier, scoreUser } from "@/core/eval";
 import { FixtureEmailSource } from "@/core/providers/fixture";
-import { GmailEmailSource, revokeToken } from "@/core/providers/gmail";
+import { GmailEmailSource } from "@/core/providers/gmail";
 import { ask } from "@/core/ask/answer";
 import type { Facts } from "@/core/ask/answer";
 import { applyNoteLabel, matchNotes, monthFromHeading, parseNotes, type NoteMatch } from "@/core/notes";
@@ -39,13 +38,16 @@ export type SyncState = { ok?: string; error?: string } | undefined;
 
 export async function syncNow(_: SyncState, form: FormData): Promise<SyncState> {
   const user = await requireUser();
-  const provider = String(form.get("provider"));
-  const conn = await db.financialConnection.findFirst({ where: { userId: user.id, provider, status: { not: "revoked" } } });
+  const { activeConnectionFor } = await import("@/core/email/inboxes");
+  const conn = await activeConnectionFor(user.id, {
+    connectionId: String(form.get("connectionId") ?? "") || undefined,
+    provider: String(form.get("provider") ?? "") || undefined,
+  });
   if (!conn) return { error: "Connection not found" };
   try {
     const source =
-      provider === "gmail" ? new GmailEmailSource(conn.id)
-      : provider === "imap" ? (await import("@/core/alerts/imap")).ImapEmailSource.fromConnection(conn)
+      conn.provider === "gmail" ? new GmailEmailSource(conn.id)
+      : conn.provider === "imap" ? (await import("@/core/alerts/imap")).ImapEmailSource.fromConnection(conn)
       : new FixtureEmailSource();
     const r = await syncEmailSource(user.id, conn.id, source);
     revalidatePath("/app", "layout");
@@ -93,12 +95,16 @@ export async function saveImapConnection(form: FormData) {
 export async function importPastAlerts(_: SyncState, form: FormData): Promise<SyncState> {
   const user = await requireUser();
   const provider = String(form.get("provider") || "gmail");
-  const conn = await db.financialConnection.findFirst({ where: { userId: user.id, provider, status: { not: "revoked" } } });
+  const { activeConnectionFor } = await import("@/core/email/inboxes");
+  const conn = await activeConnectionFor(user.id, {
+    connectionId: String(form.get("connectionId") ?? "") || undefined,
+    provider,
+  });
   if (!conn) return { error: "Connect Gmail or IMAP first." };
   await db.financialConnection.update({ where: { id: conn.id }, data: { lastSyncedAt: null, gmailHistoryId: null } });
   try {
     const { syncOneConnection } = await import("@/core/alerts/scheduler");
-    if (provider === "gmail" || provider === "imap") await syncOneConnection(conn.id);
+    if (conn.provider === "gmail" || conn.provider === "imap") await syncOneConnection(conn.id);
     else {
       const { FixtureEmailSource } = await import("@/core/providers/fixture");
       await syncEmailSource(user.id, conn.id, new FixtureEmailSource());
@@ -155,23 +161,15 @@ export async function dismissReconAction(form: FormData) {
   revalidatePath("/app", "layout");
 }
 
-export async function disconnectGmail() {
+export async function disconnectGmail(form: FormData) {
   const user = await requireUser();
-  const { removeEmailConnection } = await import("@/core/email/inboxes");
-  const inboxes = await db.emailConnection.findMany({ where: { userId: user.id, provider: "gmail", status: { not: "revoked" } } });
-  if (inboxes.length) {
-    for (const inbox of inboxes) await removeEmailConnection(user.id, inbox.id);
+  const connectionId = String(form.get("connectionId") ?? "");
+  const { disconnectGmailInbox } = await import("@/core/email/inboxes");
+  if (connectionId) {
+    await disconnectGmailInbox(user.id, connectionId);
   } else {
-    const conn = await db.financialConnection.findFirst({ where: { userId: user.id, provider: "gmail", status: { not: "revoked" } } });
-    if (conn) {
-      const token = conn.encryptedRefreshToken ?? conn.encryptedAccessToken;
-      if (token) await revokeToken(decrypt(token));
-      await db.financialConnection.update({
-        where: { id: conn.id },
-        data: { status: "revoked", encryptedAccessToken: null, encryptedRefreshToken: null, accessTokenExpiresAt: null },
-      });
-      log.info("gmail.disconnected", { userId: user.id });
-    }
+    const inboxes = await db.financialConnection.findMany({ where: { userId: user.id, provider: "gmail", status: { not: "revoked" } } });
+    for (const inbox of inboxes) await disconnectGmailInbox(user.id, inbox.id);
   }
   revalidatePath("/app/accounts");
 }

@@ -3,10 +3,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { issueSession } from "@/lib/auth";
-import { listEmailConnections, removeEmailConnection, saveGmailInbox, saveImapInbox, startGmailConnect } from "@/core/email/inboxes";
+import { activeConnectionFor, disconnectGmailInbox, listEmailConnections, saveGmailInbox, saveImapInbox, startGmailConnect } from "@/core/email/inboxes";
 import { GET as callback, gmailCallbackPage, returnToLedgerLink } from "@/app/api/v1/email/google/callback/route";
 import { POST as start } from "@/app/api/v1/email/google/start/route";
-import { GMAIL_READONLY_SCOPE } from "@/core/providers/gmail";
+import { GMAIL_READONLY_SCOPE, authorizationUrl } from "@/core/providers/gmail";
 
 const CLIENT = "test-client.apps.googleusercontent.com";
 const BASE = "https://ledger.example.ts.net";
@@ -28,7 +28,11 @@ describe("Gmail OAuth for any inbox", () => {
     expect(parsed.searchParams.get("redirect_uri")).toBe(`${BASE}/api/v1/email/google/callback`);
     expect(parsed.searchParams.get("scope")).toBe(GMAIL_READONLY_SCOPE);
     expect(parsed.searchParams.get("access_type")).toBe("offline");
-    expect(parsed.searchParams.get("prompt")).toBe("consent");
+    expect(parsed.searchParams.get("prompt")).toBe("select_account consent");
+    expect(parsed.searchParams.get("login_hint")).toBeNull();
+    const web = new URL(authorizationUrl("state-1"));
+    expect(web.searchParams.get("prompt")).toBe("select_account consent");
+    expect(web.searchParams.has("login_hint")).toBe(false);
     expect(parsed.searchParams.get("response_type")).toBe("code");
 
     const missing = process.env.PUBLIC_BASE_URL;
@@ -115,7 +119,11 @@ describe("Gmail OAuth for any inbox", () => {
     });
     expect(due).toHaveLength(3);
 
-    expect(await removeEmailConnection(user.id, second.id)).toBe(true);
+    const picked = await activeConnectionFor(user.id, { connectionId: second.financialConnectionId });
+    expect(picked?.providerAccountId).toBe("second@example.test");
+    expect(picked?.id).not.toBe(first.financialConnectionId);
+    expect(await disconnectGmailInbox(user.id, second.financialConnectionId)).toBe(true);
+    expect(await activeConnectionFor(user.id, { connectionId: first.financialConnectionId })).toMatchObject({ providerAccountId: "ada@example.test" });
     const left = await listEmailConnections(user.id);
     expect(left.map((row) => row.address).sort()).toEqual(["ada@example.test", "ada@yahoo.test"]);
     const revoked = await db.financialConnection.findUniqueOrThrow({ where: { id: second.financialConnectionId } });
