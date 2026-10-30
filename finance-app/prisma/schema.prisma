@@ -389,7 +389,7 @@ model Loan {
   userId           String
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   lender           String // a canonical name from lender detection (categorize.ts LENDERS), e.g. "Renmoney"
-  outstandingMinor BigInt // balance left, as the lender's app shows it
+  outstandingMinor BigInt? // balance left, as the lender's app shows it. Null when an inferred loan has no balance.
   instalmentMinor  BigInt?
   instalmentsPaid  Int?
   instalmentsTotal Int?
@@ -398,11 +398,14 @@ model Loan {
   notes            String?
   status           String    @default("open") // open | closed
   source           String    @default("manual") // manual | inferred
+  closeReason      String? // lump_sum | status_text | review_yes | inactivity
   firstPayment     DateTime? // first repayment seen, when the loan was inferred
   totalRepaidMinor BigInt? // sum of those repayments
   // When the balance and instalments were last entered. Statement repayments after this are not in them yet.
   balanceAsOf      DateTime  @default(now())
   closedAt         DateTime?
+  // "No" on "Is your loan paid off?" hides that Review question until this instant.
+  reviewSnoozeUntil DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   updates          LoanUpdate[]

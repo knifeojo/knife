@@ -12,6 +12,7 @@ import { listPendingDuplicates, resolveDuplicate } from "./fx/duplicates";
 import { listPendingAdvances, resolveAdvance } from "./fx/advance-flags";
 import { rebuildUserFx, listPendingMispairs, resolveMispair } from "./fx/realised";
 import { listPendingWalletGuesses, resolveWalletGuess } from "./fx/wallet-currency";
+import { answerInferredLoan, overdueInferredLoans } from "./loan-moments";
 import { pairOwnTransfers, suspectedConversions, unpairContradicted } from "./transfers";
 void suspectedConversions; // kept for answering legacy conversion questions
 
@@ -20,8 +21,8 @@ void suspectedConversions; // kept for answering legacy conversion questions
 // People come first: "Who is GIFT ADEBAYO OJO to you?" is answered once and labels every payment
 // to and from them through the relationship (core/people).
 
-export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match" | "mispair" | "duplicate" | "currency" | "advance";
-export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion", "match", "mispair", "duplicate", "currency", "advance"];
+export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match" | "mispair" | "duplicate" | "currency" | "advance" | "loan";
+export const QUESTION_KINDS: readonly QuestionKind[] = ["holder", "person", "income", "memo", "conversion", "match", "mispair", "duplicate", "currency", "advance", "loan"];
 
 export interface Option {
   value: string;
@@ -164,6 +165,11 @@ export const ADVANCE_OPTIONS: Option[] = [
   { value: "debt", label: "This is a real loan - count it as debt", category: "Debt", subcategory: "Loan proceeds" },
 ];
 
+export const LOAN_OPTIONS: Option[] = [
+  { value: "yes", label: "Yes", category: "" },
+  { value: "no", label: "No", category: "" },
+];
+
 const HOLDER_OPTIONS: Option[] = [
   { value: "yes", label: "Yes, that's me", category: OWN_TRANSFER, subcategory: "Between own accounts" },
   { value: "no", label: "No", category: "" },
@@ -177,6 +183,7 @@ export function optionsFor(kind: QuestionKind): Option[] {
     : kind === "duplicate" ? DUPLICATE_OPTIONS
     : kind === "currency" ? CURRENCY_OPTIONS
     : kind === "advance" ? ADVANCE_OPTIONS
+    : kind === "loan" ? LOAN_OPTIONS
     : PERSON_OPTIONS;
 }
 
@@ -431,9 +438,24 @@ function guessOf(g: PersonGroup, surnames: string[]): PeopleGuess | undefined {
 }
 
 /** Pending Review questions. Pass `limit` only when a caller wants a truncated page. */
-export async function buildQuestions(userId: string, limit?: number): Promise<Question[]> {
+export async function buildQuestions(userId: string, limit?: number, now = new Date()): Promise<Question[]> {
   const { answered, accounts, tx, people, found, surnames, ctx } = await reviewData(userId);
   const questions: Question[] = [];
+
+  for (const loan of await overdueInferredLoans(userId, now)) {
+    const due = loan.expected.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Lagos" });
+    const usual = loan.instalmentMinor === null ? "" : ` The usual repayment is ${formatMoney(loan.instalmentMinor).replace(/\.00$/, "")}.`;
+    questions.push({
+      kind: "loan",
+      key: loan.id,
+      title: `Is your ${loan.lender} loan paid off?`,
+      prompt: `A repayment was expected around ${due} and it is more than 7 days late.${usual} Yes closes it and frees that amount each month. No keeps it open and asks again in 30 days.`,
+      totalMinor: loan.instalmentMinor ?? 0n,
+      count: 1,
+      examples: [],
+      options: LOAN_OPTIONS,
+    });
+  }
 
   for (const a of await listPendingAdvances(userId)) {
     questions.push({
@@ -601,7 +623,7 @@ export async function buildQuestions(userId: string, limit?: number): Promise<Qu
   const weight = (q: Question) => (/around the \d+(st|nd|rd|th)/.test(q.prompt) ? q.totalMinor * 2n : q.totalMinor);
   // People questions are ranked by the unlabelled money they fix, then by everything with them.
   const impact = (q: Question) => (q.impactMinor ?? 0n) * 4n + q.totalMinor;
-  const rank = (q: Question) => (q.kind === "holder" ? 0 : q.kind === "currency" || q.kind === "mispair" || q.kind === "duplicate" || q.kind === "advance" ? 1 : q.person ? 2 : q.kind === "conversion" ? 3 : 4);
+  const rank = (q: Question) => (q.kind === "holder" || q.kind === "loan" ? 0 : q.kind === "currency" || q.kind === "mispair" || q.kind === "duplicate" || q.kind === "advance" ? 1 : q.person ? 2 : q.kind === "conversion" ? 3 : 4);
   questions.sort((a, b) => {
     const r = rank(a) - rank(b);
     if (r) return r;
@@ -691,6 +713,7 @@ export async function answerQuestion(
   key: string,
   value: string,
   other?: { text: string; category?: string; subcategory?: string },
+  now = new Date(),
 ): Promise<number> {
   if (value.startsWith("rel:")) {
     const vendor = other?.category && ALL_CATEGORIES.includes(other.category) ? { category: other.category, subcategory: other.subcategory?.trim() || other.text?.trim() || undefined } : undefined;
@@ -726,6 +749,11 @@ export async function answerQuestion(
   if (kind === "advance") {
     if (value !== "hold" && value !== "debt") throw new Error("unknown answer");
     return resolveAdvance(userId, key, value);
+  }
+
+  if (kind === "loan") {
+    if (value !== "yes" && value !== "no") throw new Error("unknown answer");
+    return answerInferredLoan(userId, key, value, now);
   }
 
   if (kind === "conversion") {

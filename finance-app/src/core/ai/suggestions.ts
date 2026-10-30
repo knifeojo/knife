@@ -99,7 +99,7 @@ export async function suggestionGroups(userId: string): Promise<SuggestionGroup[
 }
 
 function matchesQuestion(q: Question, g: SuggestionGroup): boolean {
-  if (q.kind === "holder" || q.kind === "conversion" || q.kind === "match" || q.kind === "mispair" || q.kind === "duplicate" || q.kind === "currency" || q.kind === "advance") return false;
+  if (q.kind === "holder" || q.kind === "conversion" || q.kind === "match" || q.kind === "mispair" || q.kind === "duplicate" || q.kind === "currency" || q.kind === "advance" || q.kind === "loan") return false;
   // People questions cover money both ways.
   if (!q.person && (q.kind === "income") !== (g.type === "CREDIT")) return false;
   if (!g.key) return false;

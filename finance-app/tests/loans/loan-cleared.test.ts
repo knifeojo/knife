@@ -3,8 +3,9 @@ import { POST as sms } from "@/app/api/v1/alerts/sms/route";
 import { POST as dismiss } from "@/app/api/v1/loans/cleared/route";
 import { GET as overview } from "@/app/api/v1/overview/route";
 import { assessAffordability, type AffordabilityData, type LenderActivity, type MonthFigures, type RegularItem } from "@/core/affordability";
-import { closeReason, closedRecently, endedLongAgo, freedPerMonth, groupLenderRepayments, inferLoanDraft, isMerchantPayment, isOwnName, lenderOfRepayment, medianMinor, otherPersonTransfer, repaymentsStopped, type RepaymentRow } from "@/core/loan-cleared";
-import { backfillRecentCleared, closeDueLoans, inferMissingLoans, loanClearedCards, recordLoanCleared, syncLoanMoments } from "@/core/loan-moments";
+import { closeReason, closedRecently, endedLongAgo, freedPerMonth, groupLenderRepayments, inferLoanDraft, isLumpSum, isMerchantPayment, isOwnName, lenderOfRepayment, medianMinor, otherPersonTransfer, repaymentOverdue, repaymentsStopped, type RepaymentRow } from "@/core/loan-cleared";
+import { answerQuestion, buildQuestions } from "@/core/review";
+import { backfillRecentCleared, clearGuessedInferredBalances, closeDueLoans, inferMissingLoans, loanClearedCards, recordLoanCleared, syncLoanMoments } from "@/core/loan-moments";
 import { countRepayments, createLoan, isFinished, toManualLoan } from "@/core/loans";
 import { issueSession } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -27,7 +28,8 @@ describe("freed amount and close rules", () => {
   it("uses the median of the last three repayments, then the instalment", () => {
     expect(medianMinor([])).toBeNull();
     expect(medianMinor([N(10), N(30)])).toBe(N(20));
-    expect(freedPerMonth([N(10_000), N(18_000), N(12_000), N(15_000)], N(9_000))).toBe(N(15_000));
+    expect(freedPerMonth([N(10_000), N(18_000), N(12_000), N(15_000)], N(9_000))).toBe(N(13_500));
+    expect(freedPerMonth([N(70_000), N(14_000), N(100_000), N(120_000), N(150_000), N(400_000)], null)).toBe(N(110_000));
     expect(freedPerMonth([], N(9_000))).toBe(N(9_000));
     expect(freedPerMonth([], null)).toBe(0n);
   });
@@ -76,11 +78,26 @@ describe("freed amount and close rules", () => {
   it("closes a manual loan on a zero balance or a final instalment, and an inferred loan when repayments stop", () => {
     const now = new Date("2026-12-20T12:00:00Z");
     const last = new Date("2026-09-05T12:00:00Z");
-    expect(closeReason({ source: "manual", outstandingMinor: N(50_000), instalmentsPaid: 2, instalmentsTotal: 6, lastRepayment: last, disbursementAfterLast: false, now })).toBeNull();
-    expect(closeReason({ source: "manual", outstandingMinor: 0n, instalmentsPaid: 2, instalmentsTotal: 6, lastRepayment: last, disbursementAfterLast: false, now })).toBe("zero");
-    expect(closeReason({ source: "manual", outstandingMinor: N(12_000), instalmentsPaid: 6, instalmentsTotal: 6, lastRepayment: null, disbursementAfterLast: false, now })).toBe("final");
-    expect(closeReason({ source: "inferred", outstandingMinor: N(12_000), instalmentsPaid: null, instalmentsTotal: null, lastRepayment: last, disbursementAfterLast: false, now })).toBe("stopped");
-    expect(closeReason({ source: "inferred", outstandingMinor: N(12_000), instalmentsPaid: null, instalmentsTotal: null, lastRepayment: last, disbursementAfterLast: true, now })).toBeNull();
+    const base = { instalmentsPaid: null, instalmentsTotal: null, lastRepayment: last, lumpSum: false, lumpMinor: null, remainingMinor: null, disbursementAfterLast: false, now };
+    expect(closeReason({ ...base, source: "manual", outstandingMinor: N(50_000), instalmentsPaid: 2, instalmentsTotal: 6 })).toBeNull();
+    expect(closeReason({ ...base, source: "manual", outstandingMinor: 0n, instalmentsPaid: 2, instalmentsTotal: 6 })).toBe("zero");
+    expect(closeReason({ ...base, source: "manual", outstandingMinor: N(12_000), instalmentsPaid: 6, instalmentsTotal: 6, lastRepayment: null })).toBe("final");
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: N(12_000) })).toBe("inactivity");
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: N(12_000), disbursementAfterLast: true })).toBeNull();
+    const soon = new Date("2026-10-01T12:00:00Z");
+    const settled = new Date("2026-10-20T12:00:00Z");
+    expect(isLumpSum([N(70_000), N(100_000), N(150_000), N(400_000)])).toBe(true);
+    expect(isLumpSum([N(100_000), N(100_000), N(240_000)])).toBe(false);
+    expect(isLumpSum([N(100_000), N(100_000), N(250_000)])).toBe(true);
+    expect(freedPerMonth([N(80_000), N(100_000), N(120_000), N(400_000)], null)).toBe(N(100_000));
+    const payoff = new Date("2026-09-05T12:00:00Z");
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: null, lastRepayment: payoff, lumpSum: true, lumpMinor: N(400_000), now: soon })).toBeNull();
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: null, lastRepayment: payoff, lumpSum: true, lumpMinor: N(400_000), now: new Date(payoff.getTime() + 30 * 86_400_000) })).toBe("lump_sum");
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: null, lastRepayment: payoff, lumpSum: true, lumpMinor: N(400_000), now: new Date(payoff.getTime() + 30 * 86_400_000 - 1) })).toBeNull();
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: N(300_000), remainingMinor: N(300_000), lastRepayment: payoff, lumpSum: true, lumpMinor: N(400_000), now: new Date(payoff.getTime() + 86_400_000) })).toBe("lump_sum");
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: N(500_000), remainingMinor: N(500_000), lastRepayment: payoff, lumpSum: true, lumpMinor: N(400_000), now: new Date(payoff.getTime() + 86_400_000) })).toBeNull();
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: null, lastRepayment: payoff, lumpSum: true, now: settled })).toBe("lump_sum");
+    expect(closeReason({ ...base, source: "inferred", outstandingMinor: null, lastRepayment: payoff, lumpSum: true, disbursementAfterLast: true, now: settled })).toBeNull();
   });
 
   it("keeps a repeated beneficiary that does not match the profile, and drops a one-off", () => {
@@ -93,6 +110,9 @@ describe("freed amount and close rules", () => {
     const now = new Date("2026-10-30T12:00:00Z");
     expect(closedRecently(new Date(now.getTime() - 14 * 86_400_000), now)).toBe(true);
     expect(closedRecently(new Date(now.getTime() - 14 * 86_400_000 - 1), now)).toBe(false);
+    const expected = new Date("2026-10-01T00:00:00Z");
+    expect(repaymentOverdue(expected, new Date(expected.getTime() + 7 * 86_400_000))).toBe(false);
+    expect(repaymentOverdue(expected, new Date(expected.getTime() + 7 * 86_400_000 + 1))).toBe(true);
   });
 });
 
@@ -160,7 +180,7 @@ describe("inferred loans", () => {
     const loans = await db.loan.findMany({ where: { userId: user.id }, orderBy: { lender: "asc" } });
     expect(loans.map((loan) => loan.lender)).toEqual(["Carbon", "Renmoney"]);
     const ren = loans.find((loan) => loan.lender === "Renmoney")!;
-    expect(ren).toMatchObject({ source: "inferred", status: "open", instalmentMinor: N(12_000), totalRepaidMinor: N(36_000), outstandingMinor: N(12_000) });
+    expect(ren).toMatchObject({ source: "inferred", status: "open", instalmentMinor: N(12_000), totalRepaidMinor: N(36_000), outstandingMinor: null });
     expect(ren.firstPayment?.toISOString().slice(0, 10)).toBe("2026-08-05");
     expect(ren.balanceAsOf.toISOString().slice(0, 10)).toBe("2026-10-05");
     expect(loans.find((loan) => loan.lender === "Carbon")!.status).toBe("open");
@@ -176,7 +196,7 @@ describe("inferred loans", () => {
     await syncLoanMoments(old.user.id, new Date("2026-10-30T12:00:00Z"));
     await syncLoanMoments(old.user.id, new Date("2026-10-30T12:00:00Z"));
     const silent = await db.loan.findFirstOrThrow({ where: { userId: old.user.id } });
-    expect(silent).toMatchObject({ lender: "FairMoney", source: "inferred", status: "closed", totalRepaidMinor: N(36_000), outstandingMinor: 0n });
+    expect(silent).toMatchObject({ lender: "FairMoney", source: "inferred", status: "closed", closeReason: "inactivity", totalRepaidMinor: N(36_000), outstandingMinor: 0n });
     const silentEvent = await db.loanClearedEvent.findUniqueOrThrow({ where: { loanId: silent.id } });
     expect(silentEvent.silent).toBe(true);
     expect(silentEvent.freedPerMonthMinor).toBe(N(12_000));
@@ -200,7 +220,7 @@ describe("inferred loans", () => {
     expect(closed.status).toBe("closed");
     expect(closed.totalRepaidMinor).toBe(N(55_000));
     const event = await db.loanClearedEvent.findUniqueOrThrow({ where: { loanId: open.id } });
-    expect(event).toMatchObject({ silent: false, freedPerMonthMinor: N(15_000), totalRepaidMinor: N(55_000), lender: "Renmoney" });
+    expect(event).toMatchObject({ silent: false, freedPerMonthMinor: N(13_500), totalRepaidMinor: N(55_000), lender: "Renmoney" });
     const again = await recordLoanCleared(live.user.id, closed);
     expect(again.id).toBe(event.id);
     expect(await db.loanClearedEvent.count({ where: { loanId: open.id } })).toBe(1);
@@ -210,7 +230,7 @@ describe("inferred loans", () => {
     const home = await overview(new Request("http://localhost/api/v1/overview", { headers: { authorization: `Bearer ${token}` } }));
     const body = (await home.json()) as { leftMinor: string; projectedLeftMinor: string; loanCleared: { id: string }[] };
     expect(body.loanCleared.map((card) => card.id)).toEqual([event.id]);
-    expect(BigInt(body.projectedLeftMinor) - BigInt(body.leftMinor)).toBe(N(15_000));
+    expect(BigInt(body.projectedLeftMinor) - BigInt(body.leftMinor)).toBe(N(13_500));
     const past = await overview(new Request("http://localhost/api/v1/overview?month=2020-01", { headers: { authorization: `Bearer ${token}` } }));
     const pastBody = (await past.json()) as { leftMinor: string; projectedLeftMinor: string };
     expect(pastBody.projectedLeftMinor).toBe(pastBody.leftMinor);
@@ -267,6 +287,7 @@ describe("inferred loans", () => {
     expect((await (await post("cleared-once")).json()).results[0].status).toBe("loan_update");
     expect((await (await post("cleared-again")).json()).results[0].status).toBe("review");
     expect(await db.loanClearedEvent.count({ where: { loanId: loan.id } })).toBe(1);
+    expect((await db.loan.findUniqueOrThrow({ where: { id: loan.id } })).closeReason).toBe("status_text");
     expect((await db.loanClearedEvent.findUniqueOrThrow({ where: { loanId: loan.id } })).silent).toBe(false);
 
     const carbon = await createLoan(user.id, {
@@ -382,6 +403,146 @@ describe("inferred loans", () => {
     expect(await db.loanClearedEvent.findUnique({ where: { loanId: stale.id } })).toBeNull();
     expect(await syncLoanMoments(user.id, now)).toBeUndefined();
     expect(await db.loanClearedEvent.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it("asks if an inferred loan is paid off once a repayment is more than 7 days late", async () => {
+    const now = new Date("2026-10-30T12:00:00Z");
+    const day = 86_400_000;
+    const last = new Date(now.getTime() - 40 * day);
+    const { user, account } = await seed("Tunde Nwosu");
+    for (const when of [last.getTime() - 60 * day, last.getTime() - 30 * day, last.getTime()]) {
+      await tx(user.id, account.id, { date: new Date(when).toISOString().slice(0, 10), amount: 13_000, description: "TO RENMONEY - TUNDE NWOSU", merchant: "Renmoney" });
+    }
+    expect(await inferMissingLoans(user.id, now)).toBe(1);
+    const loan = await db.loan.findFirstOrThrow({ where: { userId: user.id } });
+    expect(loan.outstandingMinor).toBeNull();
+    expect(loan.status).toBe("open");
+
+    const notYet = new Date(last.getTime() + 36 * day);
+    expect((await buildQuestions(user.id, undefined, notYet)).some((q) => q.kind === "loan")).toBe(false);
+
+    const asked = (await buildQuestions(user.id, undefined, now)).find((q) => q.kind === "loan");
+    expect(asked).toMatchObject({ title: "Is your Renmoney loan paid off?", key: loan.id });
+    expect(asked?.options.map((o) => o.label)).toEqual(["Yes", "No"]);
+    expect(asked?.prompt).toContain("13,000");
+
+    expect(await answerQuestion(user.id, "loan", loan.id, "no", undefined, now)).toBe(0);
+    expect((await db.loan.findUniqueOrThrow({ where: { id: loan.id } })).status).toBe("open");
+    expect((await buildQuestions(user.id, undefined, new Date(now.getTime() + 29 * day))).some((q) => q.kind === "loan")).toBe(false);
+    expect((await buildQuestions(user.id, undefined, new Date(now.getTime() + 31 * day))).some((q) => q.kind === "loan")).toBe(true);
+
+    expect(await answerQuestion(user.id, "loan", loan.id, "yes", undefined, new Date(now.getTime() + 31 * day))).toBe(1);
+    const closed = await db.loan.findUniqueOrThrow({ where: { id: loan.id } });
+    expect(closed).toMatchObject({ status: "closed", outstandingMinor: 0n, closeReason: "review_yes" });
+    const event = await db.loanClearedEvent.findUniqueOrThrow({ where: { loanId: loan.id } });
+    expect(event).toMatchObject({ silent: false, freedPerMonthMinor: N(13_000), lender: "Renmoney" });
+    expect(await db.loanUpdate.findFirstOrThrow({ where: { loanId: loan.id, applied: true } })).toMatchObject({ status: "closed", channel: "review" });
+    expect(await answerQuestion(user.id, "loan", loan.id, "yes", undefined, new Date(now.getTime() + 31 * day))).toBe(1);
+    expect(await db.loanClearedEvent.count({ where: { loanId: loan.id } })).toBe(1);
+    expect(await db.loanUpdate.count({ where: { loanId: loan.id } })).toBe(1);
+    expect((await buildQuestions(user.id, undefined, new Date(now.getTime() + 40 * day))).some((q) => q.kind === "loan")).toBe(false);
+  });
+
+  it("closes an inferred loan when a payoff is at least 2.5× the instalment and nothing follows", async () => {
+    const early = new Date("2026-10-01T12:00:00Z");
+    const later = new Date("2026-10-20T12:00:00Z");
+    const paid = [
+      ["2026-06-05", 80_000],
+      ["2026-07-05", 100_000],
+      ["2026-08-05", 120_000],
+      ["2026-09-05", 400_000],
+    ] as const;
+    const { user, account } = await seed("Tunde Nwosu");
+    for (const [date, amount] of paid) {
+      await tx(user.id, account.id, { date, amount, description: "TO RENMONEY - TUNDE NWOSU", merchant: "Renmoney" });
+    }
+    expect(await inferMissingLoans(user.id, early)).toBe(1);
+    const open = await db.loan.findFirstOrThrow({ where: { userId: user.id } });
+    expect(open).toMatchObject({ status: "open", outstandingMinor: null, instalmentMinor: N(100_000) });
+    expect((await buildQuestions(user.id, undefined, early)).some((q) => q.kind === "loan")).toBe(false);
+
+    await closeDueLoans(user.id, later);
+    const closed = await db.loan.findFirstOrThrow({ where: { id: open.id } });
+    expect(closed).toMatchObject({ status: "closed", outstandingMinor: 0n, closeReason: "lump_sum" });
+    const event = await db.loanClearedEvent.findUniqueOrThrow({ where: { loanId: open.id } });
+    expect(event).toMatchObject({ silent: false, freedPerMonthMinor: N(100_000) });
+    await syncLoanMoments(user.id, later);
+    expect(await db.loanClearedEvent.count({ where: { loanId: open.id } })).toBe(1);
+    expect((await buildQuestions(user.id, undefined, later)).some((q) => q.kind === "loan")).toBe(false);
+
+    const followed = await seed("Tunde Nwosu");
+    for (const [date, amount] of paid) {
+      await tx(followed.user.id, followed.account.id, { date, amount, description: "TO RENMONEY - TUNDE NWOSU", merchant: "Renmoney" });
+    }
+    await tx(followed.user.id, followed.account.id, { date: "2026-09-20", amount: 90_000, description: "TO RENMONEY - TUNDE NWOSU", merchant: "Renmoney" });
+    expect(await inferMissingLoans(followed.user.id, later)).toBe(1);
+    expect((await db.loan.findFirstOrThrow({ where: { userId: followed.user.id } })).status).toBe("open");
+
+    const almost = await seed("Tunde Nwosu");
+    for (const [date, amount] of [["2026-06-05", 100_000], ["2026-07-05", 100_000], ["2026-08-05", 100_000], ["2026-09-05", 240_000]] as const) {
+      await tx(almost.user.id, almost.account.id, { date, amount, description: "TO FAIRMONEY - TUNDE NWOSU", merchant: "FairMoney" });
+    }
+    expect(await inferMissingLoans(almost.user.id, later)).toBe(1);
+    const still = await db.loan.findFirstOrThrow({ where: { userId: almost.user.id } });
+    expect(still.status).toBe("open");
+    expect((await buildQuestions(almost.user.id, undefined, later)).some((q) => q.title === "Is your FairMoney loan paid off?")).toBe(true);
+  });
+
+  it("clears a guessed inferred balance unless a status text reported one", async () => {
+    const { user } = await seed("Chioma Balogun");
+    const guessed = await db.loan.create({
+      data: { userId: user.id, lender: "Renmoney", source: "inferred", outstandingMinor: N(100_000), instalmentMinor: N(100_000), status: "open", notes: "Inferred from repayments" },
+    });
+    const reported = await db.loan.create({
+      data: { userId: user.id, lender: "FairMoney", source: "inferred", outstandingMinor: N(250_000), instalmentMinor: N(40_000), status: "open" },
+    });
+    await db.loanUpdate.create({
+      data: {
+        userId: user.id, loanId: reported.id, sourceId: `status-${reported.id}`, channel: "sms", sender: "FairMoney",
+        outstandingMinor: N(250_000), status: "open", confidence: 0.9, applied: true, rawText: "outstanding NGN250,000.00",
+      },
+    });
+    const paidOff = await db.loan.create({
+      data: { userId: user.id, lender: "Carbon", source: "inferred", outstandingMinor: 0n, instalmentMinor: N(20_000), status: "closed", closedAt: new Date("2026-09-01T00:00:00Z"), closeReason: "lump_sum" },
+    });
+    const manual = await createLoan(user.id, {
+      lender: "PalmCredit", outstandingMinor: N(80_000), instalmentMinor: N(10_000), instalmentsPaid: null, instalmentsTotal: null, nextDueDate: null, endDate: null, notes: null,
+    });
+    expect(await clearGuessedInferredBalances(user.id)).toBe(1);
+    expect((await db.loan.findUniqueOrThrow({ where: { id: guessed.id } })).outstandingMinor).toBeNull();
+    expect((await db.loan.findUniqueOrThrow({ where: { id: reported.id } })).outstandingMinor).toBe(N(250_000));
+    expect((await db.loan.findUniqueOrThrow({ where: { id: paidOff.id } })).outstandingMinor).toBe(0n);
+    expect((await db.loan.findUniqueOrThrow({ where: { id: manual.id } })).outstandingMinor).toBe(N(80_000));
+  });
+
+  it("closes a lump sum immediately when it covers a reported balance, and keeps the robust instalment", async () => {
+    const now = new Date("2026-10-30T12:00:00Z");
+    const { user, account } = await seed("Tunde Nwosu");
+    const series = [
+      ["2026-06-05", 70_000],
+      ["2026-07-05", 14_000],
+      ["2026-08-05", 100_000],
+      ["2026-09-05", 120_000],
+      ["2026-10-05", 150_000],
+      ["2026-10-29", 400_000],
+    ] as const;
+    for (const [date, amount] of series) {
+      await tx(user.id, account.id, { date, amount, description: "TO RENMONEY - TUNDE NWOSU", merchant: "Renmoney" });
+    }
+    expect(await inferMissingLoans(user.id, now)).toBe(1);
+    const open = await db.loan.findFirstOrThrow({ where: { userId: user.id } });
+    expect(open).toMatchObject({ status: "open", instalmentMinor: N(110_000), outstandingMinor: null });
+    await db.loan.update({ where: { id: open.id }, data: { outstandingMinor: N(300_000) } });
+    await db.loanUpdate.create({
+      data: {
+        userId: user.id, loanId: open.id, sourceId: `balance-${open.id}`, channel: "sms", sender: "Renmoney",
+        outstandingMinor: N(300_000), status: "open", confidence: 0.9, applied: true, rawText: "outstanding NGN300,000.00",
+      },
+    });
+    await syncLoanMoments(user.id, now);
+    const closed = await db.loan.findUniqueOrThrow({ where: { id: open.id } });
+    expect(closed).toMatchObject({ status: "closed", closeReason: "lump_sum", outstandingMinor: 0n });
+    expect((await db.loanClearedEvent.findUniqueOrThrow({ where: { loanId: open.id } })).freedPerMonthMinor).toBe(N(110_000));
   });
 });
 

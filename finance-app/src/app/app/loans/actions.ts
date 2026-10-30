@@ -46,5 +46,5 @@ export async function countRepaymentsAction(_: LoanState, form: FormData): Promi
   if (!r) return { error: "Nothing new to count." };
   revalidatePath("/app", "layout");
   const closed = r.loan.status === "closed" ? " That clears it, so it is now closed." : "";
-  return { ok: `Counted ${formatMoney(r.repaidMinor)} repaid. Balance now ${formatMoney(r.loan.outstandingMinor)}.${closed} Check it against your loan app.` };
+  return { ok: `Counted ${formatMoney(r.repaidMinor)} repaid. Balance now ${formatMoney(r.loan.outstandingMinor ?? 0n)}.${closed} Check it against your loan app.` };
 }

@@ -2,7 +2,7 @@ import type { Loan } from "@prisma/client";
 import { db } from "@/lib/db";
 import { canonicalLender } from "./categorize";
 import { loadOwners } from "./ledger";
-import { closedRecently, closeReason, expectedNext, freedPerMonth, groupLenderRepayments, inferLoanDraft, ownTransferCreditNames, type RepaymentRow } from "./loan-cleared";
+import { closedRecently, closeReason, expectedNext, freedPerMonth, groupLenderRepayments, inferLoanDraft, isLumpSum, ownTransferCreditNames, repaymentOverdue, reviewSnoozeUntil, type RepaymentRow } from "./loan-cleared";
 
 export interface LoanClearedCard {
   id: string;
@@ -57,11 +57,12 @@ export async function inferMissingLoans(userId: string, now = new Date()): Promi
         userId,
         lender,
         source: "inferred",
-        outstandingMinor: draft.closed ? 0n : draft.instalmentMinor,
+        outstandingMinor: draft.closed ? 0n : null,
         instalmentMinor: draft.instalmentMinor,
         nextDueDate: draft.closed ? null : expectedNext(draft.lastPayment),
         status: draft.closed ? "closed" : "open",
         closedAt: draft.closedAt,
+        closeReason: draft.closeReason,
         balanceAsOf: draft.lastPayment,
         firstPayment: draft.firstPayment,
         totalRepaidMinor: draft.totalRepaidMinor,
@@ -124,23 +125,29 @@ export async function closeDueLoans(userId: string, now = new Date()): Promise<v
     const debits = (grouped.get(loan.lender) ?? []).sort((a, b) => a.date.getTime() - b.date.getTime());
     const last = debits.at(-1)?.date ?? null;
     const repaid = debits.reduce((s, row) => s + row.amountMinor, 0n);
+    const amounts = debits.map((row) => row.amountMinor);
+    const lumpMinor = debits.at(-1)?.amountMinor ?? null;
     const reason = closeReason({
       source: loan.source === "inferred" ? "inferred" : "manual",
       outstandingMinor: loan.outstandingMinor,
       instalmentsPaid: loan.instalmentsPaid,
       instalmentsTotal: loan.instalmentsTotal,
       lastRepayment: last,
+      lumpSum: isLumpSum(amounts),
+      lumpMinor,
+      remainingMinor: loan.outstandingMinor,
       disbursementAfterLast: last ? disbursedAfter(rows, loan.lender, last) : false,
       now,
     });
     if (!reason) continue;
-    const closedAt = reason === "stopped" && last ? last : now;
+    const closedAt = (reason === "inactivity" || reason === "lump_sum") && last ? last : now;
     await db.loan.update({
       where: { id: loan.id },
       data: {
         status: "closed",
         closedAt,
-        outstandingMinor: reason === "zero" ? 0n : loan.outstandingMinor,
+        closeReason: reason === "lump_sum" || reason === "inactivity" ? reason : loan.closeReason,
+        outstandingMinor: 0n,
         ...(repaid > 0n && { totalRepaidMinor: repaid, firstPayment: loan.firstPayment ?? debits[0]?.date ?? null }),
       },
     });
@@ -161,7 +168,88 @@ export async function backfillRecentCleared(userId: string, now = new Date()): P
   return recent.length;
 }
 
+export interface OverdueInferredLoan {
+  id: string;
+  lender: string;
+  expected: Date;
+  instalmentMinor: bigint | null;
+}
+
+/** Open inferred loans whose next repayment is more than 7 days late, and not snoozed. */
+export async function overdueInferredLoans(userId: string, now = new Date()): Promise<OverdueInferredLoan[]> {
+  const loans = await db.loan.findMany({ where: { userId, status: "open", source: "inferred" } });
+  if (!loans.length) return [];
+  const rows = await repaymentRows(userId);
+  const names = await selfNames(userId, rows);
+  const grouped = groupLenderRepayments(rows, names);
+  const out: OverdueInferredLoan[] = [];
+  for (const loan of loans) {
+    if (loan.reviewSnoozeUntil && loan.reviewSnoozeUntil.getTime() > now.getTime()) continue;
+    const debits = grouped.get(loan.lender) ?? [];
+    const last = debits.reduce<Date | null>((d, row) => (!d || row.date > d ? row.date : d), null);
+    const expected = last ? expectedNext(last) : loan.nextDueDate;
+    if (!expected || !repaymentOverdue(expected, now)) continue;
+    out.push({ id: loan.id, lender: loan.lender, expected, instalmentMinor: loan.instalmentMinor });
+  }
+  return out;
+}
+
+/**
+ * Yes closes the loan and fires Loan cleared once, recorded as a status update.
+ * No leaves it open and hides the question for 30 days.
+ */
+export async function answerInferredLoan(userId: string, loanId: string, value: "yes" | "no", now = new Date()): Promise<number> {
+  if (value !== "yes" && value !== "no") throw new Error("unknown answer");
+  const loan = await db.loan.findFirst({ where: { id: loanId, userId, source: "inferred" } });
+  if (!loan) throw new Error("unknown answer");
+  if (value === "no") {
+    if (loan.status === "closed") return 0;
+    await db.loan.update({ where: { id: loan.id }, data: { reviewSnoozeUntil: reviewSnoozeUntil(now) } });
+    return 0;
+  }
+  if (loan.status !== "closed") {
+    await db.loan.update({ where: { id: loan.id }, data: { status: "closed", closedAt: now, closeReason: "review_yes", outstandingMinor: 0n, reviewSnoozeUntil: null } });
+    await db.loanUpdate.create({
+      data: {
+        userId,
+        loanId: loan.id,
+        sourceId: `review:${loan.id}`,
+        channel: "review",
+        sender: "Review",
+        status: "closed",
+        confidence: 1,
+        applied: true,
+        outstandingMinor: 0n,
+        rawText: `Is your ${loan.lender} loan paid off? Yes`,
+      },
+    });
+  }
+  await recordLoanCleared(userId, loan, { silent: false, closedAt: now });
+  return 1;
+}
+
+/**
+ * Inferred loans used to store one instalment as the balance. Drop that guess when no status
+ * text ever reported a real outstanding figure. A closed loan left at zero stays zero.
+ */
+export async function clearGuessedInferredBalances(userId: string): Promise<number> {
+  const loans = await db.loan.findMany({
+    where: { userId, source: "inferred", NOT: { outstandingMinor: null } },
+    select: {
+      id: true,
+      status: true,
+      outstandingMinor: true,
+      updates: { where: { applied: true, NOT: { outstandingMinor: null } }, select: { id: true }, take: 1 },
+    },
+  });
+  const guessed = loans.filter((loan) => loan.updates.length === 0 && !(loan.status === "closed" && loan.outstandingMinor === 0n));
+  if (!guessed.length) return 0;
+  await db.loan.updateMany({ where: { id: { in: guessed.map((loan) => loan.id) } }, data: { outstandingMinor: null } });
+  return guessed.length;
+}
+
 export async function syncLoanMoments(userId: string, now = new Date()): Promise<void> {
+  await clearGuessedInferredBalances(userId);
   await inferMissingLoans(userId, now);
   await closeDueLoans(userId, now);
   await backfillRecentCleared(userId, now);

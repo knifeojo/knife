@@ -138,7 +138,7 @@ export async function applyLoanStatus(userId: string, msg: AlertMessage, sourceI
         ...(parsed.amountDueMinor !== undefined && { instalmentMinor: parsed.amountDueMinor }),
         ...(parsed.instalmentTotal !== undefined && { instalmentsTotal: parsed.instalmentTotal }),
         ...(parsed.instalmentsPaid !== undefined && { instalmentsPaid: parsed.instalmentsPaid }),
-        ...(status === "closed" && { status: "closed", closedAt: msg.receivedAt, outstandingMinor: 0n, balanceAsOf: msg.receivedAt }),
+        ...(status === "closed" && { status: "closed", closedAt: msg.receivedAt, closeReason: "status_text", outstandingMinor: 0n, balanceAsOf: msg.receivedAt }),
       },
     });
     if (status === "closed" && previous?.status !== "closed") {
