@@ -9,32 +9,32 @@ import type { AiConfig } from "@/core/ai/client";
 import type { Fetch } from "@/core/ai/ollama";
 
 const LOCAL: AiConfig = { provider: "ollama", model: "qwen2.5:3b", baseUrl: "http://localhost:11434", cloud: false };
-const ROW: AiRow = { id: "1", date: "2026-09-02", direction: "out", amount: "₦150,000.00", narration: "NIP TRANSFER TO PALMPAY - OJO GIFT A", counterparty: "Ojo Gifta" };
-const WIFE: CategorizeContext = { people: [{ names: ["Gift Adebayo Ojo", "Ojo Gifta"], relationship: "spouse" }] };
+const ROW: AiRow = { id: "1", date: "2026-09-02", direction: "out", amount: "₦150,000.00", narration: "NIP TRANSFER TO PALMPAY - OKEKE AMAKA C", counterparty: "Okeke Amakac" };
+const WIFE: CategorizeContext = { people: [{ names: ["Amaka Chinwe Okeke", "Okeke Amakac"], relationship: "spouse" }] };
 
 describe("redaction with relationship labels", () => {
   it("sends known people as PERSON_n (relationship) and restores the name locally", () => {
-    const r = new Redactor({ owners: ["Eze Ada Bello"], known: [{ names: ["Gift Adebayo Ojo", "Ojo Gifta"], relationship: "spouse" }, { names: ["Tunde Ojo"], relationship: "sibling" }] });
-    const out = r.text("TO OPAY - GIFT ADEBAYO OJO; FROM EZE ADA BELLO TO TUNDE OJO; TO OJO GIFTA");
+    const r = new Redactor({ owners: ["Eze Ada Bello"], known: [{ names: ["Amaka Chinwe Okeke", "Okeke Amakac"], relationship: "spouse" }, { names: ["Tunde Okeke"], relationship: "sibling" }] });
+    const out = r.text("TO OPAY - AMAKA CHINWE OKEKE; FROM EZE ADA BELLO TO TUNDE OKEKE; TO OKEKE AMAKAC");
     expect(out).toBe("TO OPAY - PERSON_1 (spouse); FROM OWNER TO PERSON_2 (sibling); TO PERSON_1 (spouse)");
-    expect(out).not.toMatch(/gift|ojo|tunde|adebayo/i);
-    expect(r.restore("PERSON_1 (spouse) gets weekly support; PERSON_2 is a sibling")).toBe("Gift Adebayo Ojo gets weekly support; Tunde Ojo is a sibling");
-    expect(r.placeholderOfName("Gift Adebayo Ojo")).toBe("PERSON_1 (spouse)");
+    expect(out).not.toMatch(/amaka|okeke|tunde|chinwe/i);
+    expect(r.restore("PERSON_1 (spouse) gets weekly support; PERSON_2 is a sibling")).toBe("Amaka Chinwe Okeke gets weekly support; Tunde Okeke is a sibling");
+    expect(r.placeholderOfName("Amaka Chinwe Okeke")).toBe("PERSON_1 (spouse)");
   });
 
   it("redactorFor labels the owner's people, and 'me' is the owner", async () => {
     const u = await db.user.create({ data: { email: "ctx-redactor@test.dev", name: "Eze Ada Bello" } });
-    await createPerson(u.id, { displayName: "Gift Adebayo Ojo", relationship: "spouse", aliases: ["OJO GIFT A"] });
+    await createPerson(u.id, { displayName: "Amaka Chinwe Okeke", relationship: "spouse", aliases: ["OKEKE AMAKA C"] });
     await createPerson(u.id, { displayName: "Ada Bello Eze", relationship: "me" });
     const r = await redactorFor(u.id);
-    expect(r.text("TO OPAY - OJO GIFT ADEBAYO")).toBe("TO OPAY - PERSON_1 (spouse)");
+    expect(r.text("TO OPAY - OKEKE AMAKA CHINWE")).toBe("TO OPAY - PERSON_1 (spouse)");
     expect(r.text("TO KUDA - ADA BELLO EZE")).toBe("TO KUDA - OWNER");
   });
 });
 
 describe("known people in the categorizer prompt", () => {
   it("lists them before the transactions, by name locally", async () => {
-    expect(promptFor([ROW], WIFE)).toMatch(/Known people:\n- Gift Adebayo Ojo \(also Ojo Gifta\): spouse\n\nTransactions:\n/);
+    expect(promptFor([ROW], WIFE)).toMatch(/Known people:\n- Amaka Chinwe Okeke \(also Okeke Amakac\): spouse\n\nTransactions:\n/);
     expect(promptFor([ROW])).not.toMatch(/Known people/);
     const bodies: string[] = [];
     const fetch: Fetch = async (_url, init) => {
@@ -42,7 +42,7 @@ describe("known people in the categorizer prompt", () => {
       return Response.json({ message: { role: "assistant", content: JSON.stringify({ suggestions: [] }) } });
     };
     await ollamaCategorizeLLM({ config: LOCAL, fetch })([ROW], WIFE);
-    expect(bodies[0]).toContain("Gift Adebayo Ojo (also Ojo Gifta): spouse");
+    expect(bodies[0]).toContain("Amaka Chinwe Okeke (also Okeke Amakac): spouse");
   });
 
   it("never sends a real name to the cloud: only the labelled placeholder", async () => {
@@ -54,25 +54,25 @@ describe("known people in the categorizer prompt", () => {
     const out = await cloudCategorizeLLM({ create })([ROW], WIFE);
     expect(sent[0]).toContain("Known people:\\n- PERSON_1 (spouse)");
     expect(sent[0]).toContain("PALMPAY - PERSON_1 (spouse)");
-    expect(sent[0]).not.toMatch(/\b(gift|gifta|adebayo|ojo)\b/i);
-    expect(out).toEqual([expect.objectContaining({ reason: "Gift Adebayo Ojo support" })]);
+    expect(sent[0]).not.toMatch(/\b(amaka|gifta|chinwe|okeke)\b/i);
+    expect(out).toEqual([expect.objectContaining({ reason: "Amaka Chinwe Okeke support" })]);
   });
 
   it("suggestCategories passes the people a batch names, and nobody else", async () => {
     const u = await db.user.create({ data: { email: "ctx-suggest@test.dev" } });
     const csv = Buffer.from(["Trans. Date,Reference,Debits,Credits,Balance,Remarks",
-      "02-Sep-2026,C1,100000.00,,900000.00,Instant Payment Outward 01 TO OPAY - TUNDE OJO",
+      "02-Sep-2026,C1,100000.00,,900000.00,Instant Payment Outward 01 TO OPAY - TUNDE OKEKE",
       "03-Sep-2026,C2,50000.00,,850000.00,Instant Payment Outward 02 TO OPAY - CHIDI OKAFOR"].join("\n"));
     await importStatement(u.id, { name: "s.csv", bytes: csv }, { institution: "GTBank" });
-    await createPerson(u.id, { displayName: "Tunde Adewale Ojo", relationship: "sibling" });
-    await createPerson(u.id, { displayName: "Tunde Bello Ojo", relationship: "friend" });
-    await createPerson(u.id, { displayName: "Gift Adebayo Ojo", relationship: "spouse" });
+    await createPerson(u.id, { displayName: "Tunde Adewale Okeke", relationship: "sibling" });
+    await createPerson(u.id, { displayName: "Tunde Bello Okeke", relationship: "friend" });
+    await createPerson(u.id, { displayName: "Amaka Chinwe Okeke", relationship: "spouse" });
     const seen: (CategorizeContext | undefined)[] = [];
     const llm: CategorizeLLM = async (rows, ctx) => (seen.push(ctx), []);
     await suggestCategories(u.id, { llm, config: LOCAL, escalate: false, batchSize: 1 });
     const tunde = seen.find((c) => c?.people?.length);
-    expect(tunde?.people?.map((p) => `${p.names[0]}: ${p.relationship}`).sort()).toEqual(["Tunde Adewale Ojo: sibling", "Tunde Bello Ojo: friend"]);
-    expect(JSON.stringify(seen)).not.toContain("Gift");
+    expect(tunde?.people?.map((p) => `${p.names[0]}: ${p.relationship}`).sort()).toEqual(["Tunde Adewale Okeke: sibling", "Tunde Bello Okeke: friend"]);
+    expect(JSON.stringify(seen)).not.toContain("Amaka");
   });
 });
 

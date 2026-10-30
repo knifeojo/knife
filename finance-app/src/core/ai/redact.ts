@@ -119,7 +119,7 @@ const STOP_TOKENS = new Set(["THE", "AND", "FOR", "FROM", "VIA", "MRS", "MISS", 
 interface Person {
   display: string;
   owner: boolean;
-  /** Each spelling as name words, e.g. ["NGOZI", "ADEBAYO"]. */
+  /** Each spelling as name words, e.g. ["NGOZI", "CHINWE"]. */
   spellings: string[][];
   placeholder?: string;
   /** Who they are to the owner ("spouse"), when the owner said so. Sent beside the placeholder. */
@@ -284,7 +284,7 @@ export class Redactor {
         const p = m.tokenMap.get(hit.toUpperCase());
         return p ? this.tagged(p) : hit;
       });
-      // A reordered name replaced word by word ("OJO GIFT ADEBAYO") is one person, not three.
+      // A reordered name replaced word by word ("OKEKE AMAKA CHINWE") is one person, not three.
       out = out.replace(/\b(OWNER|PERSON_\d+(?: \([a-z &-]+\))?)(?:[\s.'-]+\1(?![\w(]))+/g, "$1");
     }
     return out;

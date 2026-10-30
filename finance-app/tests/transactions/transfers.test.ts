@@ -9,12 +9,12 @@ const GTB = Buffer.from(["Guaranty Trust Bank", "Account No,0001234533", "Trans.
   "03-Sep-2026,A2,100000.00,,900000.00,Instant Payment Outward 01 X FROM EZE SEUN SAMUEL TO KUDA - EZE SEUN SAMUEL",
   "04-Sep-2026,A3,200000.00,,700000.00,Instant Payment Outward 02 SAVE FROM EZE SEUN SAMUEL TO OPAY",
   "05-Sep-2026,A4,50000.00,,650000.00,Instant Payment Outward 03 LUNCH FROM EZE SEUN SAMUEL TO OPAY - TOLU ADE",
-  "06-Sep-2026,A5,75000.00,,575000.00,Instant Payment Outward 04 GIFT FROM EZE SEUN SAMUEL TO ZBN - CHIDI OKAFOR"].join("\n"));
+  "06-Sep-2026,A5,75000.00,,575000.00,Instant Payment Outward 04 AMAKA FROM EZE SEUN SAMUEL TO ZBN - CHIDI OKAFOR"].join("\n"));
 const KUDA = Buffer.from(["Kuda Microfinance Bank", "Account Number,2001119876", "Date,Description,Money Out,Money In,Balance",
   "03/09/2026,TRANSFER FROM EZE SEUN SAMUEL,,100000,100000"].join("\n"));
 const OPAY = Buffer.from(["OPay", "Account Number,8031234567", "Date,Description,Debit,Credit,Balance",
   "04/09/2026,Transfer from Guaranty Trust Bank,,200000,200000",
-  // Coincidence: someone else sends exactly ₦75,000 two days after the unrelated gift. Must NOT pair.
+  // Coincidence: someone else sends exactly ₦75,000 two days after the unrelated amaka. Must NOT pair.
   "07/09/2026,Transfer from BOLA ADE,,75000,275000"].join("\n"));
 
 describe("own-account transfer pairing", () => {
@@ -23,13 +23,13 @@ describe("own-account transfer pairing", () => {
     for (const [n, b] of [["gtb.csv", GTB], ["kuda.csv", KUDA], ["opay.csv", OPAY]] as const) await importStatement(u.id, { name: n, bytes: b });
     const s = await summary(u.id, monthPeriod(new Date("2026-09-15T12:00:00Z")));
     expect(Number(s.income) / 100).toBe(1_075_000); // Deel + the unrelated ₦75K from Bola
-    expect(Number(s.expenses) / 100).toBe(125_000); // lunch + gift
+    expect(Number(s.expenses) / 100).toBe(125_000); // lunch + amaka
     const a3 = await db.transaction.findFirstOrThrow({ where: { userId: u.id, reference: "A3" } });
     expect(a3).toMatchObject({ category: "Own transfer", classificationSource: "pair" });
     const opayLeg = await db.transaction.findUniqueOrThrow({ where: { id: a3.transferPairId! } });
     expect(opayLeg.transferPairId).toBe(a3.id);
-    const gift = await db.transaction.findFirstOrThrow({ where: { userId: u.id, reference: "A5" } });
-    expect(gift.transferPairId).toBeNull();
+    const amaka = await db.transaction.findFirstOrThrow({ where: { userId: u.id, reference: "A5" } });
+    expect(amaka.transferPairId).toBeNull();
   });
 
   it("re-importing does not create new pairs or break existing ones", async () => {

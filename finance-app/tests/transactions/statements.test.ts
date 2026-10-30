@@ -167,7 +167,7 @@ describe("overlapping statements for the same account (from a real audit)", () =
     ].join("\n"));
     const partial = Buffer.from([
       "Account No,0001234533", "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
-      "24-Sep-2026,REF0001,1000.00,,9000.00,TRANSFER TO KEMI ADEBAYO",
+      "24-Sep-2026,REF0001,1000.00,,9000.00,TRANSFER TO KEMI CHINWE",
       "24-Sep-2026,,0.75,,8999.25,VATCHARGES",
     ].join("\n"));
     const a = await importStatement(u.id, { name: "full.csv", bytes: full }, { institution: "GTBank" });

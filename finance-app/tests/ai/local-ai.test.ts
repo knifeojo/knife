@@ -21,8 +21,8 @@ const LOCAL: AiConfig = { provider: "ollama", model: "qwen2.5:3b", baseUrl: "htt
 const STATEMENT = Buffer.from([
   "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
   "01-Sep-2026,R1,,1500000.00,1600000.00,W5WM-MONIE MFB-DEEL INC",
-  "02-Sep-2026,R2,90000.00,,1510000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO OPAY - NGOZI ADEBAYO",
-  "09-Sep-2026,R3,60000.00,,1450000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO KUDA - NGOZI ADEBAYO",
+  "02-Sep-2026,R2,90000.00,,1510000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO OPAY - NGOZI CHINWE",
+  "09-Sep-2026,R3,60000.00,,1450000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO KUDA - NGOZI CHINWE",
   "10-Sep-2026,R4,45000.00,,1405000.00,POS PURCHASE SHOPRITE LEKKI",
   "12-Sep-2026,R5,30000.00,,1375000.00,Instant Payment Outward 0123456789 MONTHLY TO",
 ].join("\n"));
@@ -185,7 +185,7 @@ describe("privacy", () => {
 describe("suggestions in Review", () => {
   const blackTax: CategorizeLLM = async (rows) =>
     rows.map((r) =>
-      r.counterparty === "Ngozi Adebayo"
+      r.counterparty === "Ngozi Chinwe"
         ? { id: r.id, category: "Family", subcategory: "Black tax", confidence: 0.84, reason: "Regular support to a relative" }
         : { id: r.id, category: "Giving", subcategory: "Church", confidence: 0.7, reason: "monthly memo" },
     );
@@ -194,20 +194,20 @@ describe("suggestions in Review", () => {
     const userId = await setup("ai-review@test.dev");
     await suggestCategories(userId, { llm: blackTax, config: LOCAL });
     const { questions, suggestions } = await reviewWithSuggestions(userId);
-    const q = questions.find((x) => x.key === "ngozi adebayo");
+    const q = questions.find((x) => x.key === "ngozi chinwe");
     expect(q?.aiSuggestion).toMatchObject({ category: "Family", subcategory: "Black tax", count: 2, totalMinor: 15_000_000n });
-    expect(suggestions.find((s) => s.display === "Ngozi Adebayo")).toBeUndefined();
+    expect(suggestions.find((s) => s.display === "Ngozi Chinwe")).toBeUndefined();
 
     const updated = await confirmSuggestion(userId, q!.aiSuggestion!.id);
     expect(updated).toBe(2);
-    const rows = await db.transaction.findMany({ where: { userId, counterparty: "Ngozi Adebayo" }, include: { suggestion: true } });
+    const rows = await db.transaction.findMany({ where: { userId, counterparty: "Ngozi Chinwe" }, include: { suggestion: true } });
     expect(rows.every((r) => r.category === "Family" && r.subcategory === "Black tax" && r.classificationSource === "user")).toBe(true);
     expect(rows.every((r) => r.suggestion?.status === "confirmed")).toBe(true);
-    const rule = await db.merchantAlias.findFirstOrThrow({ where: { userId, pattern: "ngozi adebayo" } });
+    const rule = await db.merchantAlias.findFirstOrThrow({ where: { userId, pattern: "ngozi chinwe" } });
     expect(rule).toMatchObject({ category: "Family", subcategory: "Black tax" });
 
     // The next statement labels the same payee by rule, so the AI is never asked about them again
-    await importStatement(userId, { name: "oct.csv", bytes: Buffer.from("Trans. Date,Reference,Debits,Credits,Balance,Remarks\n02-Oct-2026,R9,70000.00,,1000000.00,Instant Payment Outward 0555 TO OPAY - NGOZI ADEBAYO") }, { institution: "GTBank" });
+    await importStatement(userId, { name: "oct.csv", bytes: Buffer.from("Trans. Date,Reference,Debits,Credits,Balance,Remarks\n02-Oct-2026,R9,70000.00,,1000000.00,Instant Payment Outward 0555 TO OPAY - NGOZI CHINWE") }, { institution: "GTBank" });
     expect(await db.transaction.findFirstOrThrow({ where: { userId, reference: "R9" } })).toMatchObject({ category: "Family", subcategory: "Black tax", classificationSource: "user" });
     const sent: string[] = [];
     await suggestCategories(userId, { llm: async (r) => (sent.push(...r.map((x) => x.narration)), []), config: LOCAL });
@@ -310,7 +310,7 @@ describe("mobile API", () => {
       config: LOCAL,
     });
     const body = await (await reviewGet(req("/api/v1/review", token))).json();
-    const q = body.questions.find((x: { key: string }) => x.key === "ngozi adebayo");
+    const q = body.questions.find((x: { key: string }) => x.key === "ngozi chinwe");
     expect(q.aiSuggestion).toMatchObject({ category: "Family", subcategory: "Black tax", classificationSource: "ai", totalMinor: "15000000" });
     expect(Array.isArray(body.suggestions)).toBe(true);
     const res = await suggestionPost(req("/api/v1/review/suggestions", token, { id: q.aiSuggestion.id, action: "confirm" }));

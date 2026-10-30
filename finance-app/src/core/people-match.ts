@@ -5,8 +5,8 @@ const INCOME_CATEGORY = "Income";
 const OWN_TRANSFER = "Own transfer";
 
 // Who a bank narration names, matched against the people the owner has told Ledger about.
-// Banks cut names off, reorder them and shorten them to initials: "GIFT ADEBAYO OJO" can arrive as
-// "OJO GIFT A", "GIFT ADEBAYO OJ" or "TRF TO GIFT". Matching is deterministic and returns a confidence;
+// Banks cut names off, reorder them and shorten them to initials: "AMAKA CHINWE OKEKE" can arrive as
+// "OKEKE AMAKA C", "AMAKA CHINWE OKEK" or "TRF TO AMAKA". Matching is deterministic and returns a confidence;
 // only a confident, unambiguous match is applied on its own. Everything in between goes to Review.
 
 /** At or above this, and clearly ahead of anyone else, a name is applied to the person without asking. */
@@ -15,7 +15,7 @@ export const AUTO_MATCH = 0.85;
 export const REVIEW_MATCH = 0.6;
 /** How far the best person must be ahead of the next one to be applied without asking. */
 const MARGIN = 0.1;
-/** One name word on its own ("TRF TO GIFT") never identifies a person, unless the owner saved that spelling. */
+/** One name word on its own ("TRF TO AMAKA") never identifies a person, unless the owner saved that spelling. */
 const ONE_WORD_CAP = 0.7;
 const INITIAL = 0.6;
 
@@ -119,7 +119,7 @@ export function nameWords(name: string): string[] {
   return name.toUpperCase().split(/[^A-Z]+/).filter((t) => t && !NOISE.has(t.toLowerCase()));
 }
 
-/** One key per spelling, whatever the word order: "OJO GIFT A" and "A GIFT OJO" share "A GIFT OJO". */
+/** One key per spelling, whatever the word order: "OKEKE AMAKA C" and "C AMAKA OKEKE" share "AMAKA C OKEKE". */
 export function aliasKey(name: string): string {
   return [...nameWords(name)].sort().join(" ");
 }
@@ -127,17 +127,17 @@ export function aliasKey(name: string): string {
 function wordScore(c: string, a: string): number {
   if (c === a) return 1;
   if (c.length === 1 || a.length === 1) return c[0] === a[0] ? INITIAL : 0;
-  // The narration cut the word off ("OJ" for "OJO", "CHUKWUEMEK" for "CHUKWUEMEKA").
+  // The narration cut the word off ("OKEK" for "OKEKE", "CHUKWUEMEK" for "CHUKWUEMEKA").
   if (c.length >= 3 && a.startsWith(c)) return 0.9;
   if (c.length === 2 && a.startsWith(c)) return INITIAL;
-  // The saved spelling was the cut-off one. "GIFTY" may be someone else than "GIFT", so it counts for less.
+  // The saved spelling was the cut-off one. "AMAKAH" may be someone else than "AMAKA", so it counts for less.
   if (a.length >= 3 && c.startsWith(a)) return 0.75;
   return 0;
 }
 
 /**
  * Narration cleanup rejoins a lone trailing letter to the word before it (PDF line wraps), so
- * "OJO GIFT A" arrives as "OJO GIFTA". Split it back when the letter is another known name's initial.
+ * "OKEKE AMAKA C" arrives as "OKEKE AMAKAC". Split it back when the letter is another known name's initial.
  */
 function unglue(c: string[], a: string[]): string[] {
   return c.flatMap((w) => {
@@ -230,7 +230,7 @@ export function matchPeople(name: string | null | undefined, people: readonly Kn
   return { status: "ambiguous", confidence: best.confidence, candidates };
 }
 
-// ---- "My wife is Gift Adebayo Ojo" ----
+// ---- "My wife is Amaka Chinwe Okeke" ----
 
 const WORD_RELATIONSHIP: [RegExp, Relationship][] = [
   [/^(wife|husband|spouse|partner|fianc[eé]e?|hubby|missus|bae)$/, "spouse"],
@@ -268,7 +268,7 @@ function relationshipOf(word: string): Relationship | undefined {
 const cleanPersonName = (s: string) => s.replace(/[^A-Za-z .'-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
 
 /**
- * Reads lines like "My wife is Gift Adebayo Ojo", "my brother: Tunde Ojo" or "Ngozi Okafor is my aunty".
+ * Reads lines like "My wife is Amaka Chinwe Okeke", "my brother: Tunde Okeke" or "Ngozi Okafor is my aunty".
  * Lines it cannot read are returned as unread so the owner can fix them.
  */
 export function parsePeopleText(text: string): { people: ParsedPerson[]; unread: string[] } {

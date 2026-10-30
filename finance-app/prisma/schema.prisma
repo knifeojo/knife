@@ -257,7 +257,7 @@ model Person {
   @@index([userId])
 }
 
-// A name as banks write it ("OJO GIFT A", "TRF TO GIFT"). `rejected` records the owner saying that
+// A name as banks write it ("OKEKE AMAKA C", "TRF TO AMAKA"). `rejected` records the owner saying that
 // spelling is NOT this person, so fuzzy matching stops proposing it.
 model PersonAlias {
   id        String   @id @default(cuid())

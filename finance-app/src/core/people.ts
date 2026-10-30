@@ -158,7 +158,7 @@ async function relabel(
   for (const row of rows) {
     const wasLinked = !!row.personId && linked.has(row.personId);
     const matched = matchPeople(row.counterparty, people).personId === personId;
-    // Someone new can make another person's name ambiguous ("Tunde Ojo" once two Tundes are known).
+    // Someone new can make another person's name ambiguous ("Tunde Okeke" once two Tundes are known).
     const other = row.personId && !wasLinked ? people.find((p) => p.id === row.personId) : undefined;
     if (!wasLinked && !matched && !other) continue;
     const type = row.type as "DEBIT" | "CREDIT";
@@ -217,7 +217,7 @@ async function relabel(
   return { personId, batchId: batch.id, changed: changes.length };
 }
 
-/** Adds someone the owner knows ("My wife is Gift Adebayo Ojo") and labels their payments. */
+/** Adds someone the owner knows ("My wife is Amaka Chinwe Okeke") and labels their payments. */
 export async function createPerson(userId: string, input: PersonInput): Promise<ApplyResult> {
   const displayName = tidyName(input.displayName);
   if (!nameWords(displayName).length) throw new PeopleInputError("a name is required");

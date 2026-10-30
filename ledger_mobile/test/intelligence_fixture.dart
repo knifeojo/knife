@@ -139,7 +139,7 @@ const reviewResponse = {
 
 const blackTaxSuggestion = {
   'id': 'sug1',
-  'display': 'Ngozi Adebayo',
+  'display': 'Ngozi Chinwe',
   'direction': 'out',
   'category': 'Family',
   'subcategory': 'Black tax',
@@ -149,7 +149,7 @@ const blackTaxSuggestion = {
   'count': 2,
   'totalMinor': '15000000',
   'currentCategory': 'Transfers',
-  'examples': ['Instant Payment Outward # TO OPAY - NGOZI ADEBAYO'],
+  'examples': ['Instant Payment Outward # TO OPAY - NGOZI CHINWE'],
   'classificationSource': 'ai',
 };
 
@@ -158,12 +158,12 @@ final reviewWithAiResponse = {
   'questions': [
     {
       'kind': 'person',
-      'key': 'ngozi adebayo',
-      'title': 'Who is Ngozi Adebayo?',
+      'key': 'ngozi chinwe',
+      'title': 'Who is Ngozi Chinwe?',
       'prompt': 'You sent them 2 payments.',
       'totalMinor': '15000000',
       'count': 2,
-      'examples': ['Instant Payment Outward # TO OPAY - NGOZI ADEBAYO'],
+      'examples': ['Instant Payment Outward # TO OPAY - NGOZI CHINWE'],
       'options': [
         {'value': 'family', 'label': 'Family', 'category': 'Family', 'subcategory': 'Family support'},
         {'value': 'csr', 'label': 'CSR (black tax)', 'category': 'Family', 'subcategory': 'Black tax'},

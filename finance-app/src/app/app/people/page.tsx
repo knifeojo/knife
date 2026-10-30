@@ -84,7 +84,7 @@ function PersonCard({ p, others }: { p: PersonSummary; others: PersonSummary[] }
         <form action={updatePersonAction} className="mt-2 flex flex-wrap items-end gap-2">
           <input type="hidden" name="id" value={p.id} />
           <input type="hidden" name="aliasOp" value="add" />
-          <input name="alias" required maxLength={80} placeholder="Another spelling, e.g. OJO GIFT A" className="input h-9 w-64" aria-label="Another spelling" />
+          <input name="alias" required maxLength={80} placeholder="Another spelling, e.g. OKEKE AMAKA C" className="input h-9 w-64" aria-label="Another spelling" />
           <button className="btn btn-secondary h-9 text-sm">Add spelling</button>
         </form>
       </div>
@@ -178,7 +178,7 @@ export default async function People({ searchParams }: { searchParams: Promise<R
             rows={3}
             maxLength={2000}
             className="input mt-1 h-auto py-2"
-            placeholder={"My wife is Gift Adebayo Ojo\nMy brother is Tunde Ojo\nNgozi Okafor is my aunty"}
+            placeholder={"My wife is Amaka Chinwe Okeke\nMy brother is Tunde Okeke\nNgozi Okafor is my aunty"}
           />
           <button className="btn btn-primary h-10 mt-2">Add and relabel</button>
         </form>
@@ -187,7 +187,7 @@ export default async function People({ searchParams }: { searchParams: Promise<R
           <form action={addPersonAction} className="mt-3 flex flex-wrap items-end gap-2">
             <div className="flex-1 min-w-48">
               <label className="label" htmlFor="p-name">Name (as your bank writes it)</label>
-              <input id="p-name" name="displayName" required maxLength={80} placeholder="e.g. Gift Adebayo Ojo" className="input mt-1" />
+              <input id="p-name" name="displayName" required maxLength={80} placeholder="e.g. Amaka Chinwe Okeke" className="input mt-1" />
             </div>
             <div>
               <label className="label" htmlFor="p-rel">Who they are</label>
@@ -201,7 +201,7 @@ export default async function People({ searchParams }: { searchParams: Promise<R
           </form>
         </details>
         <p className="text-xs text-ink-3 mt-3">
-          Spellings match even when banks cut names short, reorder them or use initials (&ldquo;OJO GIFT A&rdquo;). Close calls are asked in{" "}
+          Spellings match even when banks cut names short, reorder them or use initials (&ldquo;OKEKE AMAKA C&rdquo;). Close calls are asked in{" "}
           <Link href="/app/review" className="text-accent underline">Review</Link>, never guessed. Every change can be undone. These names stay on your device and are never sent to the cloud.
         </p>
       </Card>

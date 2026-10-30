@@ -22,15 +22,15 @@ const KEY = "sk-ant-test-secret-value";
 const STATEMENT = Buffer.from([
   "Trans. Date,Reference,Debits,Credits,Balance,Remarks",
   "01-Sep-2026,R1,,1500000.00,1600000.00,W5WM-MONIE MFB-DEEL INC",
-  "02-Sep-2026,R2,90000.00,,1510000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO OPAY - NGOZI ADEBAYO",
-  "09-Sep-2026,R3,60000.00,,1450000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO KUDA - NGOZI ADEBAYO",
+  "02-Sep-2026,R2,90000.00,,1510000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO OPAY - NGOZI CHINWE",
+  "09-Sep-2026,R3,60000.00,,1450000.00,Instant Payment Outward 0123456789 FROM ADA OKAFOR TO KUDA - NGOZI CHINWE",
   "10-Sep-2026,R4,45000.00,,1405000.00,POS PURCHASE SHOPRITE LEKKI",
   "12-Sep-2026,R5,30000.00,,1375000.00,Instant Payment Outward 0123456789 MONTHLY TO",
   "14-Sep-2026,R6,25000.00,,1350000.00,Instant Payment Outward FROM ADA OKAFOR TO PALMPAY - CHIDI EZE call 0803 123 4567 chidi.eze@gmail.com",
 ].join("\n"));
 
 /** Nothing here may appear in anything sent to the cloud. */
-const SECRETS = [/0123456789/, /\bNgozi\b/i, /Adebayo/i, /Okafor/i, /\bAda\b/i, /\bChidi\b/i, /\bEze\b/i, /@/, /0803/, /123 4567/, /Main Salary/i];
+const SECRETS = [/0123456789/, /\bNgozi\b/i, /Chinwe/i, /Okafor/i, /\bAda\b/i, /\bChidi\b/i, /\bEze\b/i, /@/, /0803/, /123 4567/, /Main Salary/i];
 
 async function setup(email: string, consent = true) {
   const u = await db.user.create({ data: { email, name: "Ada Okafor", aiConsent: consent } });
@@ -166,7 +166,7 @@ describe("routing per mode", () => {
 
 describe("escalation", () => {
   const firstPass = (r: Record<string, unknown>) => {
-    if (r.counterparty === "Ngozi Adebayo") return { category: "Family", subcategory: "Black tax", confidence: 0.9, reason: "relative" };
+    if (r.counterparty === "Ngozi Chinwe") return { category: "Family", subcategory: "Black tax", confidence: 0.9, reason: "relative" };
     if (String(r.narration).includes("MONTHLY")) return { category: "Giving", subcategory: "Church", confidence: 0.65, reason: "monthly memo" };
     return { category: "Groceries", subcategory: "", confidence: 0.9, reason: "made up" };
   };
@@ -192,9 +192,9 @@ describe("escalation", () => {
     const r = await suggestCategories(userId, { llm: ollamaCategorizeLLM({ config: LOCAL, fetch }), config: LOCAL, escalate: second });
 
     const rows = await db.transaction.findMany({ where: { userId }, include: { suggestion: true } });
-    const ngozi = rows.filter((t) => t.counterparty === "Ngozi Adebayo");
+    const ngozi = rows.filter((t) => t.counterparty === "Ngozi Chinwe");
     expect(ngozi.every((t) => t.suggestion?.provider === "ollama" && t.suggestion.subcategory === "Black tax")).toBe(true);
-    const escalated = rows.filter((t) => t.suggestion && t.counterparty !== "Ngozi Adebayo");
+    const escalated = rows.filter((t) => t.suggestion && t.counterparty !== "Ngozi Chinwe");
     expect(escalated.length).toBeGreaterThan(0);
     expect(escalated.every((t) => t.suggestion!.provider === "anthropic" && t.suggestion!.subcategory === "Family support" && t.suggestion!.status === "pending")).toBe(true);
     expect(r).toMatchObject({ escalated: escalated.length, local: { rows: r.asked, suggested: ngozi.length }, cloud: { rows: escalated.length, suggested: escalated.length } });
@@ -230,7 +230,7 @@ describe("escalation", () => {
     expect(sent.some((row) => /OWNER/.test(row.narration))).toBe(true);
     // Reasons come back with real names, stored locally
     const reasons = (await db.categorySuggestion.findMany({ where: { userId } })).map((s) => s.reason).join(" ");
-    expect(reasons).toMatch(/Ngozi Adebayo/);
+    expect(reasons).toMatch(/Ngozi Chinwe/);
     expect(reasons).not.toMatch(/PERSON_/);
   });
 
@@ -300,10 +300,10 @@ describe("chat and insights routing", () => {
       const result = JSON.parse(String((last.content as { content: string }[])[0].content));
       return msg([text(`You sent ${placeholder} ${result.total_sent} in total.`)]);
     });
-    const reply = await chatForUser(userId, "How much have I sent Ngozi Adebayo? My number is 08031234567.", [{ role: "user", text: "Hi, I am Ada Okafor" }, { role: "assistant", text: "Hello Ada Okafor" }], { create: claude.create, now: NOW });
-    expect(reply).toMatchObject({ provider: "anthropic", grounded: true, text: "You sent Ngozi Adebayo ₦150,000 in total." });
+    const reply = await chatForUser(userId, "How much have I sent Ngozi Chinwe? My number is 08031234567.", [{ role: "user", text: "Hi, I am Ada Okafor" }, { role: "assistant", text: "Hello Ada Okafor" }], { create: claude.create, now: NOW });
+    expect(reply).toMatchObject({ provider: "anthropic", grounded: true, text: "You sent Ngozi Chinwe ₦150,000 in total." });
     // The tool ran locally with the real name; the exact figures stay local
-    expect(reply!.toolCalls[0]).toMatchObject({ tool: "person_summary", input: { name: "Ngozi Adebayo" }, output: { total_sent: "₦150,000.00" } });
+    expect(reply!.toolCalls[0]).toMatchObject({ tool: "person_summary", input: { name: "Ngozi Chinwe" }, output: { total_sent: "₦150,000.00" } });
     expectNoSecrets(claude.calls);
     expect(JSON.stringify(claude.calls)).not.toMatch(/150,000\.00|1,500,000\.00/);
   });
@@ -340,14 +340,14 @@ describe("chat and insights routing", () => {
   it("insights phrasing on the cloud gets rounded, redacted facts and no raw kobo", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", KEY);
     const userId = await setup("hy-insights@test.dev");
-    const { facts } = await ask(userId, "Find all transfers to Ngozi Adebayo", NOW);
+    const { facts } = await ask(userId, "Find all transfers to Ngozi Chinwe", NOW);
     expect(facts.rows?.length).toBe(2);
     const claude = fakeClaude((p) => {
       const ph = userText(p).match(/PERSON_\d+/)![0];
       return msg([text(`You sent ${ph} about ₦150,000 across both transfers.`)]);
     });
-    const out = await phraseForUser(userId, "Find all transfers to Ngozi Adebayo", facts, { create: claude.create });
-    expect(out).toEqual({ text: "You sent Ngozi Adebayo about ₦150,000 across both transfers.", source: "llm", provider: "anthropic" });
+    const out = await phraseForUser(userId, "Find all transfers to Ngozi Chinwe", facts, { create: claude.create });
+    expect(out).toEqual({ text: "You sent Ngozi Chinwe about ₦150,000 across both transfers.", source: "llm", provider: "anthropic" });
     expectNoSecrets(claude.calls);
     expect(userText(claude.calls[0])).not.toMatch(/15000000|90,000\.00|headline/);
   });
@@ -377,9 +377,9 @@ describe("chat and insights routing", () => {
     const userId = await setup("hy-log@test.dev");
     const lines: string[] = [];
     vi.spyOn(console, "log").mockImplementation((l: unknown) => void lines.push(String(l)));
-    const { facts } = await ask(userId, "Find all transfers to Ngozi Adebayo", NOW);
+    const { facts } = await ask(userId, "Find all transfers to Ngozi Chinwe", NOW);
     const claude = fakeClaude(() => msg([text("You sent them money.")]));
-    await phraseForUser(userId, "Find all transfers to Ngozi Adebayo", facts, { create: claude.create });
+    await phraseForUser(userId, "Find all transfers to Ngozi Chinwe", facts, { create: claude.create });
     const served = lines.map((l) => JSON.parse(l)).filter((l) => l.event === "ai.served");
     expect(served).toEqual([expect.objectContaining({ feature: "insights", provider: "anthropic", model: "claude-opus-5-5", outcome: "ok" })]);
     expect(lines.join("\n")).not.toMatch(/Ngozi|PERSON_|sent them/);
@@ -448,7 +448,7 @@ describe("npm run ai:suggest --escalate", () => {
 
   it("escalates by default in hybrid and reports local vs cloud", async () => {
     const userId = await setup("hy-cli@test.dev");
-    const { fetch } = fakeOllama((r) => (r.counterparty === "Ngozi Adebayo" ? { category: "Family", subcategory: "Black tax", confidence: 0.9, reason: "x" } : { category: "Giving", subcategory: "Church", confidence: 0.62, reason: "unsure" }));
+    const { fetch } = fakeOllama((r) => (r.counterparty === "Ngozi Chinwe" ? { category: "Family", subcategory: "Black tax", confidence: 0.9, reason: "x" } : { category: "Giving", subcategory: "Church", confidence: 0.62, reason: "unsure" }));
     const claude = fakeClaude(categorizeReply(() => ({ category: "Family", subcategory: "Family support", confidence: 0.9, reason: "y" })));
     const t = io();
     const code = await runSuggestCli(parseSuggestArgs(["--email", "hy-cli@test.dev"]), {

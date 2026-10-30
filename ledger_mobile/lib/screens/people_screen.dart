@@ -212,7 +212,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   ),
                 ),
               if (list != null && list.people.isEmpty)
-                const EmptyNote('No people yet. Tap Add people and write "My wife is Gift Ojo", one per line, or answer the people questions in Review.'),
+                const EmptyNote('No people yet. Tap Add people and write "My wife is Amaka Okeke", one per line, or answer the people questions in Review.'),
               if (list != null)
                 for (final p in list.people)
                   PersonCard(
@@ -379,7 +379,7 @@ class _AddPeopleDialogState extends State<_AddPeopleDialog> {
         maxLines: 6,
         maxLength: 2000,
         decoration: const InputDecoration(
-          hintText: 'My wife is Gift Adebayo Ojo\nMy brother is Tunde Ojo\nMy mum is Bisi Ojo',
+          hintText: 'My wife is Amaka Chinwe Okeke\nMy brother is Tunde Okeke\nMy mum is Bisi Okeke',
           helperText: 'One person per line, the name as your bank writes it.',
         ),
       ),
@@ -418,7 +418,7 @@ class _AliasDialogState extends State<_AliasDialog> {
         controller: _text,
         autofocus: true,
         maxLength: 60,
-        decoration: const InputDecoration(hintText: 'e.g. OJO GIFT A'),
+        decoration: const InputDecoration(hintText: 'e.g. OKEKE AMAKA C'),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),

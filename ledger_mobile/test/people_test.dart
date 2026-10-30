@@ -16,7 +16,7 @@ import 'package:ledger_mobile/theme.dart';
 import 'affordability_fixture.dart';
 
 // Synthetic people and narrations only, shaped like GET /api/v1/review and /api/v1/people.
-const _narrations = ['TRF TO OJO GIFT A/ MONTHLY UPKEEP/ 0123456789', 'NIP TRANSFER GIFT ADEBAYO OJO FOOD STUFF', 'TRF TO GIFT'];
+const _narrations = ['TRF TO OKEKE AMAKA C/ MONTHLY UPKEEP/ 0123456789', 'NIP TRANSFER AMAKA CHINWE OKEKE FOOD STUFF', 'TRF TO AMAKA'];
 
 Map<String, Object?> _option(String value, String label, String category, String group, [String? subcategory]) => {
   'value': value,
@@ -28,8 +28,8 @@ Map<String, Object?> _option(String value, String label, String category, String
 
 final _personQuestion = <String, Object?>{
   'kind': 'person',
-  'key': 'gift adebayo ojo',
-  'title': 'Who is Gift Adebayo Ojo to you?',
+  'key': 'amaka chinwe okeke',
+  'title': 'Who is Amaka Chinwe Okeke to you?',
   'prompt': 'You sent ₦150,000 in 3 payments and received ₦20,000 in 1.',
   'totalMinor': '17000000',
   'count': 4,
@@ -59,7 +59,7 @@ final _personQuestion = <String, Object?>{
     'outCount': 3,
     'outMinor': '15000000',
     'lastDate': '2026-09-30',
-    'variants': ['Gift Adebayo Ojo', 'Ojo Gift A', 'Gift'],
+    'variants': ['Amaka Chinwe Okeke', 'Okeke Amaka C', 'Amaka'],
   },
   'impactMinor': '17000000',
   'aiRelationship': 'spouse',
@@ -80,7 +80,7 @@ final _reviewWithPerson = <String, Object?>{
 
 Map<String, Object?> _gift({String relationship = 'spouse', String label = 'Spouse / partner', List<Map<String, Object?>>? aliases}) => {
   'id': 'p_gift',
-  'displayName': 'Gift Adebayo Ojo',
+  'displayName': 'Amaka Chinwe Okeke',
   'relationship': relationship,
   'relationshipLabel': label,
   'note': null,
@@ -89,8 +89,8 @@ Map<String, Object?> _gift({String relationship = 'spouse', String label = 'Spou
   'aliases':
       aliases ??
       [
-        {'name': 'Gift Adebayo Ojo', 'rejected': false},
-        {'name': 'Ojo Gift A', 'rejected': false},
+        {'name': 'Amaka Chinwe Okeke', 'rejected': false},
+        {'name': 'Okeke Amaka C', 'rejected': false},
       ],
   'category': 'Family',
   'subcategory': relationship == 'spouse' ? 'Spouse' : 'Siblings',
@@ -106,11 +106,11 @@ Map<String, Object?> _gift({String relationship = 'spouse', String label = 'Spou
 
 final _tunde = <String, Object?>{
   'id': 'p_tunde',
-  'displayName': 'Tunde Ojo',
+  'displayName': 'Tunde Okeke',
   'relationship': 'sibling',
   'relationshipLabel': 'Sibling',
   'aliases': [
-    {'name': 'Tunde Ojo', 'rejected': false},
+    {'name': 'Tunde Okeke', 'rejected': false},
   ],
   'category': 'Family',
   'subcategory': 'Siblings',
@@ -168,7 +168,7 @@ void main() {
       expect(q.isPerson, isTrue);
       expect(q.person!.outMinor, '15000000');
       expect(q.person!.inCount, 1);
-      expect(q.person!.variants, ['Gift Adebayo Ojo', 'Ojo Gift A', 'Gift']);
+      expect(q.person!.variants, ['Amaka Chinwe Okeke', 'Okeke Amaka C', 'Amaka']);
       expect(q.aiRelationship, 'spouse');
       expect(q.guess!.kind, 'two_way');
       expect(q.options.where((o) => o.group == 'relationship'), hasLength(10));
@@ -192,7 +192,7 @@ void main() {
       expect(p.label, 'Family / Spouse');
       expect(p.months.first.month, '2026-09');
       expect(p.months.first.outMinor, '10000000');
-      expect(p.aliases.map((a) => a.name), ['Gift Adebayo Ojo', 'Ojo Gift A']);
+      expect(p.aliases.map((a) => a.name), ['Amaka Chinwe Okeke', 'Okeke Amaka C']);
       final next = PeopleList.fromJson(_peopleList([_gift(), _tunde], choices: false)).withChoicesFrom(first);
       expect(next.people, hasLength(2));
       expect(next.relationships.map((r) => r.value), contains('sibling'));
@@ -228,9 +228,9 @@ void main() {
       await tester.pumpWidget(_app(controller, const ReviewScreen()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Who is Gift Adebayo Ojo to you?'), findsOneWidget);
+      expect(find.text('Who is Amaka Chinwe Okeke to you?'), findsOneWidget);
       expect(find.text('Paid out ₦150,000.00 in 3 · Received ₦20,000.00 in 1 · last 2026-09-30'), findsOneWidget);
-      expect(find.text('Also written as: Ojo Gift A, Gift'), findsOneWidget);
+      expect(find.text('Also written as: Okeke Amaka C, Amaka'), findsOneWidget);
       expect(tester.widgetList<SelectableText>(find.byType(SelectableText)).map((t) => t.data), _narrations);
       expect(find.text('Money goes both ways between you. A friend?'), findsOneWidget);
       expect(find.text('AI thinks: Spouse / partner. Tap it to confirm.'), findsOneWidget);
@@ -240,15 +240,15 @@ void main() {
       expect(find.byKey(const Key('rel-me')), findsOneWidget);
       // "Someone else" and the older detailed answers wait behind a tap.
       expect(find.byKey(const Key('rel-other')), findsNothing);
-      expect(find.byKey(const Key('skip-gift adebayo ojo')), findsOneWidget);
-      expect(find.byKey(const Key('not-person-gift adebayo ojo')), findsOneWidget);
+      expect(find.byKey(const Key('skip-amaka chinwe okeke')), findsOneWidget);
+      expect(find.byKey(const Key('not-person-amaka chinwe okeke')), findsOneWidget);
 
       await tester.ensureVisible(find.byKey(const Key('rel-spouse')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('rel-spouse')));
       await tester.pumpAndSettle();
       expect(posts, [
-        {'kind': 'person', 'key': 'gift adebayo ojo', 'value': 'rel:spouse'},
+        {'kind': 'person', 'key': 'amaka chinwe okeke', 'value': 'rel:spouse'},
       ]);
       expect(find.textContaining('Saved to Your people. 4 payments relabelled.'), findsOneWidget);
       controller.dispose();
@@ -281,7 +281,7 @@ void main() {
       await tester.tap(find.byKey(const Key('vendor-save')));
       await tester.pumpAndSettle();
       expect(posts, [
-        {'kind': 'person', 'key': 'gift adebayo ojo', 'value': 'rel:vendor', 'vendorCategory': 'Personal care', 'vendorSubcategory': 'hair'},
+        {'kind': 'person', 'key': 'amaka chinwe okeke', 'value': 'rel:vendor', 'vendorCategory': 'Personal care', 'vendorSubcategory': 'hair'},
       ]);
       controller.dispose();
     });
@@ -299,24 +299,24 @@ void main() {
       await tester.pumpWidget(_app(controller, const ReviewScreen()));
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.byKey(const Key('someone-else-gift adebayo ojo')));
+      await tester.ensureVisible(find.byKey(const Key('someone-else-amaka chinwe okeke')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('someone-else-gift adebayo ojo')));
+      await tester.tap(find.byKey(const Key('someone-else-amaka chinwe okeke')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('rel-other')), findsOneWidget);
       expect(find.widgetWithText(OutlinedButton, 'Family'), findsOneWidget);
-      expect(find.byKey(const Key('other-gift adebayo ojo')), findsOneWidget);
+      expect(find.byKey(const Key('other-amaka chinwe okeke')), findsOneWidget);
 
-      await tester.ensureVisible(find.byKey(const Key('not-person-gift adebayo ojo')));
+      await tester.ensureVisible(find.byKey(const Key('not-person-amaka chinwe okeke')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('not-person-gift adebayo ojo')));
+      await tester.tap(find.byKey(const Key('not-person-amaka chinwe okeke')));
       await tester.pumpAndSettle();
       expect(find.text('Ledger will not ask about this name as a person again.'), findsOneWidget);
       tester.state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger)).clearSnackBars();
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('skip-gift adebayo ojo')));
+      await tester.ensureVisible(find.byKey(const Key('skip-amaka chinwe okeke')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('skip-gift adebayo ojo')));
+      await tester.tap(find.byKey(const Key('skip-amaka chinwe okeke')));
       await tester.pumpAndSettle();
       expect(posts.map((p) => (p as Map)['value']), ['not_person', 'unknown']);
       controller.dispose();
@@ -330,12 +330,12 @@ void main() {
       await tester.pumpWidget(_app(controller, const PeopleScreen()));
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(Row, 'Gift Adebayo Ojo'), findsOneWidget);
+      expect(find.widgetWithText(Row, 'Amaka Chinwe Okeke'), findsOneWidget);
       expect(find.text('Labelled Family / Spouse'), findsOneWidget);
       expect(find.text('Paid ₦150,000.00 · Received ₦20,000.00 · 4 payments · last 2026-09-30'), findsOneWidget);
       expect(find.byKey(const Key('months-p_gift')), findsOneWidget);
       expect(find.descendant(of: find.byKey(const Key('months-p_gift')), matching: find.text('₦100,000.00')), findsOneWidget);
-      expect(find.byKey(const Key('alias-p_gift-Ojo Gift A')), findsOneWidget);
+      expect(find.byKey(const Key('alias-p_gift-Okeke Amaka C')), findsOneWidget);
       expect(find.widgetWithText(ActionChip, 'Spouse / partner'), findsOneWidget);
       expect(find.byKey(const Key('merge-p_gift')), findsOneWidget);
       expect(find.byKey(const Key('people-undo')), findsNothing);
@@ -363,12 +363,12 @@ void main() {
 
       await tester.tap(find.byKey(const Key('people-add')));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('people-text')), 'My wife is Gift Adebayo Ojo\nMy brother is Tunde Ojo\nmy plumber');
+      await tester.enterText(find.byKey(const Key('people-text')), 'My wife is Amaka Chinwe Okeke\nMy brother is Tunde Okeke\nmy plumber');
       await tester.tap(find.byKey(const Key('people-text-save')));
       await tester.pumpAndSettle();
 
       expect(requests.last.url.path, '/api/v1/people');
-      expect(jsonDecode(requests.last.body), {'text': 'My wife is Gift Adebayo Ojo\nMy brother is Tunde Ojo\nmy plumber'});
+      expect(jsonDecode(requests.last.body), {'text': 'My wife is Amaka Chinwe Okeke\nMy brother is Tunde Okeke\nmy plumber'});
       expect(find.byKey(const Key('person-p_gift')), findsOneWidget);
       expect(find.byKey(const Key('person-p_tunde')), findsOneWidget);
       expect(find.textContaining('Could not read: my plumber.'), findsOneWidget);
@@ -410,7 +410,7 @@ void main() {
         '/api/v1/people/p_gift',
         {'relationship': 'sibling'},
       ]);
-      expect(find.text('Updated Gift Adebayo Ojo.'), findsOneWidget);
+      expect(find.text('Updated Amaka Chinwe Okeke.'), findsOneWidget);
       expect(find.byKey(const Key('people-undo')), findsOneWidget);
 
       // The relationship choices from GET survive a write that returns only people.
@@ -420,9 +420,9 @@ void main() {
       await tester.tapAt(const Offset(5, 5));
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.byKey(const Key('alias-p_gift-Ojo Gift A')));
+      await tester.ensureVisible(find.byKey(const Key('alias-p_gift-Okeke Amaka C')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('alias-p_gift-Ojo Gift A')));
+      await tester.tap(find.byKey(const Key('alias-p_gift-Okeke Amaka C')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('alias-reject')));
       await tester.pumpAndSettle();
@@ -430,7 +430,7 @@ void main() {
         'PATCH',
         '/api/v1/people/p_gift',
         {
-          'rejectAliases': ['Ojo Gift A'],
+          'rejectAliases': ['Okeke Amaka C'],
         },
       ]);
 
@@ -438,14 +438,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('alias-add-p_gift')));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('alias-text')), 'TRF TO GIFT ');
+      await tester.enterText(find.byKey(const Key('alias-text')), 'TRF TO AMAKA ');
       await tester.tap(find.byKey(const Key('alias-save')));
       await tester.pumpAndSettle();
       expect(writes.last, [
         'PATCH',
         '/api/v1/people/p_gift',
         {
-          'addAliases': ['TRF TO GIFT'],
+          'addAliases': ['TRF TO AMAKA'],
         },
       ]);
 
@@ -481,7 +481,7 @@ void main() {
           writes.add(request.url.path);
           return _json({
             'updated': 2,
-            ..._peopleList([_gift()], choices: false, undo: {'batchId': 'b1', 'label': 'Removed Tunde Ojo', 'changed': 2}),
+            ..._peopleList([_gift()], choices: false, undo: {'batchId': 'b1', 'label': 'Removed Tunde Okeke', 'changed': 2}),
           });
         }
         return _json(_peopleList([_gift(), _tunde]));
@@ -498,7 +498,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(writes, ['/api/v1/people/p_tunde']);
       expect(find.byKey(const Key('person-p_tunde')), findsNothing);
-      expect(find.text('Removed Tunde Ojo'), findsOneWidget);
+      expect(find.text('Removed Tunde Okeke'), findsOneWidget);
       controller.dispose();
     });
 

@@ -251,7 +251,7 @@ class LedgerApi {
 
   Future<PeopleList> people() => _people(_parse(_object(_uri('/api/v1/people'), _get), PeopleList.fromJson));
 
-  /// "My wife is Gift Adebayo Ojo", one per line. Lines it could not read come back in `unread`.
+  /// "My wife is Amaka Chinwe Okeke", one per line. Lines it could not read come back in `unread`.
   Future<PeopleList> addPeopleText(String text) {
     return _people(_parse(_object(_uri('/api/v1/people'), (uri) => _post(uri, {'text': text})), PeopleList.fromJson));
   }

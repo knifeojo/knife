@@ -18,7 +18,7 @@ void suspectedConversions; // kept for answering legacy conversion questions
 
 // "Teach Ledger": a short list of questions whose answers fix the most money at once.
 // Every answer becomes a user rule, so it applies to past AND future transactions with that name.
-// People come first: "Who is GIFT ADEBAYO OJO to you?" is answered once and labels every payment
+// People come first: "Who is AMAKA CHINWE OKEKE to you?" is answered once and labels every payment
 // to and from them through the relationship (core/people).
 
 export type QuestionKind = "holder" | "person" | "income" | "memo" | "conversion" | "match" | "mispair" | "duplicate" | "currency" | "advance" | "loan";
@@ -659,7 +659,7 @@ async function answerWho(userId: string, key: string, relationship: string, vend
   return res.changed;
 }
 
-/** "Is OJO G A Gift Adebayo Ojo?": yes saves the spelling to them, no tells Ledger it is someone else. */
+/** "Is OKEKE A C Amaka Chinwe Okeke?": yes saves the spelling to them, no tells Ledger it is someone else. */
 async function answerMatch(userId: string, key: string, value: string): Promise<number> {
   const variants = await variantsOf(userId, key);
   if (value.startsWith("person:")) return (await updatePerson(userId, value.slice(7), { addAliases: variants })).changed;

@@ -20,7 +20,7 @@ export async function GET(req: Request) {
 }
 
 /**
- * POST { text: "My wife is Gift Adebayo Ojo\nMy brother is Tunde Ojo" } adds everyone it can read;
+ * POST { text: "My wife is Amaka Chinwe Okeke\nMy brother is Tunde Okeke" } adds everyone it can read;
  * POST { displayName, relationship, note?, aliases?, vendorCategory?, vendorSubcategory? } adds one person.
  * Either way their payments are relabelled now (undoable) and the updated list is returned.
  */
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
       const text = parsed.body.text;
       if (typeof text !== "string" || !text.trim() || text.length > 2000) return apiError(400, "text is required");
       const res = await addPeopleFromText(userId, text);
-      if (!res.added.length) return apiJson({ error: "Could not read a person. Try \"My wife is Gift Ojo\".", unread: res.unread }, 400);
+      if (!res.added.length) return apiJson({ error: "Could not read a person. Try \"My wife is Amaka Okeke\".", unread: res.unread }, 400);
       return apiJson({ added: res.added.length, updated: res.added.reduce((t, a) => t + a.changed, 0), unread: res.unread, ...peopleJson(await listPeople(userId)) }, 201);
     }
     const read = personInputFromJson(parsed.body);

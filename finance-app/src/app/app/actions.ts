@@ -329,7 +329,7 @@ export async function finishTopPeopleAction() {
 const field = (form: FormData, name: string, max = 80) => String(form.get(name) ?? "").trim().slice(0, max);
 const peopleDone = () => revalidatePath("/app", "layout");
 
-/** "My wife is Gift Adebayo Ojo" lines. Lines Ledger could not read come back in the URL to fix. */
+/** "My wife is Amaka Chinwe Okeke" lines. Lines Ledger could not read come back in the URL to fix. */
 export async function addPeopleTextAction(form: FormData) {
   const user = await requireUser();
   const text = String(form.get("text") ?? "").slice(0, 2000);

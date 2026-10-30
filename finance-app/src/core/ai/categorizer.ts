@@ -104,7 +104,7 @@ const RESPONSE_SCHEMA = {
   required: ["suggestions"],
 } as const;
 
-/** "- Gift Adebayo Ojo (also OJO GIFT A): spouse", or "- PERSON_1 (spouse)" once redacted. */
+/** "- Amaka Chinwe Okeke (also OKEKE AMAKA C): spouse", or "- PERSON_1 (spouse)" once redacted. */
 export function knownPeopleText(people: { names: string[]; relationship: string }[]): string {
   return people
     .map((p) => {
