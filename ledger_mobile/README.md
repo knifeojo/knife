@@ -114,7 +114,7 @@ The first time you turn it on, Ledger offers to read account and loan texts from
 
 Messages go to `POST /api/v1/alerts/sms` with `sender`, `body`, `receivedAt` and a stable `sourceId`. The server dedups that id, so a retry or an overlapping flush does not create a second transaction. A message leaves the phone queue only after a 2xx. Upload runs from a WorkManager job as soon as a text arrives (even if the app is closed), every 15 minutes as a safety net, on app start, on resume, and from **Sync now**. The Bank alerts section shows **Last synced** and how many were captured and sent. The worker reads the server URL and session token from Flutter’s `FlutterSharedPreferences` (`flutter.server_url`, `flutter.session_token`). SMS bodies are not written to logs.
 
-A `NotificationListenerService` stub is in the Android tree as a fallback for bank-app push notifications.
+App alerts use the same upload. Settings → Bank alerts, and the first-run screen, have **Allow notification access**, which opens Android’s notification listener settings. Ledger drops non-financial notifications on the phone. Messaging, social and telco apps are excluded. A new bank app asks once: **Track alerts from App?** Approved alerts post with `channel: "push"`. `sourceId` is a hash of package, post time and text. The server counts one transaction when the same debit also arrives by SMS or email.
 
 See `../finance-app/docs/alert-ingestion.md` for iPhone Shortcuts and the macOS Messages importer.
 

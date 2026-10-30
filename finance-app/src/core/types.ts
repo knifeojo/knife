@@ -3,7 +3,7 @@
 export type TransactionType = "CREDIT" | "DEBIT";
 // Extensible later: "TRANSFER" | "REVERSAL" | "REFUND" | "FEE" | "UNKNOWN"
 
-export type SourceType = "gmail" | "imap" | "inbound" | "fixture" | "demo" | "statement" | "mono" | "sms" | "manual";
+export type SourceType = "gmail" | "imap" | "inbound" | "fixture" | "demo" | "statement" | "mono" | "sms" | "push" | "manual";
 
 /** A PDF, CSV or XLSX attached to an email. Bytes stay in memory unless a statement is waiting for a password. */
 export interface EmailAttachment {

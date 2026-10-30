@@ -77,9 +77,10 @@ async function postAlert(userId: string, parsed: ParsedAlert, source: SourceType
 export async function ingestAlertMessage(
   userId: string,
   msg: AlertMessage,
-  opts: { source: SourceType; sourceId?: string } = { source: msg.channel === "sms" ? "sms" : "inbound" },
+  opts: { source: SourceType; sourceId?: string } = { source: msg.channel === "push" ? "push" : msg.channel === "sms" ? "sms" : "inbound" },
 ): Promise<AlertIngestResult> {
-  if (msg.channel === "sms" && !isIngestibleSmsSender(msg.sender)) return { status: "skipped" };
+  const parseAs = msg.channel === "push" ? { ...msg, channel: "sms" as const } : msg;
+  if (parseAs.channel === "sms" && !isIngestibleSmsSender(parseAs.sender)) return { status: "skipped" };
 
   const sourceId = alertSourceId(msg, opts.sourceId);
   const seen = await db.processedAlert.findUnique({
@@ -92,7 +93,7 @@ export async function ingestAlertMessage(
     return { status: "skipped" };
   }
 
-  const loan = await applyLoanStatus(userId, msg, sourceId);
+  const loan = await applyLoanStatus(userId, parseAs, sourceId);
   if (loan?.status === "loan_update") {
     await markProcessed(userId, msg, sourceId, { status: "loan_update", parser: "LoanStatus" });
     return loan;
@@ -104,7 +105,7 @@ export async function ingestAlertMessage(
     return { status: "review", id, parser: "LoanStatus" };
   }
 
-  const outcome = parseAlert(msg);
+  const outcome = parseAlert(parseAs);
   if (outcome.status === "skipped") {
     await markProcessed(userId, msg, sourceId, { status: "skipped" });
     return { status: "skipped" };
@@ -145,6 +146,19 @@ export async function ingestSmsPayload(
     userId,
     { channel: "sms", sender: String(body.sender).slice(0, 80), body: String(body.body).slice(0, 4000), receivedAt },
     { source: "sms", sourceId: body.sourceId },
+  );
+}
+
+export async function ingestPushPayload(
+  userId: string,
+  body: { sender: string; body: string; receivedAt?: string; sourceId?: string },
+): Promise<AlertIngestResult> {
+  const receivedAt = body.receivedAt ? new Date(body.receivedAt) : new Date();
+  if (Number.isNaN(receivedAt.getTime())) throw new Error("receivedAt is not a date");
+  return ingestAlertMessage(
+    userId,
+    { channel: "push", sender: String(body.sender).slice(0, 80), body: String(body.body).slice(0, 4000), receivedAt },
+    { source: "push", sourceId: body.sourceId },
   );
 }
 

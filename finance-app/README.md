@@ -23,7 +23,7 @@ Ways to get data in:
 1. **Try the demo** on the landing page. Every click gets a private sandbox with 6 months of labelled DEMO DATA.
 2. **Upload bank statements (real data, no Google setup).** Sign up, then upload one or more PDF, CSV or Excel statements from the welcome screen or Accounts. Password-protected PDFs are supported (the password is used once in memory, never stored). Bank, currency and account are detected per file; overlapping statements and rows already seen from alerts are merged. Samples: `/sample-gtbank-statement.pdf` and `/sample-gtbank-statement.csv`.
 3. **Import sample alerts** on Accounts: 13 synthetic GTBank emails through the real pipeline.
-4. **Continue with Google + Connect Gmail** after following [docs/gmail-oauth.md](docs/gmail-oauth.md). Background sync (default every 5 minutes), IMAP/Yahoo, SMS (Android + iPhone Shortcuts), and a personal forwarding address are documented in [docs/alert-ingestion.md](docs/alert-ingestion.md). After pulling schema changes run `npm run db:push`.
+4. **Continue with Google + Connect Gmail** after following [docs/gmail-oauth.md](docs/gmail-oauth.md). Background sync (default every 5 minutes), IMAP/Yahoo, SMS and bank-app notifications (Android), iPhone Shortcuts, and a personal forwarding address are documented in [docs/alert-ingestion.md](docs/alert-ingestion.md). After pulling schema changes run `npm run db:push`.
 
 ## What's where
 

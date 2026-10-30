@@ -15,6 +15,18 @@ String smsSourceId({
   return sha256.convert(utf8.encode('sms|$sender|$millis|$body')).toString();
 }
 
+/// Same bytes as `pushSourceId` on Android: hash(package + postTime + text).
+String pushSourceId({
+  required String packageName,
+  required DateTime postedAt,
+  required String text,
+}) {
+  final millis = postedAt.toUtc().millisecondsSinceEpoch;
+  return sha256
+      .convert(utf8.encode('push|$packageName|$millis|$text'))
+      .toString();
+}
+
 /// How far back an approved sender's inbox is read.
 const smsSenderBackfillDays = 90;
 

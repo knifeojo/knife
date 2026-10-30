@@ -109,11 +109,28 @@ export interface LedgerCandidate {
 }
 
 const EMAIL_ALERTS = new Set(["gmail", "imap", "inbound", "fixture"]);
+const ALERT_SOURCES = new Set(["sms", "push", "gmail", "imap", "inbound"]);
 
-export function alertChannel(source: string): "sms" | "email" | null {
+export function alertChannel(source: string): "sms" | "push" | "email" | null {
   if (source === "sms") return "sms";
+  if (source === "push") return "push";
   if (EMAIL_ALERTS.has(source)) return "email";
   return null;
+}
+
+function accountTail(key: string): string | null {
+  const tail = key.slice(key.lastIndexOf(":") + 1);
+  return tail && tail !== "PRIMARY" ? tail : null;
+}
+
+/** SMS, push and email of one debit: same amount, account and time, even when the wording differs. */
+function crossAlertMatch(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
+  if (!ALERT_SOURCES.has(tx.source) || !ALERT_SOURCES.has(c.source) || tx.source === c.source) return false;
+  if (c.currency !== tx.currency || c.type !== tx.type || c.amountMinor !== tx.amountMinor) return false;
+  if (Math.abs(c.transactionDate.getTime() - tx.transactionDate.getTime()) > FUZZY_WINDOW_MS) return false;
+  const left = tx.accountLast4?.replace(/\D/g, "").slice(-3);
+  const right = accountTail(c.accountKey);
+  return !!left && !!right && left === right;
 }
 
 export function linkedSources(c: Pick<LedgerCandidate, "source" | "sources">): Set<string> {
@@ -130,6 +147,7 @@ export function isFuzzyMatch(tx: CanonicalTransaction, c: LedgerCandidate): bool
     c.accountKey === accountKey(tx.institution, tx.accountLast4) && c.currency === tx.currency &&
     c.type === tx.type && c.amountMinor === tx.amountMinor && lagosDay(c.transactionDate) === lagosDay(tx.transactionDate)
   ) return true;
+  if (crossAlertMatch(tx, c)) return true;
   if (c.source === tx.source) return false;
   if (c.accountKey !== accountKey(tx.institution, tx.accountLast4) && !c.accountKey.endsWith(":PRIMARY") && tx.accountLast4)
     return false;
@@ -223,7 +241,7 @@ export function counterpartAlreadyClaimed(tx: CanonicalTransaction, c: LedgerCan
   if (tx.source === "statement") return sources.has("statement");
   const channel = alertChannel(tx.source);
   if (!channel) return false;
-  const hasChannel = channel === "sms" ? sources.has("sms") : [...sources].some((s) => alertChannel(s) === "email");
+  const hasChannel = channel === "email" ? [...sources].some((s) => alertChannel(s) === "email") : sources.has(channel);
   if (!hasChannel) return false;
   return !balancesMatch(tx, c);
 }

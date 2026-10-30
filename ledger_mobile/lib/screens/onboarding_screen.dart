@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../api/models.dart';
 import '../state/ledger_controller.dart';
 import '../widgets/common.dart';
+import 'push_alerts_card.dart';
 
 /// One short skippable form: who the owner is and who their people are.
 class OnboardingScreen extends StatefulWidget {
@@ -130,6 +131,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(labelText: 'Anyone you support regularly', hintText: 'Labelled Family / Black tax'),
           ),
+          const SizedBox(height: 16),
+          const PushAlertsCard(),
           const SizedBox(height: 16),
           Text(state?.trustNote ?? 'These names stay on your device and are never sent to the cloud.', style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 16),

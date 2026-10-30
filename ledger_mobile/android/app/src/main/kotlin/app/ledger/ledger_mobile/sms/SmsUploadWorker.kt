@@ -7,7 +7,8 @@ import androidx.work.WorkerParameters
 /** Drains the on-device SMS queue. Safe to run while the Flutter process is dead. */
 class SmsUploadWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
-        val outcome = SmsSyncRunner.upload(applicationContext)
-        return if (outcome.retry) Result.retry() else Result.success()
+        val sms = SmsSyncRunner.upload(applicationContext)
+        val push = PushSyncRunner.upload(applicationContext)
+        return if (sms.retry || push.retry) Result.retry() else Result.success()
     }
 }

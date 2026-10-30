@@ -70,7 +70,7 @@ fun jsonString(value: String): String {
     return sb.toString()
 }
 
-fun payloadJson(items: List<UploadItem>): String {
+fun payloadJson(items: List<UploadItem>, channel: String? = null): String {
     val sb = StringBuilder()
     sb.append("{\"messages\":[")
     items.forEachIndexed { index, item ->
@@ -83,6 +83,10 @@ fun payloadJson(items: List<UploadItem>): String {
         sb.append(jsonString(receivedAtIso(item.receivedAtMillis)))
         sb.append(",\"sourceId\":")
         sb.append(jsonString(item.id))
+        if (!channel.isNullOrEmpty()) {
+            sb.append(",\"channel\":")
+            sb.append(jsonString(channel))
+        }
         sb.append('}')
     }
     sb.append("]}")
@@ -122,13 +126,13 @@ fun statusesFromResults(body: String): List<String>? {
  * Posts [items]. Ids in [FlushDecision.removeIds] are safe to delete.
  * Anything else stays queued.
  */
-fun flushUploads(items: List<UploadItem>, maxBytes: Int = 16000, poster: SmsPoster): FlushDecision {
+fun flushUploads(items: List<UploadItem>, maxBytes: Int = 16000, channel: String? = null, poster: SmsPoster): FlushDecision {
     if (items.isEmpty()) return FlushDecision(emptySet(), retry = false, sent = 0)
     val remove = linkedSetOf<String>()
     var retry = false
     val chunks = chunkUploads(items, maxBytes)
     for (chunk in chunks) {
-        val step = postChunk(chunk, poster)
+        val step = postChunk(chunk, channel, poster)
         remove.addAll(step.removeIds)
         if (step.retry) {
             retry = true
@@ -140,16 +144,16 @@ fun flushUploads(items: List<UploadItem>, maxBytes: Int = 16000, poster: SmsPost
 
 private data class Step(val removeIds: Set<String>, val retry: Boolean)
 
-private fun postChunk(chunk: List<UploadItem>, poster: SmsPoster): Step {
+private fun postChunk(chunk: List<UploadItem>, channel: String?, poster: SmsPoster): Step {
     val reply = try {
-        poster.post(payloadJson(chunk))
+        poster.post(payloadJson(chunk, channel))
     } catch (_: Exception) {
         return Step(emptySet(), retry = true)
     }
     if (reply.status == 400 && chunk.size > 1) {
         val remove = linkedSetOf<String>()
         for (item in chunk) {
-            val one = postChunk(listOf(item), poster)
+            val one = postChunk(listOf(item), channel, poster)
             remove.addAll(one.removeIds)
             if (one.retry) return Step(remove, retry = true)
         }
