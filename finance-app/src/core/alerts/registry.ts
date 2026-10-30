@@ -39,16 +39,22 @@ export function parsersFor(msg: AlertMessage): AlertParser[] {
  * Unknown senders that look like a payment hit the generic fallback, which is always
  * low-confidence `review` (never auto-posted). Phone numbers, telcos, OTPs and promos are skipped.
  */
+/** SMS parsers also read a push alert. The allow-list check still sees channel "push". */
+function parserMessage(msg: AlertMessage): AlertMessage {
+  return msg.channel === "push" ? { ...msg, channel: "sms" } : msg;
+}
+
 export function parseAlert(msg: AlertMessage, parsers: AlertParser[] = ALERT_PARSERS): ParseAlertOutcome {
-  if (msg.channel === "sms" && !isIngestibleSmsSender(msg.sender)) return { status: "skipped" };
+  const parsed = parserMessage(msg);
+  if ((msg.channel === "sms" || msg.channel === "push") && !isIngestibleSmsSender(msg.sender)) return { status: "skipped" };
   if (isOtpMessage(msg.body, msg.subject)) return { status: "skipped" };
   if (isBankMarketing(msg.body, msg.subject)) return { status: "skipped" };
 
-  const pool = parsers === ALERT_PARSERS ? parsersFor(msg) : parsers.filter((p) => p.channels.includes(msg.channel) && !p.stub);
+  const pool = parsers === ALERT_PARSERS ? parsersFor(parsed) : parsers.filter((p) => p.channels.includes(parsed.channel) && !p.stub);
   for (const parser of pool) {
-    if (!parser.canParse(msg)) continue;
+    if (!parser.canParse(parsed)) continue;
     try {
-      const tx = parser.parse(msg);
+      const tx = parser.parse(parsed);
       if (!tx) return { status: "failed", parser: parser.name };
       if (!tx.autoPost) return { status: "review", parser: parser.name, transaction: tx };
       return { status: "parsed", parser: parser.name, transaction: tx };
@@ -57,16 +63,19 @@ export function parseAlert(msg: AlertMessage, parsers: AlertParser[] = ALERT_PAR
     }
   }
 
-  if (FALLBACK.canParse(msg)) {
-    const tx = FALLBACK.parse(msg);
+  if (FALLBACK.canParse(parsed)) {
+    const tx = FALLBACK.parse(parsed);
     if (tx) return { status: "review", parser: FALLBACK.name, transaction: tx };
   }
 
+  const text = `${msg.subject ?? ""}\n${msg.body}`;
+  const hasMoney = MONEY_RE.test(text);
   if (isKnownBankSender(msg.sender, msg.channel)) {
-    const text = `${msg.subject ?? ""}\n${msg.body}`;
-    if (!MONEY_RE.test(text)) return { status: "skipped" };
+    if (!hasMoney) return { status: "skipped" };
     return { status: "unparsed", reason: "known_sender" };
   }
+  // A financial push that matched no parser still goes to Review. It is not an email domain, so it must not be skipped.
+  if (msg.channel === "push" && hasMoney) return { status: "unparsed", reason: "known_sender" };
   return { status: "skipped" };
 }
 

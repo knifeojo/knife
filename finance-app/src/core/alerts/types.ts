@@ -1,6 +1,6 @@
 import type { ParsedTransaction, TransactionType } from "../types";
 
-export type AlertChannel = "email" | "sms";
+export type AlertChannel = "email" | "sms" | "push";
 
 /** A bank alert as handed to the shared registry. Bodies live in memory only. */
 export interface AlertMessage {
@@ -36,7 +36,7 @@ export type ParseAlertOutcome =
   | { status: "unparsed"; reason: "known_sender" }
   | { status: "skipped" };
 
-export const ALERT_SOURCE_TYPES = ["gmail", "imap", "inbound", "sms", "fixture"] as const;
+export const ALERT_SOURCE_TYPES = ["gmail", "imap", "inbound", "sms", "push", "fixture"] as const;
 export type AlertSourceType = (typeof ALERT_SOURCE_TYPES)[number];
 
 export function isFeeNarration(description: string): boolean {

@@ -1,5 +1,8 @@
-// Known bank SMS sender IDs and email domains. Personal numbers and telco/promo
-// senders are never read or uploaded. Extra IDs can be added with SMS_SENDERS (comma-separated).
+import type { AlertChannel } from "./types";
+
+// Known bank SMS sender IDs, email domains, and bank-app package names.
+// Personal numbers and telco/promo senders are never read or uploaded.
+// Extra SMS IDs can be added with SMS_SENDERS (comma-separated).
 
 export interface KnownSender {
   id: string;
@@ -21,6 +24,15 @@ export const BANK_SENDERS: KnownSender[] = [
   { id: "sterling.ng", institution: "Sterling Bank", channel: "email" },
   { id: "sterlingbankng.com", institution: "Sterling Bank", channel: "email" },
   { id: "providusbank.com", institution: "Providus Bank", channel: "email" },
+];
+
+/** Bank apps. Matched on the package name, not the SMS sender id. */
+export const PUSH_APP_PACKAGES = [
+  "com.gtbank.gtworld",
+  "ng.com.gtbank.gtworld",
+  "com.firstbank.firstmobile",
+  "com.sterlingbank.mobile",
+  "com.providusbank.mobile",
 ];
 
 /** Telco shortcodes, promo IDs and anything that is not a bank. */
@@ -89,8 +101,17 @@ export function isAllowedEmailSender(sender: string): boolean {
   return BANK_SENDERS.some((s) => s.channel !== "sms" && (s.id.toLowerCase() === domain || domain.endsWith(`.${s.id.toLowerCase()}`)));
 }
 
-export function isKnownBankSender(sender: string, channel: "email" | "sms"): boolean {
-  return channel === "sms" ? isAllowedSmsSender(sender) : isAllowedEmailSender(sender);
+/** Push: known bank app package names. A label such as GTBank is not on this list. */
+export function isAllowedPushSender(sender: string): boolean {
+  const n = normalizeSender(sender).toLowerCase();
+  if (!n || isPhoneSender(n) || BLOCKED.test(n)) return false;
+  return PUSH_APP_PACKAGES.some((pkg) => n === pkg || n.startsWith(`${pkg}.`));
+}
+
+export function isKnownBankSender(sender: string, channel: AlertChannel): boolean {
+  if (channel === "sms") return isAllowedSmsSender(sender);
+  if (channel === "push") return isAllowedPushSender(sender);
+  return isAllowedEmailSender(sender);
 }
 
 export function institutionForSender(sender: string): string | undefined {

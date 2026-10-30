@@ -150,6 +150,29 @@ class SmsLogicTest {
         assertTrue(decision.removeIds.isEmpty())
         assertTrue(decision.retry)
     }
+
+    @Test
+    fun pushDropsExcludedAppsAndAsksOnce() {
+        val debit = "Acct:******1234\nAmt:NGN1.00 DR\nBal:NGN10.00"
+        assertTrue(isExcludedPushPackage("com.whatsapp"))
+        assertTrue(isExcludedPushPackage("com.mtn.nigeria"))
+        assertTrue(isExcludedPushPackage("app.ledger.ledger_mobile"))
+        assertEquals(PushDecision.DROP, decidePush("com.whatsapp", debit, approved = false, denied = false))
+        assertEquals(PushDecision.DROP, decidePush("com.example.gtbank", "Hello from the app", approved = false, denied = false))
+        assertEquals(PushDecision.ASK, decidePush("com.example.gtbank", debit, approved = false, denied = false))
+        assertEquals(PushDecision.UPLOAD, decidePush("com.example.gtbank", debit, approved = true, denied = false))
+        assertEquals(PushDecision.DROP, decidePush("com.example.gtbank", debit, approved = true, denied = true))
+        assertEquals(
+            "b5fed7a40751a36100ca7eeb5d7e2421b7c44bf99d418e6c8fd6715d5e3f4e42",
+            pushSourceId("com.example.gtbank", 1728314220000L, "Amt:NGN1.00 DR"),
+        )
+        val payload = payloadJson(
+            listOf(UploadItem("src-push", "GTBank", "Amt:NGN1.00 DR", 1728314220000L)),
+            channel = "push",
+        )
+        assertTrue(payload.contains("\"channel\":\"push\""))
+        assertFalse(payloadJson(listOf(UploadItem("src-sms", "GTBank", "Amt:NGN1.00 DR", 1L))).contains("channel"))
+    }
 }
 
 fun main() {

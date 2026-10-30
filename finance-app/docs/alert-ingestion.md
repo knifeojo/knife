@@ -77,7 +77,13 @@ Google Play restricts `RECEIVE_SMS` / `READ_SMS`. This path is for the sideloade
 4. Queued texts go to `POST /api/v1/alerts/sms` as `{ sender, body, receivedAt, sourceId }` (or `messages: [...]`). `sourceId` is a stable hash of sender, timestamp and body so a retry is the same SMS. The server dedups that id within SMS. A known bank parser posts when it matches. Any other financial sender uses the generic parser (amount, direction, balance, masked last-4, narration) and goes to Review instead of posting. `receivedAt` is the original SMS time, used when the text has no date. Upload is a WorkManager job (expedited, network required, exponential backoff) plus a 15-minute periodic flush, and also on app start, resume, and **Sync now**. A message is removed from the phone queue only after a 2xx.
 5. Bank alerts shows **Last synced** and the captured / sent counts.
 
-A `NotificationListenerService` stub exists for bank-app push notifications as a fallback if SMS permission is unavailable later.
+## Android app alerts
+
+Bank apps also post a notification for the same debit. Ledger reads those with a notification listener, runs the same on-device classifier as SMS, and drops anything that is not financial before it leaves the phone.
+
+1. Settings → Bank alerts, or the first-run screen, → **Allow notification access**. That opens Android’s notification access screen. Turn Ledger on there.
+2. Messaging, social and telco packages are ignored (WhatsApp, Telegram, Instagram, MTN, Airtel, and Ledger itself). A new financial app asks once: **Track alerts from App?** Yes uploads that app. No drops it.
+3. Approved alerts use the same WorkManager upload as SMS (`POST /api/v1/alerts/sms` with `channel: "push"`). `sourceId` is a hash of package, post time and text. The server parses them with the SMS parsers and counts one transaction when SMS, push and email share an amount, account and a 36 hour window.
 
 ## iPhone Shortcuts
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseAlert, parserRegistryJson, ALERT_PARSERS } from "@/core/alerts/registry";
-import { isAllowedSmsSender, isPhoneSender } from "@/core/alerts/senders";
+import { isAllowedPushSender, isAllowedSmsSender, isKnownBankSender, isPhoneSender } from "@/core/alerts/senders";
 import type { AlertMessage } from "@/core/alerts/types";
 
 function sms(sender: string, body: string, receivedAt = new Date("2026-10-07T14:17:00Z")): AlertMessage {
@@ -217,6 +217,41 @@ describe("unknown financial senders", () => {
     expect(parseAlert(sms("GTBank", "Your OTP is 482193. Do not share this code with anyone.")).status).toBe("skipped");
     expect(parseAlert(sms("Renmoney", "Your verification code is 849201. It expires in 5 minutes.")).status).toBe("skipped");
     expect(parseAlert(sms("Renmoney", "Congratulations! You have won N500,000. Dial *123# to claim.")).status).toBe("skipped");
+  });
+});
+
+describe("push alerts", () => {
+  it("knows bank app packages and does not treat them as email", () => {
+    expect(isAllowedPushSender("com.gtbank.gtworld")).toBe(true);
+    expect(isAllowedPushSender("com.firstbank.firstmobile")).toBe(true);
+    expect(isKnownBankSender("com.gtbank.gtworld", "push")).toBe(true);
+    expect(isKnownBankSender("com.gtbank.gtworld", "email")).toBe(false);
+    expect(isKnownBankSender("alerts@gtbank.com", "push")).toBe(false);
+    expect(isKnownBankSender("alerts@gtbank.com", "email")).toBe(true);
+    expect(isAllowedPushSender("com.whatsapp")).toBe(false);
+  });
+
+  it("posts a GTBank-shaped notification and reviews an unmatched financial one", () => {
+    const posted = parseAlert({ channel: "push", sender: "GTBank", body: GT_DR, receivedAt: new Date("2026-10-07T14:17:00Z") });
+    expect(posted.status).toBe("parsed");
+
+    const known = parseAlert({
+      channel: "push",
+      sender: "com.gtbank.gtworld",
+      body: "Available balance NGN10,000.00",
+      receivedAt: new Date("2026-10-07T14:17:00Z"),
+    });
+    expect(known.status).toBe("unparsed");
+
+    const other = parseAlert({
+      channel: "push",
+      sender: "com.example.wallet",
+      body: "Available balance NGN4,200.00",
+      receivedAt: new Date("2026-10-07T14:17:00Z"),
+    });
+    expect(other.status).toBe("unparsed");
+
+    expect(parseAlert({ channel: "push", sender: "com.example.wallet", body: "Your statement is ready", receivedAt: new Date() }).status).toBe("skipped");
   });
 });
 
