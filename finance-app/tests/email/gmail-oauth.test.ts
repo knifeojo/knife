@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { issueSession } from "@/lib/auth";
 import { listEmailConnections, removeEmailConnection, saveGmailInbox, saveImapInbox, startGmailConnect } from "@/core/email/inboxes";
-import { GET as callback } from "@/app/api/v1/email/google/callback/route";
+import { GET as callback, gmailCallbackPage, returnToLedgerLink } from "@/app/api/v1/email/google/callback/route";
 import { POST as start } from "@/app/api/v1/email/google/start/route";
 import { GMAIL_READONLY_SCOPE } from "@/core/providers/gmail";
 
@@ -138,7 +138,17 @@ describe("Gmail OAuth for any inbox", () => {
 
     const bad = await callback(new Request("http://localhost/api/v1/email/google/callback"));
     expect(bad.status).toBe(400);
-    expect(await bad.text()).toContain("Gmail was not connected");
+    const html = await bad.text();
+    expect(html).toContain("Gmail was not connected");
+    expect(html).toContain("Return to Ledger");
+    expect(html).toContain("ledger://email-connected?error=incomplete");
     expect(await db.emailConnection.count({ where: { userId: user.id } })).toBe(0);
+
+    const linked = returnToLedgerLink({ address: "ada@example.test" });
+    expect(linked).toBe("ledger://email-connected?address=ada%40example.test");
+    const ok = await gmailCallbackPage(200, "Gmail connected", "ada@example.test is connected.", linked).text();
+    expect(ok).toContain("Return to Ledger");
+    expect(ok).toContain("ledger://email-connected?address=ada%40example.test");
+    expect(ok).toContain("location.replace");
   });
 });

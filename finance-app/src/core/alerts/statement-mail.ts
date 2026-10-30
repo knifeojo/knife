@@ -1,5 +1,5 @@
 import { BANK_SOURCES } from "../sources";
-import { senderDomain } from "./senders";
+import { BANK_SENDERS, senderDomain } from "./senders";
 
 // Which emails carry a monthly statement (as opposed to a transaction alert).
 // Sender domain plus a subject or filename pattern. Override or extend with STATEMENT_EMAIL_RULES
@@ -149,4 +149,28 @@ export function emailSearchQueries(sourceKind: string): string[] {
   if (sourceKind === "imap" || sourceKind === "fixture") return alerts.slice(0, 1);
   const statement = statementGmailQuery();
   return alerts.includes(statement) ? alerts : [...alerts, statement];
+}
+
+/** First Gmail connect reads this far back. Later syncs use the last-sync watermark. */
+export const GMAIL_BACKFILL_DAYS = 365;
+
+export const FINANCIAL_MAIL_KEYWORDS = ["debit", "credit", "alert", "statement", "transaction", "payment", "transfer", "balance"] as const;
+
+/** Known bank senders plus financial words, so the first sync is not limited to the newest GTBank alerts. */
+export function initialBankMailQuery(): string {
+  const from = BANK_SENDERS.filter((sender) => sender.channel !== "sms").map((sender) => `from:${sender.id}`).join(" OR ");
+  const words = FINANCIAL_MAIL_KEYWORDS.join(" OR ");
+  return `(${from}) (${words})`;
+}
+
+export function initialGmailAfter(now = new Date()): Date {
+  return new Date(now.getTime() - GMAIL_BACKFILL_DAYS * 86_400_000);
+}
+
+/** Gmail's first sync adds the 12 month bank-mail query. Later syncs stay on the alert and statement queries. */
+export function syncSearchQueries(sourceKind: string, firstSync: boolean): string[] {
+  const base = emailSearchQueries(sourceKind);
+  if (!firstSync || sourceKind !== "gmail") return base;
+  const extra = initialBankMailQuery();
+  return base.includes(extra) ? base : [...base, extra];
 }

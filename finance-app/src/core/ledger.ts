@@ -6,6 +6,7 @@ import { accountKey, amountsMatch, computeFingerprint, findFuzzyMatch, pickState
 import { parseEmail } from "./parsers";
 import type { EmailSource } from "./providers/types";
 import { emailSearchQueries } from "./alerts/statement-mail";
+import { initialGmailAfter, syncSearchQueries } from "./alerts/statement-mail";
 import { INITIAL_LOOKBACK_DAYS, MAX_MESSAGES_PER_SYNC } from "./sources";
 import type { KnownPerson } from "./people-match";
 import { extractPayoutQuote } from "./fx/quotes";
@@ -276,10 +277,13 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
   const run = await db.syncRun.create({ data: { userId, connectionId, status: "running" } });
   const m = { emailsScanned: 0, parsed: 0, created: 0, duplicates: 0, parseFailures: 0, skipped: 0 };
   const confidences: number[] = [];
-  // Re-scan a 2 day overlap; processed message ids make the overlap free.
+  // First Gmail connect backfills 12 months of bank mail. Later syncs re-scan a 2 day overlap.
+  const firstSync = !conn.lastSyncedAt;
   const after = conn.lastSyncedAt
     ? new Date(conn.lastSyncedAt.getTime() - 2 * 86400_000)
-    : new Date(Date.now() - INITIAL_LOOKBACK_DAYS * 86400_000);
+    : source.source === "gmail"
+      ? initialGmailAfter()
+      : new Date(Date.now() - INITIAL_LOOKBACK_DAYS * 86400_000);
 
   try {
     const rules = await loadUserRules(userId);
@@ -288,7 +292,7 @@ export async function syncEmailSource(userId: string, connectionId: string, sour
     let historyId: string | undefined;
     let historyTried = false;
     let historyCoveredAll = false;
-    for (const query of emailSearchQueries(source.source)) {
+    for (const query of syncSearchQueries(source.source, firstSync)) {
       if (historyCoveredAll) break;
       let ids: string[] = [];
       if (!historyTried && source.listHistoryMessageIds && conn.gmailHistoryId && conn.lastSyncedAt) {

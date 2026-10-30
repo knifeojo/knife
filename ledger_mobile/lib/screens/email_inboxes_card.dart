@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -29,7 +31,7 @@ class EmailInboxesCard extends StatefulWidget {
   State<EmailInboxesCard> createState() => _EmailInboxesCardState();
 }
 
-class _EmailInboxesCardState extends State<EmailInboxesCard> {
+class _EmailInboxesCardState extends State<EmailInboxesCard> with WidgetsBindingObserver {
   List<ConnectedInbox> _rows = const [];
   String? _error;
   var _busy = false;
@@ -37,7 +39,22 @@ class _EmailInboxesCardState extends State<EmailInboxesCard> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    const MethodChannel('ledger/email').setMethodCallHandler((call) async {
+      if (call.method == 'onConnected' && mounted) await _load();
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_load());
   }
 
   Future<void> _load() async {

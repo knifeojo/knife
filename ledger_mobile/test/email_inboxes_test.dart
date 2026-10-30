@@ -131,6 +131,40 @@ void main() {
     expect(find.text('Add email runs on the Android app.'), findsOneWidget);
     controller.dispose();
   });
+
+  testWidgets('returning to the app reloads the inbox list', (tester) async {
+    var armed = false;
+    var reloads = 0;
+    final controller = LedgerController(
+      MemorySettingsStore(),
+      httpClient: MockClient((request) async {
+        if (!armed) return _json({'connections': []});
+        reloads += 1;
+        return _json({
+          'connections': [
+            {'id': 'gmail-1', 'provider': 'gmail', 'address': 'ada@example.test'},
+          ],
+        });
+      }),
+    );
+    await controller.load();
+    controller.serverUrl = 'http://100.64.0.8:3000';
+    controller.token = 'token-token-token-token';
+    await tester.pumpWidget(
+      ChangeNotifierProvider<LedgerController>.value(
+        value: controller,
+        child: const MaterialApp(home: Scaffold(body: EmailInboxesCard())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('No inboxes connected yet.'), findsOneWidget);
+    armed = true;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(reloads, greaterThan(0));
+    expect(find.text('Gmail · ada@example.test'), findsOneWidget);
+    controller.dispose();
+  });
 }
 
 http.Response _json(Object body) =>
