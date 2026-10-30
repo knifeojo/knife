@@ -10,6 +10,7 @@ import 'package:ledger_mobile/alerts/sms_controller.dart';
 import 'package:ledger_mobile/alerts/sms_platform.dart';
 import 'package:ledger_mobile/alerts/source_id.dart';
 import 'package:ledger_mobile/api/models.dart';
+import 'package:ledger_mobile/alerts/sms_sync_host.dart';
 import 'package:ledger_mobile/screens/bank_alerts_screen.dart';
 import 'package:ledger_mobile/screens/sms_alerts_card.dart';
 import 'package:ledger_mobile/state/ledger_controller.dart';
@@ -36,7 +37,7 @@ void main() {
             .value,
         isFalse,
       );
-      expect(find.text('Last SMS sync: never'), findsOneWidget);
+      expect(find.text('Last synced: never'), findsOneWidget);
       expect(find.text('Captured 0 · Sent 0'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('sms-alerts-toggle')));
@@ -173,7 +174,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Captured 1 · Sent 0 · 1 waiting'), findsOneWidget);
-    expect(find.text('Last SMS sync: never'), findsOneWidget);
+    expect(find.text('Last synced: never'), findsOneWidget);
     expect(sms.queued, 1);
     sms.dispose();
   });
@@ -301,6 +302,47 @@ void main() {
       controller.dispose();
     },
   );
+
+  testWidgets('a new financial sender asks once before upload', (tester) async {
+    final platform = FakeSmsPlatform();
+    final posted = <QueuedSms>[];
+    final sms = _controller(
+      platform,
+      upload: (batch) async {
+        posted.addAll(batch);
+        return List.filled(batch.length, true);
+      },
+    );
+    final at = DateTime.utc(2026, 10, 4, 8, 30);
+    const body =
+        'Credit of NGN15,000.00 into wallet ****4821. Avl Bal: NGN27,430.50. Desc: WALLET FUNDING FROM EMPLOYER';
+    platform.nativeQueue.add(
+      QueuedSms(
+        sender: 'Renmoney',
+        body: body,
+        receivedAt: at,
+        sourceId: smsSourceId(sender: 'Renmoney', body: body, receivedAt: at),
+      ),
+    );
+    platform.pendingSenderNames.add('Renmoney');
+
+    await tester.pumpWidget(
+      SmsAlertScope(
+        controller: sms,
+        child: const MaterialApp(home: SmsSyncHost(child: SizedBox.shrink())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Track texts from Renmoney?'), findsOneWidget);
+    expect(posted, isEmpty);
+
+    await tester.tap(find.byKey(const Key('sms-track-yes')));
+    await tester.pumpAndSettle();
+    expect(posted.map((item) => item.sender), ['Renmoney']);
+    expect(platform.approved, contains('renmoney'));
+    expect(find.text('Track texts from Renmoney?'), findsNothing);
+    sms.dispose();
+  });
 }
 
 QueuedSms _queued(String sender, String body, DateTime at) {
@@ -391,4 +433,37 @@ class FakeSmsPlatform implements SmsPlatform {
 
   @override
   Future<void> setOptIn(bool value) async => optIn = value;
+
+  final List<String> pendingSenderNames = [];
+  final Set<String> approved = {};
+  final Set<String> denied = {};
+
+  @override
+  Future<void> approveSender(String sender) async {
+    approved.add(sender.toLowerCase());
+    denied.remove(sender.toLowerCase());
+    pendingSenderNames.remove(sender);
+  }
+
+  @override
+  Future<List<String>> approvedSenders() async => approved.toList();
+
+  @override
+  Future<void> denySender(String sender) async {
+    denied.add(sender.toLowerCase());
+    approved.remove(sender.toLowerCase());
+    pendingSenderNames.remove(sender);
+  }
+
+  @override
+  Future<List<String>> deniedSenders() async => denied.toList();
+
+  @override
+  Future<void> ensureBackgroundSync() async {}
+
+  @override
+  Future<List<String>> pendingSenders() async => List.of(pendingSenderNames);
+
+  @override
+  Future<NativeFlush?> uploadNow() async => null;
 }

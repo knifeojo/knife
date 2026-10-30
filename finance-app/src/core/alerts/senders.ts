@@ -53,6 +53,27 @@ function extraMatches(sender: string): boolean {
   return extraSmsSenders().some((s) => s.toLowerCase() === n);
 }
 
+export function isBlockedSmsSender(sender: string): boolean {
+  return BLOCKED.test(normalizeSender(sender));
+}
+
+/**
+ * Phone numbers and telco ids never enter ingest. Any other sender may: known banks
+ * use their parser, and an unknown financial sender falls through to the generic parser (Review).
+ */
+export function isIngestibleSmsSender(sender: string): boolean {
+  const n = normalizeSender(sender);
+  if (!n || isPhoneSender(n) || isBlockedSmsSender(n)) return false;
+  return true;
+}
+
+/** One-time codes are not transactions, even from a known bank. */
+export function isOtpMessage(body: string, subject = ""): boolean {
+  const text = `${subject}\n${body}`;
+  return /\b(otp|one[-\s]?time (?:password|pin|code)|verification code|do not share(?: this)? (?:code|otp)|your code is)\b/i.test(text) ||
+    /\b(?:code|otp)\s*(?:is|:)\s*\d{4,8}\b/i.test(text);
+}
+
 /** SMS: alphanumeric bank sender IDs only. Phone numbers and telco/promo IDs are refused. */
 export function isAllowedSmsSender(sender: string): boolean {
   const n = normalizeSender(sender);

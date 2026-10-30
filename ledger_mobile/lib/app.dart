@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'alerts/sms_controller.dart';
+import 'alerts/sms_sync_host.dart';
 import 'screens/root_screen.dart';
 import 'state/ledger_controller.dart';
 import 'theme.dart';
@@ -25,7 +26,7 @@ class LedgerApp extends StatelessWidget {
               title: 'Ledger',
               theme: ledgerTheme(Brightness.light),
               darkTheme: ledgerTheme(Brightness.dark),
-              home: const RootScreen(),
+              home: const SmsSyncHost(child: RootScreen()),
             );
           },
         ),

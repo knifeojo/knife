@@ -1,7 +1,7 @@
 name: ledger_mobile
 description: Ledger for Android. Talks to a self-hosted Ledger server.
 publish_to: "none"
-version: 0.3.1+4
+version: 0.3.2+5
 
 environment:
   sdk: ^3.13.5

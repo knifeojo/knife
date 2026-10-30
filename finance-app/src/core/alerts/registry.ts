@@ -4,7 +4,7 @@ import { FirstBankSmsParser } from "./firstbank-sms";
 import { GenericFallbackParser } from "./fallback";
 import { GTBankEmailParser } from "./email-adapter";
 import { GTBankSmsParser } from "./gtbank-sms";
-import { isAllowedSmsSender, isBankMarketing, isKnownBankSender, smsSenderIds } from "./senders";
+import { isBankMarketing, isIngestibleSmsSender, isKnownBankSender, isOtpMessage, smsSenderIds } from "./senders";
 import { ProvidusSmsParser } from "./providus-sms";
 import { SterlingSmsParser } from "./sterling-sms";
 import { STUB_PARSERS } from "./stubs";
@@ -36,10 +36,12 @@ export function parsersFor(msg: AlertMessage): AlertParser[] {
 /**
  * Deterministic: first matching parser for this channel+sender wins.
  * Known bank senders that no parser can read become `unparsed` (Review).
- * The generic fallback is last and always `review` (never auto-posts).
+ * Unknown senders that look like a payment hit the generic fallback, which is always
+ * low-confidence `review` (never auto-posted). Phone numbers, telcos, OTPs and promos are skipped.
  */
 export function parseAlert(msg: AlertMessage, parsers: AlertParser[] = ALERT_PARSERS): ParseAlertOutcome {
-  if (msg.channel === "sms" && !isAllowedSmsSender(msg.sender)) return { status: "skipped" };
+  if (msg.channel === "sms" && !isIngestibleSmsSender(msg.sender)) return { status: "skipped" };
+  if (isOtpMessage(msg.body, msg.subject)) return { status: "skipped" };
   if (isBankMarketing(msg.body, msg.subject)) return { status: "skipped" };
 
   const pool = parsers === ALERT_PARSERS ? parsersFor(msg) : parsers.filter((p) => p.channels.includes(msg.channel) && !p.stub);

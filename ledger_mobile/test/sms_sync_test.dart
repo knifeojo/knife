@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:ledger_mobile/alerts/classifier.dart';
 import 'package:ledger_mobile/alerts/queue.dart';
 import 'package:ledger_mobile/alerts/senders.dart';
 import 'package:ledger_mobile/alerts/sms_controller.dart';
@@ -90,7 +91,8 @@ void main() {
 
     final first = await sync.accept([bank, bank, phone, telco]);
     expect(first.added, 1);
-    expect(first.ackIds, containsAll([bank.sourceId, 'phone-1', 'telco-1']));
+    expect(first.ackIds, containsAll(['phone-1', 'telco-1']));
+    expect(first.ackIds, isNot(contains(bank.sourceId)));
     expect(sync.outbox.items.map((item) => item.sender), ['GTBank']);
 
     final again = await sync.accept([bank]);
@@ -211,7 +213,7 @@ void main() {
     final bad = _bank(
       sender: 'Sterling',
       sourceId: 'bad',
-      body: 'Money Out! not a full alert',
+      body: 'Money Out! You have spent NGN1.00 from ****1111. Bal: NGN2.00',
     );
     final accepted = await postSmsBatch(api, [bank, bad]);
     expect(accepted, [true, false]);
@@ -287,6 +289,58 @@ void main() {
       sms.dispose();
     },
   );
+
+  test('a new financial sender waits for yes, and a retry does not duplicate', () async {
+    const renBody =
+        'Credit of NGN15,000.00 into wallet ****4821. Avl Bal: NGN27,430.50. Desc: WALLET FUNDING FROM EMPLOYER';
+    final ren = _bank(sender: 'Renmoney', body: renBody);
+    expect(classifyFinancialSms('Renmoney', renBody).reason, 'financial');
+    expect(senderAction('Renmoney', renBody), SenderAction.ask);
+
+    final sync = SmsQueueSync(MemorySettingsStore(), now: () => DateTime.utc(2026, 10, 28, 18));
+    final held = await sync.accept([ren]);
+    expect(held.added, 0);
+    expect(sync.outbox.items, isEmpty);
+
+    final otp = QueuedSms(
+      sender: 'GTBank',
+      body: 'Your OTP is 482193. Do not share this code with anyone.',
+      receivedAt: ren.receivedAt,
+      sourceId: 'otp-1',
+    );
+    final dropped = await sync.accept([otp]);
+    expect(dropped.added, 0);
+    expect(dropped.ackIds, contains('otp-1'));
+
+    final allowed = await sync.accept([ren], approved: {'renmoney'});
+    expect(allowed.added, 1);
+
+    var posts = 0;
+    final once = await sync.flush(post: (batch) async {
+      posts += 1;
+      expect(batch.single.sourceId, ren.sourceId);
+      throw const ApiException(0, 'offline');
+    });
+    expect(once.ok, isFalse);
+    expect(sync.outbox.items, hasLength(1));
+
+    final sent = await sync.flush(post: (batch) async {
+      posts += 1;
+      return [true];
+    });
+    expect(sent.sent, 1);
+    expect(sent.sentIds, [ren.sourceId]);
+    final again = await sync.flush(post: (batch) async {
+      posts += 1;
+      return [true];
+    });
+    expect(again.sent, 0);
+    expect(posts, 2);
+
+    final denied = await sync.accept([ren], denied: {'renmoney'});
+    expect(denied.added, 0);
+    expect(denied.ackIds, contains(ren.sourceId));
+  });
 }
 
 extension on SmsAlertController {
@@ -333,4 +387,37 @@ class _FakeSmsPlatform implements SmsPlatform {
 
   @override
   Future<void> setOptIn(bool value) async => optIn = value;
+
+  final List<String> senderPrompts = [];
+  final Set<String> approved = {};
+  final Set<String> denied = {};
+
+  @override
+  Future<void> approveSender(String sender) async {
+    approved.add(sender.toLowerCase());
+    denied.remove(sender.toLowerCase());
+    senderPrompts.remove(sender);
+  }
+
+  @override
+  Future<List<String>> approvedSenders() async => approved.toList();
+
+  @override
+  Future<void> denySender(String sender) async {
+    denied.add(sender.toLowerCase());
+    approved.remove(sender.toLowerCase());
+    senderPrompts.remove(sender);
+  }
+
+  @override
+  Future<List<String>> deniedSenders() async => denied.toList();
+
+  @override
+  Future<void> ensureBackgroundSync() async {}
+
+  @override
+  Future<List<String>> pendingSenders() async => List.of(senderPrompts);
+
+  @override
+  Future<NativeFlush?> uploadNow() async => null;
 }

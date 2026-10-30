@@ -21,6 +21,49 @@ abstract class SmsPlatform {
     required DateTime to,
   });
   void listen(void Function() onCaptured);
+
+  /// Android WorkManager upload. Null when this platform uploads through Dart instead.
+  Future<NativeFlush?> uploadNow();
+  Future<void> ensureBackgroundSync();
+  Future<List<String>> pendingSenders();
+  Future<List<String>> approvedSenders();
+  Future<List<String>> deniedSenders();
+  Future<void> approveSender(String sender);
+  Future<void> denySender(String sender);
+}
+
+/// Result of the native queue upload. [ok] is false when rows remain after a failed post.
+class NativeFlush {
+  const NativeFlush({
+    required this.sent,
+    required this.kept,
+    required this.ok,
+    required this.queued,
+    this.error,
+  });
+
+  final int sent;
+  final int kept;
+  final bool ok;
+  final int queued;
+  final String? error;
+
+  factory NativeFlush.fromMap(Map<Object?, Object?> raw) {
+    int asInt(Object? value) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return 0;
+    }
+
+    final error = raw['error'];
+    return NativeFlush(
+      sent: asInt(raw['sent']),
+      kept: asInt(raw['kept']),
+      ok: raw['ok'] == true,
+      queued: asInt(raw['queued']),
+      error: error is String && error.isNotEmpty ? error : null,
+    );
+  }
 }
 
 class MethodChannelSmsPlatform implements SmsPlatform {
@@ -78,6 +121,56 @@ class MethodChannelSmsPlatform implements SmsPlatform {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onCaptured') onCaptured();
     });
+  }
+
+  @override
+  Future<NativeFlush?> uploadNow() async {
+    try {
+      final raw = await _channel.invokeMethod<Object?>('uploadNow');
+      if (raw is! Map) return null;
+      return NativeFlush.fromMap(raw.cast<Object?, Object?>());
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> ensureBackgroundSync() async {
+    await _invoke<bool>('ensureBackgroundSync');
+  }
+
+  @override
+  Future<List<String>> pendingSenders() async => _stringList('pendingSenders');
+
+  @override
+  Future<List<String>> approvedSenders() async => _stringList('approvedSenders');
+
+  @override
+  Future<List<String>> deniedSenders() async => _stringList('deniedSenders');
+
+  @override
+  Future<void> approveSender(String sender) async {
+    await _invoke<bool>('approveSender', {'sender': sender});
+  }
+
+  @override
+  Future<void> denySender(String sender) async {
+    await _invoke<bool>('denySender', {'sender': sender});
+  }
+
+  Future<List<String>> _stringList(String method) async {
+    try {
+      final raw = await _channel.invokeMethod<Object?>(method);
+      if (raw is! List) return const [];
+      return [
+        for (final item in raw)
+          if (item is String && item.isNotEmpty) item,
+      ];
+    } on MissingPluginException {
+      return const [];
+    } on PlatformException {
+      return const [];
+    }
   }
 
   Future<T?> _invoke<T>(String method, [Object? arguments]) async {

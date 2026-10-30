@@ -105,8 +105,8 @@ String smsCountLabel({
 }
 
 String smsLastSyncLabel(DateTime? at) {
-  if (at == null) return 'Last SMS sync: never';
+  if (at == null) return 'Last synced: never';
   final local = at.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
-  return 'Last SMS sync: ${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  return 'Last synced: ${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }

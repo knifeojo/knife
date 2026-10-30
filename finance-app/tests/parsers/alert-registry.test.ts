@@ -181,6 +181,45 @@ describe("sender allowlist", () => {
   });
 });
 
+const RENMONEY =
+  "Credit of NGN15,000.00 into wallet ****4821. Avl Bal: NGN27,430.50. Desc: WALLET FUNDING FROM EMPLOYER";
+
+describe("unknown financial senders", () => {
+  it("sends a Renmoney-like text to Review and does not auto-post", () => {
+    const r = parseAlert(sms("Renmoney", RENMONEY));
+    expect(r.status).toBe("review");
+    if (r.status !== "review") return;
+    expect(r.parser).toBe("GenericFallback");
+    expect(r.transaction.autoPost).toBe(false);
+    expect(r.transaction.confidence).toBeLessThan(0.5);
+    expect(r.transaction.type).toBe("CREDIT");
+    expect(r.transaction.amountMinor).toBe(1_500_000n);
+    expect(r.transaction.currency).toBe("NGN");
+    expect(r.transaction.balanceAfterMinor).toBe(2_743_050n);
+    expect(r.transaction.accountLast4).toBe("4821");
+    expect(r.transaction.description).toMatch(/WALLET FUNDING FROM EMPLOYER/);
+  });
+
+  it("parses a USD debit with a masked account when no bank parser matches", () => {
+    const r = parseAlert(
+      sms("Renmoney", "Debit of USD20.50 at CARD. Bal: USD80.00. Desc: NETFLIX. Acct: ****0091"),
+    );
+    expect(r.status).toBe("review");
+    if (r.status !== "review") return;
+    expect(r.transaction.type).toBe("DEBIT");
+    expect(r.transaction.amountMinor).toBe(2_050n);
+    expect(r.transaction.currency).toBe("USD");
+    expect(r.transaction.accountLast4).toBe("0091");
+    expect(r.transaction.autoPost).toBe(false);
+  });
+
+  it("skips OTP and promo texts", () => {
+    expect(parseAlert(sms("GTBank", "Your OTP is 482193. Do not share this code with anyone.")).status).toBe("skipped");
+    expect(parseAlert(sms("Renmoney", "Your verification code is 849201. It expires in 5 minutes.")).status).toBe("skipped");
+    expect(parseAlert(sms("Renmoney", "Congratulations! You have won N500,000. Dial *123# to claim.")).status).toBe("skipped");
+  });
+});
+
 describe("stubs and registry JSON", () => {
   it("registers First Bank / Sterling email stubs that never match", () => {
     const stubs = ALERT_PARSERS.filter((p) => p.stub);

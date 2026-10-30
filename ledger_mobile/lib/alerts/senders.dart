@@ -1,4 +1,5 @@
-/// Bank SMS sender IDs. Personal numbers and telco/promo IDs are never read or uploaded.
+/// Known bank sender IDs. These auto-accept (no prompt). The upload gate is the financial
+/// classifier, not this list. Add a bank here and in `BankSenders.known` on Android. Do not scatter ids.
 const defaultBankSenders = ['GTBank', 'GTWorld', 'FirstBank', 'STERLING', 'Sterling', 'PROVIDUS'];
 
 /// Names shown before the SMS permission prompt.
