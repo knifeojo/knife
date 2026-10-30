@@ -3,12 +3,10 @@ import { decrypt, encrypt, randomToken } from "@/lib/crypto";
 import { log } from "@/lib/log";
 import {
   GMAIL_READONLY_SCOPE,
-  MOBILE_GMAIL_CALLBACK,
   authorizationUrl,
   exchangeCode,
   gmailProfile,
   googleConfigured,
-  publicBaseUrl,
   revokeToken,
 } from "../providers/gmail";
 
@@ -209,13 +207,19 @@ export function gmailConnectConfigured(): boolean {
   return googleConfigured() && !!process.env.PUBLIC_BASE_URL?.trim();
 }
 
-export async function startGmailConnect(userId: string): Promise<{ url: string }> {
+/** Website connect stores state with this prefix so the shared callback can send the browser back to Accounts. */
+export const WEB_GMAIL_STATE_PREFIX = "web.";
+
+export function isWebGmailState(state: string): boolean {
+  return state.startsWith(WEB_GMAIL_STATE_PREFIX);
+}
+
+export async function startGmailConnect(userId: string, opts?: { web?: boolean }): Promise<{ url: string }> {
   if (!gmailConnectConfigured()) throw new Error("Google sign-in is not configured.");
-  const base = publicBaseUrl();
-  const state = randomToken(24);
+  const state = `${opts?.web ? WEB_GMAIL_STATE_PREFIX : ""}${randomToken(24)}`;
   await db.emailOAuthState.deleteMany({ where: { expiresAt: { lt: new Date() } } });
   await db.emailOAuthState.create({ data: { state, userId, expiresAt: new Date(Date.now() + 10 * 60_000) } });
-  return { url: authorizationUrl(state, undefined, MOBILE_GMAIL_CALLBACK, base) };
+  return { url: authorizationUrl(state) };
 }
 
 export async function finishGmailConnect(input: { state: string; code: string }) {
@@ -223,8 +227,7 @@ export async function finishGmailConnect(input: { state: string; code: string })
   const pending = await db.emailOAuthState.findUnique({ where: { state: input.state } });
   if (!pending || pending.expiresAt.getTime() < Date.now()) throw new Error("This Google sign-in expired. Start again from Ledger.");
   await db.emailOAuthState.delete({ where: { state: input.state } });
-  const base = publicBaseUrl();
-  const tokens = await exchangeCode(input.code, MOBILE_GMAIL_CALLBACK, base);
+  const tokens = await exchangeCode(input.code);
   assertGmailReadonly(tokens.scope);
   const profile = await gmailProfile(tokens.access_token);
   return saveGmailInbox(pending.userId, {

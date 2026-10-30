@@ -10,10 +10,9 @@ About 15 minutes. Until Google verifies the app, only test users you list can co
 4. **Credentials → Create credentials → OAuth client ID** → Web application.
    - Authorized redirect URIs:
      - `http://localhost:3000/api/auth/google/callback` (Continue with Google sign-in, identity only)
-     - `http://localhost:3000/api/gmail/callback` (Connect Gmail on the website, read-only mailbox access)
-     - `https://<your-public-host>/api/v1/email/google/callback` (Sign in with Google started from the phone)
-     - Add the same paths on your production domain later.
-5. Put the client id and secret in `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Make sure `APP_URL` matches the website origin. Set `PUBLIC_BASE_URL` to the https origin Google can reach (a Tailscale Funnel address works). Restart `npm run dev`.
+     - `https://<your-public-host>/api/v1/email/google/callback` (every Gmail inbox connect: the website and the phone)
+     - Do not register `APP_URL/api/gmail/callback`. Google only has the public Gmail callback.
+5. Put the client id and secret in `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. `APP_URL` is where the website sends you after Gmail connects (`/app/accounts`). `PUBLIC_BASE_URL` is the https origin Google can reach (a Tailscale Funnel address works) and is the only host used in the Gmail `redirect_uri`. Restart `npm run dev`.
 
 The phone starts Sign in with Google from Settings → Add email. The scope is `gmail.readonly` with offline access. Each inbox is its own EmailConnection with an encrypted refresh token. Several Gmail accounts can sit next to Yahoo or IMAP. Background sync runs the existing alert and statement parsers for every connected inbox. The same debit is counted once across inboxes, SMS and push when the amount, account and time match.
 6. In the app: Log in → **Continue with Google**. New users land on the Gmail consent screen; click **Continue with Google** again to grant read-only mailbox access. Sign-in and Gmail access are deliberately separate consents.

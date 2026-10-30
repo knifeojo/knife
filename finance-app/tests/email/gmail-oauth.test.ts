@@ -6,6 +6,7 @@ import { issueSession } from "@/lib/auth";
 import { activeConnectionFor, disconnectGmailInbox, listEmailConnections, saveGmailInbox, saveImapInbox, startGmailConnect } from "@/core/email/inboxes";
 import { GET as callback, gmailCallbackPage, returnToLedgerLink } from "@/app/api/v1/email/google/callback/route";
 import { POST as start } from "@/app/api/v1/email/google/start/route";
+import { POST as webConnect } from "@/app/api/gmail/connect/route";
 import { GMAIL_READONLY_SCOPE, authorizationUrl } from "@/core/providers/gmail";
 
 const CLIENT = "test-client.apps.googleusercontent.com";
@@ -32,6 +33,7 @@ describe("Gmail OAuth for any inbox", () => {
     expect(parsed.searchParams.get("login_hint")).toBeNull();
     const web = new URL(authorizationUrl("state-1"));
     expect(web.searchParams.get("prompt")).toBe("select_account consent");
+    expect(web.searchParams.get("redirect_uri")).toBe(`${BASE}/api/v1/email/google/callback`);
     expect(web.searchParams.has("login_hint")).toBe(false);
     expect(parsed.searchParams.get("response_type")).toBe("code");
 
@@ -40,6 +42,38 @@ describe("Gmail OAuth for any inbox", () => {
     await expect(startGmailConnect(user.id)).rejects.toThrow(/not configured/);
     expect(await db.emailOAuthState.count({ where: { userId: user.id } })).toBe(1);
     process.env.PUBLIC_BASE_URL = missing;
+  });
+
+  it("web Add another Gmail uses the public callback, never APP_URL or the request host", async () => {
+    process.env.APP_URL = "http://localhost:3000";
+    const user = await db.user.create({ data: { email: "oauth-web-connect@test.dev" } });
+    const { token } = await issueSession(user.id);
+    const res = await webConnect(new Request("http://evil.example/api/gmail/connect", {
+      method: "POST",
+      headers: { cookie: `fa_session=${token}`, host: "evil.example" },
+    }));
+    expect(res.status).toBe(303);
+    const location = res.headers.get("location") ?? "";
+    expect(location).not.toContain("localhost:3000");
+    expect(location).not.toContain("evil.example");
+    expect(location).not.toContain("/api/gmail/callback");
+    const redirectUri = new URL(location).searchParams.get("redirect_uri");
+    expect(redirectUri).toBe(`${BASE}/api/v1/email/google/callback`);
+    const state = new URL(location).searchParams.get("state") ?? "";
+    expect(state.startsWith("web.")).toBe(true);
+    const pending = await db.emailOAuthState.findUnique({ where: { state } });
+    expect(pending?.userId).toBe(user.id);
+
+    const denied = await callback(new Request(`http://evil.example/api/v1/email/google/callback?error=access_denied&state=${encodeURIComponent(state)}`));
+    expect(denied.status).toBe(303);
+    expect(denied.headers.get("location")).toBe("http://localhost:3000/app/accounts?gmail=denied");
+    expect(await denied.text()).not.toContain("ledger://");
+
+    const phone = await startGmailConnect(user.id);
+    const phoneState = new URL(phone.url).searchParams.get("state") ?? "";
+    const phoneDenied = await callback(new Request(`http://evil.example/api/v1/email/google/callback?error=access_denied&state=${encodeURIComponent(phoneState)}`));
+    expect(phoneDenied.status).toBe(400);
+    expect(await phoneDenied.text()).toContain("ledger://email-connected?error=denied");
   });
 
   it("stays inert when Google credentials or PUBLIC_BASE_URL are unset", async () => {

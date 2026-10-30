@@ -1,6 +1,8 @@
-import { finishGmailConnect } from "@/core/email/inboxes";
+import { finishGmailConnect, isWebGmailState } from "@/core/email/inboxes";
 import { syncOneConnection } from "@/core/alerts/scheduler";
+import { db } from "@/lib/db";
 import { log } from "@/lib/log";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,27 +26,51 @@ export function gmailCallbackPage(status: number, title: string, body: string, l
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
 
+/** Where the website lives. Not the Google redirect_uri. */
+export function accountsReturnUrl(query: string): string {
+  const base = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return `${base}/app/accounts?${query}`;
+}
+
+function webAccounts(query: string) {
+  return NextResponse.redirect(accountsReturnUrl(query), 303);
+}
+
 /** Google redirects the browser here. PUBLIC_BASE_URL must be the registered redirect origin. */
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
-  if (params.get("error")) {
-    return gmailCallbackPage(400, "Gmail was not connected", "Google did not grant access. Try Add email again from Ledger.", returnToLedgerLink({ error: "denied" }));
-  }
-  const state = params.get("state");
+  const state = params.get("state") ?? "";
   const code = params.get("code");
-  if (!state || !code) {
-    return gmailCallbackPage(400, "Gmail was not connected", "The sign-in link was incomplete. Start again from Ledger.", returnToLedgerLink({ error: "incomplete" }));
+  const web = isWebGmailState(state);
+
+  if (params.get("error") || !state || !code) {
+    if (state) await db.emailOAuthState.deleteMany({ where: { state } });
+    if (web) return webAccounts(params.get("error") ? "gmail=denied" : "gmail=error&reason=code");
+    const error = params.get("error") ? "denied" : "incomplete";
+    const message = params.get("error")
+      ? "Google did not grant access. Try Add email again from Ledger."
+      : "The sign-in link was incomplete. Start again from Ledger.";
+    return gmailCallbackPage(400, "Gmail was not connected", message, returnToLedgerLink({ error }));
   }
+
   try {
     const saved = await finishGmailConnect({ state, code });
+    let scanned = 0;
+    let found = 0;
+    let failed = 0;
     try {
-      await syncOneConnection(saved.financialConnectionId);
+      const summary = await syncOneConnection(saved.financialConnectionId);
+      scanned = summary?.emailsScanned ?? 0;
+      found = summary?.created ?? 0;
+      failed = summary?.parseFailures ?? 0;
     } catch (e) {
       log.warn("email.gmail_first_sync_failed", { error: e instanceof Error ? e.message : "unknown" });
     }
+    if (web) return webAccounts(`gmail=connected&found=${found}&scanned=${scanned}&failed=${failed}`);
     return gmailCallbackPage(200, "Gmail connected", `${saved.address} is connected. Ledger is reading the last 12 months of bank mail.`, returnToLedgerLink({ address: saved.address }));
   } catch (e) {
     log.warn("email.gmail_callback_failed", { error: e instanceof Error ? e.message : "unknown" });
+    if (web) return webAccounts("gmail=error&reason=exchange");
     return gmailCallbackPage(400, "Gmail was not connected", "Ledger could not finish Sign in with Google. Start again from the app.", returnToLedgerLink({ error: "failed" }));
   }
 }

@@ -37,13 +37,17 @@ export function publicBaseUrl(): string {
   return raw;
 }
 
-export function authorizationUrl(state: string, loginHint?: string, callbackPath = GMAIL_CALLBACK, baseUrl?: string): string {
-  const mobile = callbackPath === MOBILE_GMAIL_CALLBACK;
+/** The only Gmail redirect Google is registered for. Never APP_URL or the request host. */
+export function gmailOAuthRedirectUri(): string {
+  return `${publicBaseUrl()}${MOBILE_GMAIL_CALLBACK}`;
+}
+
+export function authorizationUrl(state: string, loginHint?: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
-    redirect_uri: redirectUri(callbackPath, baseUrl),
+    redirect_uri: gmailOAuthRedirectUri(),
     response_type: "code",
-    scope: mobile ? GMAIL_READONLY_SCOPE : GMAIL_SCOPES.join(" "),
+    scope: GMAIL_READONLY_SCOPE,
     access_type: "offline",
     // select_account lets the user pick a different Google account than the one already signed in.
     prompt: "select_account consent",
@@ -74,7 +78,8 @@ interface TokenResponse {
   id_token?: string;
 }
 
-export async function exchangeCode(code: string, callbackPath = GMAIL_CALLBACK, base?: string): Promise<TokenResponse> {
+export async function exchangeCode(code: string, callbackPath = MOBILE_GMAIL_CALLBACK, base?: string): Promise<TokenResponse> {
+  const redirect_uri = callbackPath === SIGNIN_CALLBACK ? redirectUri(SIGNIN_CALLBACK, base) : gmailOAuthRedirectUri();
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -82,7 +87,7 @@ export async function exchangeCode(code: string, callbackPath = GMAIL_CALLBACK, 
       code,
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: redirectUri(callbackPath, base),
+      redirect_uri,
       grant_type: "authorization_code",
     }),
   });
