@@ -135,7 +135,7 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('bottom nav has Home, Activity, Afford and More', (tester) async {
+  testWidgets('bottom nav has Home, Activity, Ask and More', (tester) async {
     final controller = await _signedIn((request) async {
       if (request.url.path.endsWith('/overview')) return _json(_overview);
       if (request.url.path.endsWith('/onboarding')) {
@@ -144,6 +144,7 @@ void main() {
       if (request.url.path.endsWith('/transactions')) {
         return _json({'transactions': [], 'nextCursor': null, 'dayTotals': [], 'categories': []});
       }
+      if (request.url.path.endsWith('/ask')) return _json({'messages': []});
       return _json({'error': 'not found'});
     });
     await tester.pumpWidget(
@@ -155,7 +156,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Home'), findsWidgets);
     expect(find.text('Activity'), findsOneWidget);
-    expect(find.text('Afford'), findsOneWidget);
+    expect(find.text('Ask'), findsOneWidget);
     expect(find.text('More'), findsOneWidget);
     expect(find.text('Accounts'), findsNothing);
     expect(find.text('Upload'), findsNothing);

@@ -60,6 +60,21 @@ model User {
   forwardingNotices ForwardingNotice[]
   processedAlerts   ProcessedAlert[]
   statementFiles    StatementFile[]
+  chatMessages      ChatMessage[]
+}
+
+// One turn of Ask. History stays on the server. A card is the deterministic affordability or loan result, never a model guess.
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String // user | assistant
+  text      String
+  mode      String? // afford | rules | ai
+  cardJson  String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model Session {

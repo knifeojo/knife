@@ -5,7 +5,7 @@ import '../alerts/sms_controller.dart';
 import '../api/models.dart';
 import '../state/ledger_controller.dart';
 import '../theme.dart';
-import 'affordability_screen.dart';
+import 'ask_screen.dart';
 import 'home_screen.dart';
 import 'more_screen.dart';
 import 'onboarding_screen.dart';
@@ -22,7 +22,7 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   bool _asked = false;
 
-  static const _titles = ['Home', 'Activity', 'Afford', 'More'];
+  static const _titles = ['Home', 'Activity', 'Ask', 'More'];
 
   @override
   void initState() {
@@ -63,7 +63,7 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(title: Text(_titles[_index])),
       body: IndexedStack(
         index: _index,
-        children: const [HomeScreen(), TransactionsScreen(), AffordabilityScreen(), MoreScreen()],
+        children: const [HomeScreen(), TransactionsScreen(), AskScreen(), MoreScreen()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
@@ -71,7 +71,7 @@ class _HomeShellState extends State<HomeShell> {
         destinations: [
           const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
           const NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Activity'),
-          const NavigationDestination(icon: Icon(Icons.help_outline), selectedIcon: Icon(Icons.help), label: 'Afford'),
+          const NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Ask'),
           NavigationDestination(
             icon: Badge(
               isLabelVisible: badge > 0,

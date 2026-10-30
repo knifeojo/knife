@@ -63,17 +63,16 @@ void main() {
     expect(find.text('LEFT'), findsOneWidget);
     expect(find.text('1. Food'), findsOneWidget);
 
-    await tester.tap(find.text('Afford'));
+    await tester.tap(find.text('Ask'));
     await tester.pumpAndSettle();
-    expect(find.text('Can I really afford this?'), findsOneWidget);
-    await tester.enterText(find.byKey(const Key('afford-amount')), '1.6m');
-    await tester.enterText(find.byKey(const Key('afford-description')), 'a car deposit');
-    await tester.ensureVisible(find.byKey(const Key('afford-check')));
-    await tester.tap(find.byKey(const Key('afford-check')));
+    expect(find.text('Can I afford...?'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('ask-input')), 'Can I afford 1.6m a car deposit');
+    await tester.tap(find.byKey(const Key('ask-send')));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Stretch'), 200, scrollable: find.descendant(of: find.byKey(const Key('afford-list')), matching: find.byType(Scrollable)).first);
+    await tester.scrollUntilVisible(find.text('Stretch'), 200, scrollable: find.descendant(of: find.byKey(const Key('ask-list')), matching: find.byType(Scrollable)).first);
     expect(find.text('Stretch'), findsOneWidget);
-    expect(find.textContaining("It's a stretch."), findsOneWidget);
+    expect(find.textContaining("It's a stretch."), findsWidgets);
+    expect(find.textContaining('Keep at least'), findsOneWidget);
     controller.dispose();
   });
 
@@ -522,9 +521,32 @@ Future<http.Response> _api(http.Request request) async {
   if (path.endsWith('/accounts')) {
     return http.Response(jsonEncode({'accounts': [], 'totalBaseMinor': '0', 'totalBaseCurrency': 'NGN'}), 200);
   }
-  if (path.endsWith('/affordability')) {
-    expect(jsonDecode(request.body), {'amountMinor': '160000000', 'description': 'a car deposit', 'horizon': 'month_end'});
-    return http.Response(jsonEncode(affordabilityResponse), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+  if (path.endsWith('/ask') && request.method == 'GET') {
+    return http.Response(jsonEncode({'messages': []}), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+  }
+  if (path.endsWith('/ask')) {
+    expect(jsonDecode(request.body), {'question': 'Can I afford 1.6m a car deposit'});
+    return http.Response(
+      jsonEncode({
+        'message': {
+          'id': 'a1',
+          'role': 'assistant',
+          'text': affordabilityResponse['headline'],
+          'mode': 'afford',
+          'createdAt': '2026-10-28T12:00:00.000Z',
+          'card': {
+            'kind': 'afford',
+            'keepAtLeastMinor': (affordabilityResponse['projection'] as Map)['lowestMinor'],
+            'affordability': affordabilityResponse,
+            'freedLoans': [
+              {'lender': 'FairMoney', 'freedPerMonthMinor': '5000000'},
+            ],
+          },
+        },
+      }),
+      200,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    );
   }
   if (path.endsWith('/transactions')) {
     return http.Response(jsonEncode({'transactions': [], 'nextCursor': null, 'dayTotals': [], 'categories': ['Food', 'Income']}), 200);
