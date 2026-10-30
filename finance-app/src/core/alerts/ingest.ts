@@ -105,7 +105,7 @@ export async function ingestAlertMessage(
     return { status: "review", id, parser: "LoanStatus" };
   }
 
-  const outcome = parseAlert(parseAs);
+  const outcome = parseAlert(msg);
   if (outcome.status === "skipped") {
     await markProcessed(userId, msg, sourceId, { status: "skipped" });
     return { status: "skipped" };
