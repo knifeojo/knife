@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../ask/message.dart';
 import '../alerts/queue.dart';
 import '../alerts/upload_api.dart';
 import '../api/client.dart';
@@ -230,6 +231,16 @@ class LedgerController extends ChangeNotifier {
   Future<AiStatus> setAiRoutes(Map<String, String> routes) => _guard((api) => api.setAiRoutes(routes));
 
   Future<CategorizeResult> rerunCategorization() => _guard((api) => api.rerunCategorization());
+
+  Future<List<AskMessage>> askHistory() async {
+    final rows = await _guard((api) => api.askHistory());
+    return [for (final row in rows) AskMessage.fromJson(row)];
+  }
+
+  Future<AskMessage> ask(String question) async {
+    final row = await _guard((api) => api.ask(question));
+    return AskMessage.fromJson(row);
+  }
 
   Future<AffordabilityCheck> affordability({required String amountMinor, String? description, String horizon = 'month_end', String? bufferMinor}) {
     return _guard((api) => api.affordability(amountMinor: amountMinor, description: description, horizon: horizon, bufferMinor: bufferMinor));

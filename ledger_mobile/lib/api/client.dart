@@ -222,6 +222,18 @@ class LedgerApi {
   }
 
   /// `horizon` is "month_end" or a number of days from 1 to 120.
+  Future<List<Map<String, dynamic>>> askHistory() async {
+    final json = await _object(_uri('/api/v1/ask'), _get);
+    final rows = json['messages'];
+    if (rows is! List) return const [];
+    return [for (final item in rows) _asMap(item)];
+  }
+
+  Future<Map<String, dynamic>> ask(String question) async {
+    final json = await _object(_uri('/api/v1/ask'), (uri) => _post(uri, {'question': question}));
+    return _asMap(json['message']);
+  }
+
   Future<AffordabilityCheck> affordability({required String amountMinor, String? description, String horizon = 'month_end', String? bufferMinor}) {
     return _parse(
       _object(
