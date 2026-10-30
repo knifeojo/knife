@@ -4,8 +4,12 @@ import {
   STATEMENT_SEARCH_TERMS,
   detectStatementEmail,
   emailSearchQueries,
+  GMAIL_BACKFILL_DAYS,
+  initialBankMailQuery,
+  initialGmailAfter,
   statementGmailQuery,
   statementRules,
+  syncSearchQueries,
 } from "@/core/alerts/statement-mail";
 
 const ENV_KEYS = ["STATEMENT_EMAIL_RULES", "GMAIL_QUERY_STATEMENTS", "WALLET_STATEMENT_SENDERS", "WALLET_STATEMENT_INSTITUTION"] as const;
@@ -58,6 +62,19 @@ describe("statement email detection", () => {
 
     process.env.GMAIL_QUERY_STATEMENTS = "from:gtbank.com subject:custom-statement";
     expect(statementGmailQuery()).toBe("from:gtbank.com subject:custom-statement");
+
+    const backfill = initialBankMailQuery();
+    expect(backfill).toContain("from:gtbank.com");
+    expect(backfill).toContain("from:firstbanknigeria.com");
+    expect(backfill).toContain("from:sterling.ng");
+    expect(backfill).toContain("from:providusbank.com");
+    for (const word of ["debit", "credit", "alert", "statement", "transaction"]) expect(backfill).toContain(word);
+    expect(syncSearchQueries("gmail", true)).toContain(backfill);
+    expect(syncSearchQueries("gmail", false)).not.toContain(backfill);
+    expect(syncSearchQueries("imap", true)).not.toContain(backfill);
+    const now = new Date("2026-10-30T00:00:00.000Z");
+    expect(initialGmailAfter(now).toISOString()).toBe(new Date(now.getTime() - GMAIL_BACKFILL_DAYS * 86_400_000).toISOString());
+    expect(GMAIL_BACKFILL_DAYS).toBe(365);
 
     process.env.STATEMENT_EMAIL_RULES = JSON.stringify([
       { id: "wallet", institution: "Ada Wallet", senders: ["adawallet.test"], subject: ["statement"], filename: ["statement"] },

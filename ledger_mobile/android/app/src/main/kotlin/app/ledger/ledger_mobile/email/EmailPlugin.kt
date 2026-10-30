@@ -9,12 +9,14 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.PluginRegistry
 
 /** Opens Sign in with Google in the browser. The callback is the public Ledger URL. */
-class EmailPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
+class EmailPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware, PluginRegistry.NewIntentListener {
     private var app: Context? = null
     private var activity: Activity? = null
     private var channel: MethodChannel? = null
+    private var activityBinding: ActivityPluginBinding? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         app = binding.applicationContext
@@ -31,18 +33,35 @@ class EmailPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwar
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        activityBinding = binding
+        binding.addOnNewIntentListener(this)
+        deliver(binding.activity.intent)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
+        activityBinding?.removeOnNewIntentListener(this)
+        activityBinding = null
         activity = null
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        activity = binding.activity
+        onAttachedToActivity(binding)
     }
 
     override fun onDetachedFromActivity() {
-        activity = null
+        onDetachedFromActivityForConfigChanges()
+    }
+
+    override fun onNewIntent(intent: Intent): Boolean = deliver(intent)
+
+    private fun deliver(intent: Intent?): Boolean {
+        val data = intent?.data ?: return false
+        if (data.scheme != "ledger" || data.host != "email-connected") return false
+        channel?.invokeMethod(
+            "onConnected",
+            mapOf("address" to data.getQueryParameter("address"), "error" to data.getQueryParameter("error")),
+        )
+        return true
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
