@@ -19,6 +19,7 @@ abstract class SmsPlatform {
   Future<List<QueuedSms>> importInbox({
     required DateTime from,
     required DateTime to,
+    String? sender,
   });
   void listen(void Function() onCaptured);
 
@@ -107,11 +108,13 @@ class MethodChannelSmsPlatform implements SmsPlatform {
   Future<List<QueuedSms>> importInbox({
     required DateTime from,
     required DateTime to,
+    String? sender,
   }) async {
     return _decode(
       await _invoke<String>('importInbox', {
         'fromMs': from.millisecondsSinceEpoch,
         'toMs': to.millisecondsSinceEpoch,
+        if (sender != null && sender.isNotEmpty) 'sender': sender,
       }),
     );
   }

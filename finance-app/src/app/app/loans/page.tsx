@@ -73,7 +73,7 @@ function LoanCard({ v }: { v: LoanView }) {
     <section id={`loan-${loan.id}`} className="card p-5 space-y-3 scroll-mt-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-semibold">{loan.lender}</h2>
-        <span className="text-xs text-ink-3">Entered {day(loan.balanceAsOf)}</span>
+        <span className="text-xs text-ink-3">Entered {day(loan.balanceAsOf)}{v.lastUpdate ? ` · Last update ${day(v.lastUpdate.at)}` : ""}</span>
       </div>
       <p><span className="num text-2xl font-semibold tracking-tight text-brand">{money(loan.outstandingMinor)}</span> <span className="text-sm text-ink-2">left</span></p>
       {facts.length > 0 && <p className="text-sm text-ink-2">{facts.join(" · ")}</p>}

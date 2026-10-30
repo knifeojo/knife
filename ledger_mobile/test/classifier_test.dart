@@ -52,6 +52,20 @@ void main() {
       'low_score',
     );
 
+    const loan =
+        'Renmoney: Your loan outstanding balance is NGN150,000.00. Instalment 3 of 12. Amount due NGN18,500.00. Due date 15 Nov 2026.';
+    final status = classifyFinancialSms('Renmoney', loan);
+    expect(status.reason, 'loan_status');
+    expect(status.financial, isTrue);
+    expect(senderAction('Renmoney', loan, approved: {'renmoney'}), SenderAction.upload);
+    expect(
+      classifyFinancialSms(
+        'Renmoney',
+        'Debit of NGN18,500.00 from ****4821. Bal: NGN200,000.00. Desc: LOAN REPAYMENT',
+      ).reason,
+      'financial',
+    );
+
     final realDebit = classifyFinancialSms(
       'FirstBank',
       'Debit: 301XXXX123 Amt: NGN12,500.00 Desc: POS SHOP Bal: NGN41,280.44CR. Dial *894*11# to get loan',

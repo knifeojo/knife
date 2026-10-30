@@ -155,7 +155,7 @@ class _SmsBankAlertsCardState extends State<SmsBankAlertsCard>
       await sms.setOptIn(true);
       if (!mounted) return;
       if (!sms.backfillOffered) {
-        final yes = await _backfillDialog(monthStartLabel(sms.now()));
+        final yes = await _backfillDialog(lookbackLabel(sms.now(), smsSenderBackfillDays));
         if (!mounted) return;
         if (yes == true) {
           try {
@@ -163,8 +163,8 @@ class _SmsBankAlertsCardState extends State<SmsBankAlertsCard>
             await sms.markBackfillOffered();
             if (!mounted) return;
             final text = count == 0
-                ? 'No bank SMS from this month.'
-                : 'Imported $count bank SMS from this month.';
+                ? 'No bank SMS from the last 90 days.'
+                : 'Imported $count bank SMS from the last 90 days.';
             messenger.showSnackBar(SnackBar(content: Text(text)));
           } catch (_) {
             if (!mounted) return;
@@ -225,9 +225,9 @@ class _SmsBankAlertsCardState extends State<SmsBankAlertsCard>
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Import this month?'),
+        title: const Text('Import recent bank SMS?'),
         content: Text(
-          'Read account texts since $since, the start of this month. $smsBankSenderPhrase upload now. A new sender asks once before its texts leave the phone. Personal chats, OTPs and promos are ignored.',
+          'Read account and loan texts since $since, the last 90 days. $smsBankSenderPhrase upload now. A new sender asks once before its texts leave the phone. Personal chats, OTPs and promos are ignored.',
         ),
         actions: [
           TextButton(

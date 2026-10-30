@@ -17,9 +17,9 @@ The server URL is not compiled into the app. You set it on the first screen, so 
 | Activity | Transactions with categories and Recurring / One-off chips, plus search, a category filter and a pattern filter (Recurring, One-off, Everyday) |
 | Upload | Pick a PDF or CSV on the phone and send it to `POST /api/v1/statements` |
 | Afford | “Can I really afford this?” Enter a price, get yes, stretch or no from `POST /api/v1/affordability`, with what would help (loans to clear, spending to cut, one-offs) and the figures behind it, recurring bills and one-offs shown apart |
-| Loans | Settings → Your loans. Loans entered by hand (`/api/v1/loans`): balance left, instalments, next and last payment. Add, edit, close or reopen. A loan with statement repayments after its balance date is marked out of date. Afford shows the balance on a loan line, or **Add your balance** when there is none |
+| Loans | Settings → Your loans. Loans entered by hand (`/api/v1/loans`): balance left, instalments, next and last payment. A lender SMS (outstanding balance, amount due, due date, instalment, overdue, or cleared) updates the matching loan and shows **Last update**. It does not create a transaction. Add, edit, close or reopen. A loan with statement repayments after its balance date is marked out of date. Afford shows the balance on a loan line, or **Add your balance** when there is none |
 | Your people | Settings → Your people (or the people icon on Review). Who the names in your statements are: add family with plain sentences ("My wife is Ada Okafor"), change a relationship, add or reject bank spellings, merge duplicates, remove, and undo. Each person shows what their payments are labelled and the totals per month. Review asks "Who is NAME to you?" first, with one-tap relationships and the AI's guess highlighted |
-| Settings | Re-run categorization, bank-alert **Sync now** / last email sync, **SMS bank alerts** (opt-in, this month’s backfill, captured / sent), open Review, show the server, sign out, or forget the server |
+| Settings | Re-run categorization, bank-alert **Sync now** / last email sync, **SMS bank alerts** (opt-in, 90-day backfill, captured / sent), open Review, show the server, sign out, or forget the server |
 
 Afford does no maths on the phone. The server works out the answer from the ledger (see “Can I really afford this?” in `../finance-app/README.md`). The phone only turns what you type (“2.5m”, “500k”) into kobo and shows the result.
 
@@ -110,7 +110,7 @@ Also set **Battery → Unrestricted** for Ledger once (Samsung: Settings → App
 
 The phone keeps texts that look like account alerts (amount, debit/credit, balance, masked account, bank-style sender). `GTBank`, `GTWorld`, `FirstBank`, `Sterling` and `Providus` are tracked automatically. A new sender asks once: **Track texts from X?** Personal chats, OTPs and promos never leave the phone.
 
-The first time you turn it on, Ledger offers to read this month’s account texts. Known banks upload. A new sender still asks once.
+The first time you turn it on, Ledger offers to read account and loan texts from the last 90 days. Saying yes to a new sender such as Renmoney also reads that sender’s inbox for the last 90 days. After this update, if SMS was already on, Ledger asks once to import financial texts from the last 30 days that the old sender list skipped. Known banks upload. A new sender still asks once. The server dedups each text on `sourceId`.
 
 Messages go to `POST /api/v1/alerts/sms` with `sender`, `body`, `receivedAt` and a stable `sourceId`. The server dedups that id, so a retry or an overlapping flush does not create a second transaction. A message leaves the phone queue only after a 2xx. Upload runs from a WorkManager job as soon as a text arrives (even if the app is closed), every 15 minutes as a safety net, on app start, on resume, and from **Sync now**. The Bank alerts section shows **Last synced** and how many were captured and sent. The worker reads the server URL and session token from Flutter’s `FlutterSharedPreferences` (`flutter.server_url`, `flutter.session_token`). SMS bodies are not written to logs.
 

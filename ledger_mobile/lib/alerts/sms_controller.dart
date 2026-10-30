@@ -48,6 +48,7 @@ class SmsAlertController extends ChangeNotifier {
   bool optIn = false;
   SmsPermission permission = SmsPermission.unknown;
   bool backfillOffered = false;
+  bool offerUpgradeBackfill = false;
   SmsSyncStats stats = SmsSyncStats.empty;
   int queued = 0;
   List<String> pendingSenders = const [];
@@ -95,38 +96,63 @@ class SmsAlertController extends ChangeNotifier {
     });
   }
 
-  Future<int> importThisMonth() {
-    return _lock(() async {
-      final start = startOfMonth(queue.now());
-      final rows = await platform.importInbox(from: start, to: queue.now());
-      final native = await platform.uploadNow();
-      if (native != null) {
-        _nativeQueued = native.queued;
-        await queue.store.reload();
-        pendingSenders = await platform.pendingSenders();
-        await _publish();
-        return rows.length;
-      }
-      final accepted = await queue.accept(
-        rows,
-        approved: await _approved(),
-        denied: await _denied(),
-      );
-      if (accepted.ackIds.isNotEmpty) await platform.ack(accepted.ackIds);
-      final result = await queue.flush(post: upload);
-      if (result.sentIds.isNotEmpty) await platform.ack(result.sentIds);
+  /// Inbox read for the import button: the last 90 days, not only this calendar month.
+  Future<int> importThisMonth() => importRecent(days: smsSenderBackfillDays);
+
+  Future<int> importRecent({required int days, String? sender}) {
+    return _lock(() => _importUnlocked(days, sender: sender));
+  }
+
+  Future<int> _importUnlocked(int days, {String? sender}) async {
+    final start = smsLookbackStart(queue.now(), days);
+    final rows = await platform.importInbox(from: start, to: queue.now(), sender: sender);
+    final native = await platform.uploadNow();
+    if (native != null) {
+      _nativeQueued = native.queued;
+      await queue.store.reload();
       pendingSenders = await platform.pendingSenders();
       await _publish();
-      return accepted.added;
+      return rows.length;
+    }
+    final accepted = await queue.accept(
+      rows,
+      approved: await _approved(),
+      denied: await _denied(),
+    );
+    if (accepted.ackIds.isNotEmpty) await platform.ack(accepted.ackIds);
+    final result = await queue.flush(post: upload);
+    if (result.sentIds.isNotEmpty) await platform.ack(result.sentIds);
+    pendingSenders = await platform.pendingSenders();
+    await _publish();
+    return accepted.added;
+  }
+
+  Future<int> approveSender(String sender) {
+    return _lock(() async {
+      await platform.approveSender(sender);
+      final added = await _importUnlocked(smsSenderBackfillDays, sender: sender);
+      // Messages already held for this sender are not in the inbox read.
+      await _flushUnlocked();
+      await _publish();
+      return added;
     });
   }
 
-  Future<void> approveSender(String sender) {
+  /// One-time read of financial texts the previous allowlist dropped.
+  Future<int> runUpgradeBackfill() {
     return _lock(() async {
-      await platform.approveSender(sender);
-      await _flushUnlocked();
+      final added = await _importUnlocked(smsUpgradeBackfillDays);
+      await queue.markUpgradeBackfillOffered();
+      offerUpgradeBackfill = false;
       await _publish();
+      return added;
     });
+  }
+
+  Future<void> dismissUpgradeBackfill() async {
+    await queue.markUpgradeBackfillOffered();
+    offerUpgradeBackfill = false;
+    if (!_closed) notifyListeners();
   }
 
   Future<void> denySender(String sender) {
@@ -139,7 +165,9 @@ class SmsAlertController extends ChangeNotifier {
 
   Future<void> markBackfillOffered() async {
     await queue.markBackfillOffered();
+    await queue.markUpgradeBackfillOffered();
     backfillOffered = true;
+    offerUpgradeBackfill = false;
     notifyListeners();
   }
 
@@ -175,6 +203,9 @@ class SmsAlertController extends ChangeNotifier {
       optIn = flag;
     }
     backfillOffered = await queue.backfillOffered();
+    offerUpgradeBackfill = optIn &&
+        backfillOffered &&
+        !await queue.upgradeBackfillOffered();
   }
 
   int? _nativeQueued;

@@ -166,7 +166,13 @@ class _LoanCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(child: Text(loan.lender, style: theme.textTheme.titleMedium)),
-                Text('Entered ${formatDay(loan.balanceAsOf)}', style: theme.textTheme.bodySmall),
+                Text(
+                  loan.lastUpdateAt == null
+                      ? 'Entered ${formatDay(loan.balanceAsOf)}'
+                      : 'Entered ${formatDay(loan.balanceAsOf)} · Last update ${formatDay(loan.lastUpdateAt!)}',
+                  key: Key('loan-last-update-${loan.id}'),
+                  style: theme.textTheme.bodySmall,
+                ),
               ],
             ),
             const SizedBox(height: 6),

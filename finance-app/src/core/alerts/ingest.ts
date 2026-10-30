@@ -6,6 +6,7 @@ import { scanBalanceGaps } from "./balance";
 import { linkAdjacentFee } from "./fees";
 import { alertSourceId, parseAlert } from "./registry";
 import { storeAlertSample } from "./samples";
+import { applyLoanStatus } from "./loan-status";
 import { isIngestibleSmsSender } from "./senders";
 import type { AlertMessage, ParsedAlert } from "./types";
 
@@ -13,6 +14,7 @@ export type AlertIngestResult =
   | { status: "created" | "duplicate"; transactionId: string; parser: string }
   | { status: "review"; id: string; parser: string }
   | { status: "unparsed"; id: string }
+  | { status: "loan_update"; applied: boolean; loanId?: string }
   | { status: "skipped" }
   | { status: "failed"; parser?: string };
 
@@ -40,7 +42,7 @@ async function markProcessed(
 async function queueUnparsed(
   userId: string,
   msg: AlertMessage,
-  reason: "unparsed" | "low_confidence" | "known_sender",
+  reason: "unparsed" | "low_confidence" | "known_sender" | "loan_update",
   parser?: string,
 ): Promise<string> {
   storeAlertSample({ userId, channel: msg.channel, sender: msg.sender, parser, body: msg.body });
@@ -85,8 +87,21 @@ export async function ingestAlertMessage(
   });
   if (seen) {
     if (seen.transactionId) return { status: "duplicate", transactionId: seen.transactionId, parser: seen.parser ?? "" };
+    if (seen.status === "loan_update") return { status: "loan_update", applied: true };
     if (seen.status === "review" || seen.status === "unparsed") return { status: seen.status as "review" | "unparsed", id: seen.id, parser: seen.parser ?? "" };
     return { status: "skipped" };
+  }
+
+  const loan = await applyLoanStatus(userId, msg, sourceId);
+  if (loan?.status === "loan_update") {
+    await markProcessed(userId, msg, sourceId, { status: "loan_update", parser: "LoanStatus" });
+    return loan;
+  }
+  if (loan?.status === "review") {
+    if (loan.recorded) return { status: "review", id: "", parser: "LoanStatus" };
+    const id = await queueUnparsed(userId, msg, "loan_update", "LoanStatus");
+    await markProcessed(userId, msg, sourceId, { status: "review", parser: "LoanStatus" });
+    return { status: "review", id, parser: "LoanStatus" };
   }
 
   const outcome = parseAlert(msg);

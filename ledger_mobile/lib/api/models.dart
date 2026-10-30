@@ -1570,6 +1570,7 @@ class LedgerLoan {
     this.repaymentsSince = 0,
     this.repaidSinceMinor = '0',
     this.lastRepaymentSince,
+    this.lastUpdateAt,
   });
 
   final String id;
@@ -1591,6 +1592,9 @@ class LedgerLoan {
   final int repaymentsSince;
   final String repaidSinceMinor;
   final DateTime? lastRepaymentSince;
+
+  /// When a lender SMS last changed this loan. Absent on a server from before loan updates.
+  final DateTime? lastUpdateAt;
 
   bool get isOpen => status != 'closed';
 
@@ -1614,8 +1618,16 @@ class LedgerLoan {
       repaymentsSince: _optionalInt(since, 'count') ?? 0,
       repaidSinceMinor: _optionalMinor(since, 'totalMinor') ?? '0',
       lastRepaymentSince: _optionalDate(since, 'lastDate'),
+      lastUpdateAt: _lastUpdateAt(json['lastUpdate']),
     );
   }
+}
+
+DateTime? _lastUpdateAt(Object? raw) {
+  if (raw is! Map) return null;
+  final at = raw['at'];
+  if (at is! String || at.isEmpty) return null;
+  return DateTime.tryParse(at);
 }
 
 class LoanList {

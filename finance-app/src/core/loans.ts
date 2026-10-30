@@ -155,6 +155,12 @@ export function loanFieldsFromJson(b: Record<string, unknown>): { fields: LoanFi
   return error ? { error } : { fields };
 }
 
+export interface LoanSmsUpdate {
+  at: Date;
+  status: string | null;
+  outstandingMinor: bigint | null;
+}
+
 export interface LoanView {
   loan: Loan;
   payoff: Date | null;
@@ -162,6 +168,8 @@ export interface LoanView {
   /** Repayments to this lender the bank shows after the balance was entered. Empty for closed loans. */
   since: Dated[];
   sinceMinor: bigint;
+  /** Latest SMS that changed this loan. */
+  lastUpdate: LoanSmsUpdate | null;
 }
 
 /** Statement repayments to these lenders after `from`, as Afford reads them. "LOAN TO <name>" memos are left out. */
@@ -179,13 +187,31 @@ async function lenderRepayments(userId: string, from: Date, lenders: string[]) {
 /** Open loans first, newest first, each with the statement repayments seen since its balance was entered. */
 export async function listLoans(userId: string): Promise<LoanView[]> {
   const loans = await db.loan.findMany({ where: { userId }, orderBy: [{ status: "desc" }, { createdAt: "desc" }] });
+  const updates = loans.length
+    ? await db.loanUpdate.findMany({
+        where: { userId, applied: true, loanId: { in: loans.map((loan) => loan.id) } },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+  const latest = new Map<string, (typeof updates)[number]>();
+  for (const row of updates) {
+    if (row.loanId && !latest.has(row.loanId)) latest.set(row.loanId, row);
+  }
   const open = loans.filter((l) => l.status !== "closed");
   const from = open.length ? new Date(Math.min(...open.map((l) => l.balanceAsOf.getTime()))) : null;
   const repayments = from ? await lenderRepayments(userId, from, [...new Set(open.map((l) => l.lender))]) : [];
   return loans.map((loan) => {
     const m = toManualLoan(loan);
     const since = loan.status === "closed" ? [] : repaymentsSince(m, repayments.filter((r) => sameLender(r.name, loan.lender)));
-    return { loan, payoff: payoffDate(m), instalmentsLeft: instalmentsLeft(m), since, sinceMinor: since.reduce((s, r) => s + r.amountMinor, 0n) };
+    const update = latest.get(loan.id);
+    return {
+      loan,
+      payoff: payoffDate(m),
+      instalmentsLeft: instalmentsLeft(m),
+      since,
+      sinceMinor: since.reduce((s, r) => s + r.amountMinor, 0n),
+      lastUpdate: update ? { at: update.createdAt, status: update.status, outstandingMinor: update.outstandingMinor } : null,
+    };
   });
 }
 
@@ -263,5 +289,8 @@ export function loanJson(v: LoanView) {
     balanceAsOf: l.balanceAsOf.toISOString(),
     closedAt: day(l.closedAt),
     repaymentsSince: { count: v.since.length, totalMinor: v.sinceMinor.toString(), lastDate: day(v.since[v.since.length - 1]?.date ?? null) },
+    lastUpdate: v.lastUpdate
+      ? { at: v.lastUpdate.at.toISOString(), status: v.lastUpdate.status, outstandingMinor: v.lastUpdate.outstandingMinor?.toString() ?? null }
+      : null,
   };
 }

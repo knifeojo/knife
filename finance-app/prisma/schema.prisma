@@ -44,6 +44,7 @@ model User {
   transactions Transaction[]
   syncRuns     SyncRun[]
   loans        Loan[]
+  loanUpdates  LoanUpdate[]
   suggestions  CategorySuggestion[]
   people       Person[]
   peopleBatches PeopleBatch[]
@@ -400,8 +401,34 @@ model Loan {
   closedAt         DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+  updates          LoanUpdate[]
 
   @@index([userId, status])
+}
+
+// One row per loan-status SMS we understood. Applied rows changed the loan; the rest are the audit of what arrived.
+model LoanUpdate {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loanId           String?
+  loan             Loan?     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  sourceId         String
+  channel          String
+  sender           String
+  outstandingMinor BigInt?
+  amountDueMinor   BigInt?
+  nextDueDate      DateTime?
+  instalmentNumber Int?
+  instalmentTotal  Int?
+  status           String? // open | closed | overdue
+  confidence       Float
+  applied          Boolean   @default(false)
+  rawText          String
+  createdAt        DateTime  @default(now())
+
+  @@unique([userId, sourceId])
+  @@index([loanId])
 }
 
 // Bank alert that a parser recognised as a sender but could not turn into a transaction,

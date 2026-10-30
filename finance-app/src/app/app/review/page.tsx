@@ -111,7 +111,7 @@ export default async function Review({ searchParams }: { searchParams: Promise<R
           <ul className="space-y-3">
             {unparsed.map((u) => (
               <li key={u.id} className="text-sm border-t border-border pt-3 first:border-0 first:pt-0">
-                <p className="text-xs text-ink-3">{u.channel} · {u.sender} · {u.reason}{u.parser ? ` · ${u.parser}` : ""}</p>
+                <p className="text-xs text-ink-3">{u.channel} · {u.sender} · {u.reason === "loan_update" ? "loan update" : u.reason}{u.parser ? ` · ${u.parser}` : ""}</p>
                 <pre className="mt-1 text-xs font-mono whitespace-pre-wrap break-words bg-surface-2 rounded px-2 py-1">{u.rawText}</pre>
                 <div className="mt-2 flex gap-2">
                   <form action={resolveUnparsedAction}>
