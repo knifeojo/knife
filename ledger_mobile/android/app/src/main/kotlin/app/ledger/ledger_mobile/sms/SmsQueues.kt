@@ -146,7 +146,7 @@ internal object SmsQueues {
         }
     }
 
-    fun importInbox(context: Context, fromMs: Long, toMs: Long): JSONArray {
+    fun importInbox(context: Context, fromMs: Long, toMs: Long, sender: String? = null): JSONArray {
         val app = context.applicationContext
         val out = JSONArray()
         val cursor = app.contentResolver.query(
@@ -165,29 +165,31 @@ internal object SmsQueues {
             val iBody = it.getColumnIndex(android.provider.Telephony.Sms.BODY)
             val iDate = it.getColumnIndex(android.provider.Telephony.Sms.DATE)
             while (it.moveToNext()) {
-                val sender = it.getString(iAddr) ?: continue
-                if (isPersonalSender(sender)) continue
+                val address = it.getString(iAddr) ?: continue
+                if (isPersonalSender(address)) continue
+                if (sender != null && !address.equals(sender, ignoreCase = true)) continue
+                val senderName = address
                 val body = it.getString(iBody) ?: ""
                 val receivedAt = it.getLong(iDate)
                 val added = synchronized(lock) {
                     when (
                         senderAction(
-                            sender,
+                            senderName,
                             body,
-                            known = BankSenders.isKnown(sender),
-                            approved = isApproved(app, sender),
-                            denied = isDenied(app, sender),
+                            known = BankSenders.isKnown(senderName),
+                            approved = isApproved(app, senderName),
+                            denied = isDenied(app, senderName),
                         )
                     ) {
-                        SenderAction.UPLOAD -> enqueue(app, sender, body, receivedAt, countCapture = true)
-                        SenderAction.ASK -> rememberPending(app, sender, body, receivedAt)
+                        SenderAction.UPLOAD -> enqueue(app, senderName, body, receivedAt, countCapture = true)
+                        SenderAction.ASK -> rememberPending(app, senderName, body, receivedAt)
                         SenderAction.DROP -> false
                     }
                 }
-                if (added && senderAction(sender, body, approved = isApproved(app, sender)) == SenderAction.UPLOAD) {
+                if (added && senderAction(senderName, body, approved = isApproved(app, senderName)) == SenderAction.UPLOAD) {
                     val item = JSONObject()
-                    item.put("id", smsSourceId(sender, body, receivedAt))
-                    item.put("sender", sender)
+                    item.put("id", smsSourceId(senderName, body, receivedAt))
+                    item.put("sender", senderName)
                     item.put("body", body)
                     item.put("receivedAt", receivedAt)
                     out.put(item)

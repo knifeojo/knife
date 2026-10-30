@@ -50,6 +50,7 @@ class SmsQueueSync {
   static const sentKey = 'sms_sent';
   static const lastSyncKey = 'sms_last_sync';
   static const backfillKey = 'sms_backfill_offered';
+  static const upgradeBackfillKey = 'sms_upgrade_backfill';
   static const seenKey = 'sms_seen_ids';
   static const seenCap = 4000;
 
@@ -70,6 +71,12 @@ class SmsQueueSync {
       (await store.getString(backfillKey)) == '1';
 
   Future<void> markBackfillOffered() => store.setString(backfillKey, '1');
+
+  Future<bool> upgradeBackfillOffered() async =>
+      (await store.getString(upgradeBackfillKey)) == '1';
+
+  Future<void> markUpgradeBackfillOffered() =>
+      store.setString(upgradeBackfillKey, '1');
 
   Future<AcceptResult> accept(
     List<QueuedSms> incoming, {

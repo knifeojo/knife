@@ -176,7 +176,8 @@ class SmsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
         }
         val from = asLong(call.argument<Any>("fromMs")) ?: 0L
         val to = asLong(call.argument<Any>("toMs")) ?: System.currentTimeMillis()
-        result.success(SmsQueues.importInbox(context, from, to).toString())
+        val sender = call.argument<String>("sender")
+        result.success(SmsQueues.importInbox(context, from, to, sender).toString())
         SmsSyncScheduler.enqueueUpload(context)
     }
 

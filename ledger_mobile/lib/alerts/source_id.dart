@@ -15,6 +15,23 @@ String smsSourceId({
   return sha256.convert(utf8.encode('sms|$sender|$millis|$body')).toString();
 }
 
+/// How far back an approved sender's inbox is read.
+const smsSenderBackfillDays = 90;
+
+/// How far back the one-time upgrade offer looks for texts the old allowlist dropped.
+const smsUpgradeBackfillDays = 30;
+
+/// Local midnight [days] before [now].
+DateTime smsLookbackStart(DateTime now, int days) {
+  final local = now.toLocal();
+  return DateTime(local.year, local.month, local.day).subtract(Duration(days: days));
+}
+
+String lookbackLabel(DateTime now, int days) {
+  final start = smsLookbackStart(now, days);
+  return '${start.day} ${monthNames[start.month - 1]} ${start.year}';
+}
+
 /// Local midnight on the first day of [now]'s month.
 DateTime startOfMonth(DateTime now) {
   final local = now.toLocal();

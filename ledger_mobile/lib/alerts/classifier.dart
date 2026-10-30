@@ -63,6 +63,15 @@ final _promo = RegExp(
   caseSensitive: false,
 );
 
+final _loanWord = RegExp(r'\bloan\b', caseSensitive: false);
+final _loanSignal = RegExp(
+  r'\b(outstanding|amount due|due date|overdue)\b|\binstalments?\s+\d+\s+of\s+\d+\b|\bcleared\b|\bfully (?:paid|repaid)\b',
+  caseSensitive: false,
+);
+
+/// Lender balance / due-date / instalment texts. Not a payment, an OTP, or a loan advert.
+bool isLoanStatusBody(String body) => _loanWord.hasMatch(body) && _loanSignal.hasMatch(body);
+
 bool isKnownBankSender(String sender) {
   final n = sender.trim().toLowerCase();
   return defaultBankSenders.any((id) => id.toLowerCase() == n);
@@ -101,6 +110,9 @@ SmsClassification classifyFinancialSms(String sender, String body) {
   final balance = _balance.hasMatch(body);
   if (_promo.hasMatch(body) && !(currency && (direction || balance))) {
     return const SmsClassification(financial: false, score: 0, reason: 'promo');
+  }
+  if (isLoanStatusBody(body)) {
+    return const SmsClassification(financial: true, score: financialScoreThreshold, reason: 'loan_status');
   }
   var score = 0;
   if (currency) score += 3;

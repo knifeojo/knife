@@ -53,6 +53,18 @@ class SmsLogicTest {
             "low_score",
             classifyFinancialSms("Renmoney", "Hello, your statement is ready in the app").reason,
         )
+        val loan =
+            "Renmoney: Your loan outstanding balance is NGN150,000.00. Instalment 3 of 12. Amount due NGN18,500.00. Due date 15 Nov 2026."
+        assertEquals("loan_status", classifyFinancialSms("Renmoney", loan).reason)
+        assertEquals(SenderAction.UPLOAD, senderAction("Renmoney", loan, approved = true))
+        assertEquals(
+            "financial",
+            classifyFinancialSms(
+                "Renmoney",
+                "Debit of NGN18,500.00 from ****4821. Bal: NGN200,000.00. Desc: LOAN REPAYMENT",
+            ).reason,
+        )
+
         assertTrue(
             classifyFinancialSms(
                 "FirstBank",

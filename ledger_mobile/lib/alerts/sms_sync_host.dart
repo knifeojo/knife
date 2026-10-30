@@ -40,7 +40,44 @@ class _SmsSyncHostState extends State<SmsSyncHost> with WidgetsBindingObserver {
     final sms = SmsAlertScope.maybeOf(context);
     if (!mounted || sms == null) return;
     await sms.refresh();
+    if (mounted) await _maybeUpgrade();
     if (mounted) await _maybePrompt();
+  }
+
+  Future<void> _maybeUpgrade() async {
+    if (_prompting || !mounted) return;
+    final sms = SmsAlertScope.maybeOf(context);
+    if (sms == null || !sms.offerUpgradeBackfill) return;
+    _prompting = true;
+    final yes = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Import skipped texts?'),
+        content: const Text(
+          'This update can read financial texts from the last 30 days that were skipped before, including loan updates. Personal chats, OTPs and promos stay on this phone. A new sender still asks once.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('sms-upgrade-no'),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            key: const Key('sms-upgrade-yes'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    _prompting = false;
+    if (!mounted) return;
+    if (yes == true) {
+      await sms.runUpgradeBackfill();
+    } else {
+      await sms.dismissUpgradeBackfill();
+    }
   }
 
   Future<void> _maybePrompt() async {

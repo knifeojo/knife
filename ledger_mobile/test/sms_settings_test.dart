@@ -62,8 +62,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(platform.requests, 1);
       expect(platform.optIn, isTrue);
-      expect(find.text('Import this month?'), findsOneWidget);
-      expect(find.textContaining('1 October 2026'), findsOneWidget);
+      expect(find.text('Import recent bank SMS?'), findsOneWidget);
+      expect(find.textContaining('30 July 2026'), findsOneWidget);
       expect(find.textContaining(smsBankSenderPhrase), findsWidgets);
 
       await tester.tap(find.byKey(const Key('sms-backfill-no')));
@@ -84,7 +84,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('sms-explain-continue')));
       await tester.pumpAndSettle();
-      expect(find.text('Import this month?'), findsNothing);
+      expect(find.text('Import recent bank SMS?'), findsNothing);
       expect(platform.optIn, isTrue);
       sms.dispose();
     },
@@ -130,7 +130,7 @@ void main() {
       await tester.tap(find.byKey(const Key('sms-backfill-yes')));
       await tester.pumpAndSettle();
 
-      expect(platform.importedFrom, DateTime(2026, 10, 1));
+      expect(platform.importedFrom, DateTime(2026, 7, 30));
       expect(platform.importedTo, DateTime(2026, 10, 28, 18, 4));
       expect(posted, hasLength(1));
       expect(posted.single.sender, 'GTBank');
@@ -148,7 +148,7 @@ void main() {
         find.text(smsLastSyncLabel(DateTime(2026, 10, 28, 18, 4))),
         findsOneWidget,
       );
-      expect(find.text('Imported 1 bank SMS from this month.'), findsOneWidget);
+      expect(find.text('Imported 1 bank SMS from the last 90 days.'), findsOneWidget);
       sms.dispose();
     },
   );
@@ -187,7 +187,7 @@ void main() {
     await _enable(tester);
     expect(find.textContaining('not granted'), findsOneWidget);
     expect(platform.optIn, isFalse);
-    expect(find.text('Import this month?'), findsNothing);
+    expect(find.text('Import recent bank SMS?'), findsNothing);
     expect(
       tester
           .widget<SwitchListTile>(find.byKey(const Key('sms-alerts-toggle')))
@@ -398,14 +398,20 @@ class FakeSmsPlatform implements SmsPlatform {
     );
   }
 
+  String? importedSender;
+
   @override
   Future<List<QueuedSms>> importInbox({
     required DateTime from,
     required DateTime to,
+    String? sender,
   }) async {
     importedFrom = from;
     importedTo = to;
-    return List.of(inbox);
+    importedSender = sender;
+    if (sender == null || sender.isEmpty) return List.of(inbox);
+    final key = sender.toLowerCase();
+    return inbox.where((item) => item.sender.toLowerCase() == key).toList();
   }
 
   @override

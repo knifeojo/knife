@@ -59,6 +59,15 @@ private val promoRegex = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+private val loanWord = Regex("""\bloan\b""", RegexOption.IGNORE_CASE)
+private val loanSignal = Regex(
+    """\b(outstanding|amount due|due date|overdue)\b|\binstalments?\s+\d+\s+of\s+\d+\b|\bcleared\b|\bfully (?:paid|repaid)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+/** Lender balance / due-date / instalment texts. Not a payment, an OTP, or a loan advert. */
+fun isLoanStatusBody(body: String): Boolean = loanWord.containsMatchIn(body) && loanSignal.containsMatchIn(body)
+
 fun isPersonalSender(sender: String): Boolean {
     val stripped = sender.trim().replace(Regex("""[\s()-]"""), "")
     return phoneRegex.matches(stripped)
@@ -84,6 +93,9 @@ fun classifyFinancialSms(sender: String, body: String): SmsClassification {
     val balance = balanceRegex.containsMatchIn(body)
     if (promoRegex.containsMatchIn(body) && !(currency && (direction || balance))) {
         return SmsClassification(false, 0, "promo")
+    }
+    if (isLoanStatusBody(body)) {
+        return SmsClassification(true, FINANCIAL_SCORE_THRESHOLD, "loan_status")
     }
     var score = 0
     if (currency) score += 3

@@ -341,6 +341,61 @@ void main() {
     expect(denied.added, 0);
     expect(denied.ackIds, contains(ren.sourceId));
   });
+
+  test('approving a sender backfills 90 days and a repeat does not upload twice', () async {
+    const body =
+        'Credit of NGN15,000.00 into wallet ****4821. Avl Bal: NGN27,430.50. Desc: WALLET FUNDING FROM EMPLOYER';
+    const otp = 'Your OTP is 482193. Do not share this code with anyone.';
+    final at = DateTime.utc(2026, 8, 1);
+    final platform = _FakeSmsPlatform()
+      ..inbox.add(_bank(sender: 'Renmoney', body: body, at: at))
+      ..inbox.add(
+        QueuedSms(
+          sender: 'Renmoney',
+          body: otp,
+          receivedAt: at,
+          sourceId: 'otp-ren',
+        ),
+      );
+    final posted = <QueuedSms>[];
+    final sms = SmsAlertController(
+      store: MemorySettingsStore(),
+      platform: platform,
+      upload: (batch) async {
+        posted.addAll(batch);
+        return List.filled(batch.length, true);
+      },
+      now: () => DateTime(2026, 10, 28),
+    );
+    final added = await sms.approveSender('Renmoney');
+    expect(platform.importedSender, 'Renmoney');
+    expect(platform.importedFrom, DateTime(2026, 7, 30));
+    expect(added, 1);
+    expect(posted, hasLength(1));
+    expect(posted.single.body, body);
+    expect(classifyFinancialSms('Renmoney', otp).reason, 'otp');
+
+    final again = await sms.approveSender('Renmoney');
+    expect(again, 0);
+    expect(posted, hasLength(1));
+    sms.dispose();
+  });
+
+  test('an existing opt-in is offered the 30-day upgrade backfill once', () async {
+    final platform = _FakeSmsPlatform()..optIn = true;
+    final sms = SmsAlertController(
+      store: MemorySettingsStore({'sms_backfill_offered': '1'}),
+      platform: platform,
+      upload: (batch) async => List.filled(batch.length, true),
+      now: () => DateTime(2026, 10, 28),
+    );
+    await sms.refresh();
+    expect(sms.offerUpgradeBackfill, isTrue);
+    await sms.dismissUpgradeBackfill();
+    await sms.refresh();
+    expect(sms.offerUpgradeBackfill, isFalse);
+    sms.dispose();
+  });
 }
 
 extension on SmsAlertController {
@@ -351,6 +406,7 @@ class _FakeSmsPlatform implements SmsPlatform {
   SmsPermission permission = SmsPermission.granted;
   bool optIn = false;
   final List<QueuedSms> nativeQueue = [];
+  final List<QueuedSms> inbox = [];
   void Function()? captured;
 
   @override
@@ -361,11 +417,21 @@ class _FakeSmsPlatform implements SmsPlatform {
     );
   }
 
+  DateTime? importedFrom;
+  String? importedSender;
+
   @override
   Future<List<QueuedSms>> importInbox({
     required DateTime from,
     required DateTime to,
-  }) async => const [];
+    String? sender,
+  }) async {
+    importedFrom = from;
+    importedSender = sender;
+    if (sender == null || sender.isEmpty) return List.of(inbox);
+    final key = sender.toLowerCase();
+    return inbox.where((item) => item.sender.toLowerCase() == key).toList();
+  }
 
   @override
   Future<bool> isOptedIn() async => optIn;
