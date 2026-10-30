@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   if (!googleConfigured()) return NextResponse.redirect(new URL("/app/accounts?gmail=unconfigured", base), 303);
 
   const state = randomToken(24);
-  const res = NextResponse.redirect(authorizationUrl(state, user.email), 303);
+  const res = NextResponse.redirect(authorizationUrl(state), 303);
   res.cookies.set(OAUTH_STATE_COOKIE, `${state}.${user.id}`, {
     httpOnly: true,
     sameSite: "lax",

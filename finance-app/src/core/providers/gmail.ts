@@ -45,7 +45,8 @@ export function authorizationUrl(state: string, loginHint?: string, callbackPath
     response_type: "code",
     scope: mobile ? GMAIL_READONLY_SCOPE : GMAIL_SCOPES.join(" "),
     access_type: "offline",
-    prompt: "consent",
+    // select_account lets the user pick a different Google account than the one already signed in.
+    prompt: "select_account consent",
     include_granted_scopes: "false",
     state,
   });

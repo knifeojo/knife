@@ -166,6 +166,45 @@ export async function removeEmailConnection(userId: string, id: string): Promise
   return true;
 }
 
+/** One active connection. With an id, that inbox only, so a second Gmail is not mixed up with the first. */
+export async function activeConnectionFor(userId: string, input: { connectionId?: string; provider?: string }) {
+  if (input.connectionId) {
+    return db.financialConnection.findFirst({
+      where: { id: input.connectionId, userId, status: { not: "revoked" } },
+    });
+  }
+  if (!input.provider) return null;
+  return db.financialConnection.findFirst({
+    where: { userId, provider: input.provider, status: { not: "revoked" } },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Disconnect one Gmail inbox. Other inboxes stay connected. */
+export async function disconnectGmailInbox(userId: string, financialConnectionId: string): Promise<boolean> {
+  const email = await db.emailConnection.findFirst({
+    where: { userId, financialConnectionId, provider: "gmail", status: { not: "revoked" } },
+  });
+  if (email) return removeEmailConnection(userId, email.id);
+  const conn = await db.financialConnection.findFirst({
+    where: { id: financialConnectionId, userId, provider: "gmail", status: { not: "revoked" } },
+  });
+  if (!conn) return false;
+  const token = conn.encryptedRefreshToken ?? conn.encryptedAccessToken;
+  if (token) {
+    try {
+      await revokeToken(decrypt(token));
+    } catch {
+      // Revoke is best-effort. The inbox is still removed from the list.
+    }
+  }
+  await db.financialConnection.update({
+    where: { id: conn.id },
+    data: { status: "revoked", encryptedAccessToken: null, encryptedRefreshToken: null, accessTokenExpiresAt: null },
+  });
+  return true;
+}
+
 export function gmailConnectConfigured(): boolean {
   return googleConfigured() && !!process.env.PUBLIC_BASE_URL?.trim();
 }
