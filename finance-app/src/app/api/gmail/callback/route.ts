@@ -1,9 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { encrypt } from "@/lib/crypto";
 import { log } from "@/lib/log";
 import { syncEmailSource } from "@/core/ledger";
+import { saveGmailInbox } from "@/core/email/inboxes";
 import { GmailEmailSource, OAUTH_STATE_COOKIE, exchangeCode, gmailProfile, revokeToken } from "@/core/providers/gmail";
 
 const READONLY = "https://www.googleapis.com/auth/gmail.readonly";
@@ -43,34 +42,17 @@ export async function GET(req: NextRequest) {
       return back("gmail=error&reason=broad_scope");
     }
     const profile = await gmailProfile(tokens.access_token);
-    const existing = await db.financialConnection.findUnique({ where: { userId_provider: { userId: user.id, provider: "gmail" } } });
-    const conn = await db.financialConnection.upsert({
-      where: { userId_provider: { userId: user.id, provider: "gmail" } },
-      update: {
-        providerAccountId: profile.emailAddress,
-        status: "active",
-        lastError: null,
-        scope: tokens.scope,
-        gmailHistoryId: profile.historyId,
-        encryptedAccessToken: encrypt(tokens.access_token),
-        accessTokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-        ...(tokens.refresh_token ? { encryptedRefreshToken: encrypt(tokens.refresh_token) } : {}),
-      },
-      create: {
-        userId: user.id,
-        provider: "gmail",
-        providerAccountId: profile.emailAddress,
-        scope: tokens.scope,
-        gmailHistoryId: profile.historyId,
-        encryptedAccessToken: encrypt(tokens.access_token),
-        accessTokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-        encryptedRefreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
-      },
+    const saved = await saveGmailInbox(user.id, {
+      address: profile.emailAddress,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresIn: tokens.expires_in,
+      scope: tokens.scope,
+      historyId: profile.historyId,
     });
-    log.info("gmail.connected", { userId: user.id, reconnect: !!existing });
 
     // First scan right away so the user lands on a populated dashboard.
-    const r = await syncEmailSource(user.id, conn.id, new GmailEmailSource(conn.id));
+    const r = await syncEmailSource(user.id, saved.financialConnectionId, new GmailEmailSource(saved.financialConnectionId));
     return back(`gmail=connected&found=${r.created}&scanned=${r.emailsScanned}&failed=${r.parseFailures}`);
   } catch (e) {
     log.error("gmail.callback_failed", { userId: user.id, error: e instanceof Error ? e.message : "unknown" });

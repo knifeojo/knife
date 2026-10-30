@@ -226,7 +226,7 @@ function periodOf(parsed: StatementParseResult): { from?: Date; to?: Date; count
 
 async function persistParsed(userId: string, parsed: StatementParseResult, { institution, currency, fileName }: { institution: string; currency: string; fileName: string }): Promise<{ summary: StatementImportSummary; accountId?: string }> {
   const conn = await db.financialConnection.upsert({
-    where: { userId_provider: { userId, provider: "statement" } },
+    where: { userId_provider_providerAccountId: { userId, provider: "statement", providerAccountId: "Statement uploads" } },
     update: { status: "active" },
     create: { userId, provider: "statement", providerAccountId: "Statement uploads" },
   });
@@ -288,7 +288,7 @@ async function persistParsed(userId: string, parsed: StatementParseResult, { ins
 /** Records a file that could not be imported at all, so the result banner can explain it. */
 export async function recordFailedImport(userId: string, fileName: string, reason: string) {
   const conn = await db.financialConnection.upsert({
-    where: { userId_provider: { userId, provider: "statement" } },
+    where: { userId_provider_providerAccountId: { userId, provider: "statement", providerAccountId: "Statement uploads" } },
     update: {},
     create: { userId, provider: "statement", providerAccountId: "Statement uploads" },
   });

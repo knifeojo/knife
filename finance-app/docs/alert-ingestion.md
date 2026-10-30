@@ -16,6 +16,7 @@ npm run db:push
 | `ALERT_SYNC_MINUTES` | Background Gmail/IMAP interval. Default `5`. |
 | `ALERT_SYNC` | Set to `0` to disable the loop (tests do this automatically). |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Gmail read-only. Personal Cloud project, External consent, **test users** listed. See [gmail-oauth.md](gmail-oauth.md). |
+| `PUBLIC_BASE_URL` | https origin Google can reach for the phone callback, such as a Tailscale Funnel address. Redirect URI: `$PUBLIC_BASE_URL/api/v1/email/google/callback`. |
 | `IMAP_PASSWORD` or `YAHOO_APP_PASSWORD` | App password for IMAP. **Not** stored in the database. Also accepted from `~/.ledger/secrets.env` (`LEDGER_SECRET_FILE` overrides the path). |
 | `IMAP_PASSWORD_<connectionId>` | Per-mailbox password when you have more than one. |
 | `INBOUND_EMAIL_SECRET` | Shared secret for `POST /api/inbound/email` (`X-Inbound-Secret` or `Authorization: Bearer`). |
@@ -29,8 +30,8 @@ Never put IMAP passwords, inbound secrets, or raw alert samples in the repo. Unp
 ## Gmail (owner, now)
 
 1. Create a Google Cloud OAuth client on a **personal** account. Add yourself as a test user. Scopes: `gmail.readonly` only ([gmail-oauth.md](gmail-oauth.md)).
-2. Sign in → Accounts → Connect Gmail.
-3. Background sync starts with the Next.js server (`next dev -H 0.0.0.0`). **Sync now** and last-synced time are on Accounts and Settings (web + Flutter).
+2. Sign in → Accounts → Connect Gmail, or on the phone Settings → **Add email** (Sign in with Google, scope `gmail.readonly`, offline access).
+3. Each Gmail address is its own inbox. Yahoo and IMAP sit in the same list. Refresh tokens are encrypted on `EmailConnection`. Background sync starts with the Next.js server (`next dev -H 0.0.0.0`) and runs the existing alert and statement parsers for every inbox. The same debit is counted once across inboxes, SMS and push. **Sync now** and last-synced time are on Accounts and Settings (web + Flutter).
 4. Incremental: Gmail `historyId` when it is still valid, otherwise `after:` date. Restarts are safe; processed message ids make overlap free. Token refresh and exponential backoff are built in.
 
 **Import past alerts** (Accounts) clears the watermark and scans again (default 365-day first lookback).

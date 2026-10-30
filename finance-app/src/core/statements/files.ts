@@ -114,7 +114,7 @@ export async function overlapWithImported(userId: string, contentHash: string, a
 
 async function statementConnection(userId: string) {
   return db.financialConnection.upsert({
-    where: { userId_provider: { userId, provider: "statement" } },
+    where: { userId_provider_providerAccountId: { userId, provider: "statement", providerAccountId: "Statement uploads" } },
     update: {},
     create: { userId, provider: "statement", providerAccountId: "Statement uploads" },
   });

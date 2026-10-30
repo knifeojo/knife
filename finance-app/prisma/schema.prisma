@@ -40,6 +40,7 @@ model User {
   sessions     Session[]
   evalRuns     EvalRun[]
   connections  FinancialConnection[]
+  emailConnections EmailConnection[]
   accounts     Account[]
   transactions Transaction[]
   syncRuns     SyncRun[]
@@ -100,8 +101,50 @@ model FinancialConnection {
 
   syncRuns        SyncRun[]
   processedEmails ProcessedEmail[]
+  emailInbox      EmailConnection?
 
-  @@unique([userId, provider])
+  @@unique([userId, provider, providerAccountId])
+}
+
+// One inbox the owner connected. Several Gmail accounts and IMAP/Yahoo can sit side by side.
+// Refresh tokens are encrypted. The linked FinancialConnection is what background sync already runs.
+model EmailConnection {
+  id                     String    @id @default(cuid())
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider               String // gmail | imap
+  address                String
+  status                 String    @default("active") // active | revoked | error
+  encryptedRefreshToken  String?
+  encryptedAccessToken   String?
+  accessTokenExpiresAt   DateTime?
+  scope                  String?
+  historyId              String?
+  imapHost               String?
+  imapPort               Int?
+  lastSyncedAt           DateTime?
+  lastProcessedMessageId String?
+  lastError              String?
+  syncIntervalMinutes    Int?
+  nextRetryAt            DateTime?
+  backoffMs              Int       @default(0)
+  financialConnectionId  String?   @unique
+  financialConnection    FinancialConnection? @relation(fields: [financialConnectionId], references: [id], onDelete: SetNull)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([userId, address])
+  @@index([userId, status])
+}
+
+// Short-lived OAuth state for Sign in with Google started on the phone. The browser callback has no session cookie.
+model EmailOAuthState {
+  state     String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 model Account {

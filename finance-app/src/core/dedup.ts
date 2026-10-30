@@ -123,7 +123,11 @@ function accountTail(key: string): string | null {
   return tail && tail !== "PRIMARY" ? tail : null;
 }
 
-/** SMS, push and email of one debit: same amount, account and time, even when the wording differs. */
+/**
+ * One debit seen from another channel (Gmail, IMAP, SMS, push), even when the wording differs.
+ * The same channel does not fuzzy-merge: two copies of one email already share a fingerprint,
+ * and two purchases in one inbox stay separate.
+ */
 function crossAlertMatch(tx: CanonicalTransaction, c: LedgerCandidate): boolean {
   if (!ALERT_SOURCES.has(tx.source) || !ALERT_SOURCES.has(c.source) || tx.source === c.source) return false;
   if (c.currency !== tx.currency || c.type !== tx.type || c.amountMinor !== tx.amountMinor) return false;

@@ -63,7 +63,7 @@ export async function syncNow(_: SyncState, form: FormData): Promise<SyncState> 
 export async function importSampleAlerts(): Promise<SyncState> {
   const user = await requireUser();
   const conn = await db.financialConnection.upsert({
-    where: { userId_provider: { userId: user.id, provider: "fixture" } },
+    where: { userId_provider_providerAccountId: { userId: user.id, provider: "fixture", providerAccountId: "Sample GTBank alerts" } },
     update: { status: "active" },
     create: { userId: user.id, provider: "fixture", providerAccountId: "Sample GTBank alerts", lastSyncedAt: new Date("2026-01-01") },
   });
@@ -84,11 +84,8 @@ export async function saveImapConnection(form: FormData) {
   const port = Number(form.get("imapPort") ?? 993);
   const imapUser = String(form.get("imapUser") ?? "").trim().slice(0, 200);
   if (!host || !imapUser || !Number.isInteger(port) || port < 1 || port > 65535) redirect("/app/accounts?imap=error");
-  await db.financialConnection.upsert({
-    where: { userId_provider: { userId: user.id, provider: "imap" } },
-    update: { imapHost: host, imapPort: port, imapUser, providerAccountId: imapUser, status: "active", lastError: null },
-    create: { userId: user.id, provider: "imap", imapHost: host, imapPort: port, imapUser, providerAccountId: imapUser, status: "active" },
-  });
+  const { saveImapInbox } = await import("@/core/email/inboxes");
+  await saveImapInbox(user.id, { host, port, user: imapUser });
   revalidatePath("/app", "layout");
   redirect("/app/accounts?imap=saved");
 }
@@ -160,15 +157,21 @@ export async function dismissReconAction(form: FormData) {
 
 export async function disconnectGmail() {
   const user = await requireUser();
-  const conn = await db.financialConnection.findFirst({ where: { userId: user.id, provider: "gmail" } });
-  if (conn) {
-    const token = conn.encryptedRefreshToken ?? conn.encryptedAccessToken;
-    if (token) await revokeToken(decrypt(token));
-    await db.financialConnection.update({
-      where: { id: conn.id },
-      data: { status: "revoked", encryptedAccessToken: null, encryptedRefreshToken: null, accessTokenExpiresAt: null },
-    });
-    log.info("gmail.disconnected", { userId: user.id });
+  const { removeEmailConnection } = await import("@/core/email/inboxes");
+  const inboxes = await db.emailConnection.findMany({ where: { userId: user.id, provider: "gmail", status: { not: "revoked" } } });
+  if (inboxes.length) {
+    for (const inbox of inboxes) await removeEmailConnection(user.id, inbox.id);
+  } else {
+    const conn = await db.financialConnection.findFirst({ where: { userId: user.id, provider: "gmail", status: { not: "revoked" } } });
+    if (conn) {
+      const token = conn.encryptedRefreshToken ?? conn.encryptedAccessToken;
+      if (token) await revokeToken(decrypt(token));
+      await db.financialConnection.update({
+        where: { id: conn.id },
+        data: { status: "revoked", encryptedAccessToken: null, encryptedRefreshToken: null, accessTokenExpiresAt: null },
+      });
+      log.info("gmail.disconnected", { userId: user.id });
+    }
   }
   revalidatePath("/app/accounts");
 }
