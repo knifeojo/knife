@@ -6,6 +6,7 @@ import '../alerts/sync.dart';
 import '../api/models.dart';
 import '../server_url.dart';
 import '../state/ledger_controller.dart';
+import 'email_inboxes_card.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -38,6 +39,8 @@ class SettingsScreen extends StatelessWidget {
           Text('AI categorization', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 4),
           const AiSettingsCard(),
+          const SizedBox(height: 24),
+          const EmailInboxesCard(),
           const SizedBox(height: 24),
           OutlinedButton(onPressed: controller.signOut, child: const Text('Sign out')),
           const SizedBox(height: 8),

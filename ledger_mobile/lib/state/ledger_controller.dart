@@ -252,6 +252,12 @@ class LedgerController extends ChangeNotifier {
 
   Future<Map<String, dynamic>> alertStatus() => _guard((api) => api.alertStatus());
 
+  Future<List<Map<String, dynamic>>> emailConnections() => _guard((api) => api.emailConnections());
+
+  Future<String> startGoogleEmail() => _guard((api) => api.startGoogleEmail());
+
+  Future<void> removeEmailConnection(String id) => _guard((api) => api.removeEmailConnection(id));
+
   Future<Map<String, dynamic>> syncAlerts() => _guard((api) => api.syncAlerts());
 
   Future<Map<String, dynamic>> uploadSms({required String sender, required String body, DateTime? receivedAt, String? sourceId}) {

@@ -105,7 +105,7 @@ export function buildDemoTransactions(now: Date, months = 6): CanonicalTransacti
 
 export async function seedDemoUser(userId: string, now = new Date()) {
   await db.financialConnection.upsert({
-    where: { userId_provider: { userId, provider: "demo" } },
+    where: { userId_provider_providerAccountId: { userId, provider: "demo", providerAccountId: "DEMO DATA" } },
     update: { lastSyncedAt: now },
     create: { userId, provider: "demo", providerAccountId: "DEMO DATA", lastSyncedAt: now },
   });

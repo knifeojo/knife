@@ -18,20 +18,32 @@ export function googleConfigured(): boolean {
 }
 
 export const GMAIL_CALLBACK = "/api/gmail/callback";
+/** Phone flow. The browser returns here on PUBLIC_BASE_URL, not on APP_URL. */
+export const MOBILE_GMAIL_CALLBACK = "/api/v1/email/google/callback";
+export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 export const SIGNIN_CALLBACK = "/api/auth/google/callback";
 /** Sign-in asks for identity only. Gmail access is a separate, explicit consent step. */
 export const SIGNIN_SCOPES = ["openid", "email", "profile"];
 
-export function redirectUri(path = GMAIL_CALLBACK): string {
-  return `${process.env.APP_URL ?? "http://localhost:3000"}${path}`;
+export function redirectUri(path = GMAIL_CALLBACK, base?: string): string {
+  const origin = (base ?? process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return `${origin}${path}`;
 }
 
-export function authorizationUrl(state: string, loginHint?: string): string {
+/** Public https origin for the phone OAuth callback, for example a Tailscale Funnel address. */
+export function publicBaseUrl(): string {
+  const raw = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
+  if (!raw) throw new Error("PUBLIC_BASE_URL is not set");
+  return raw;
+}
+
+export function authorizationUrl(state: string, loginHint?: string, callbackPath = GMAIL_CALLBACK, baseUrl?: string): string {
+  const mobile = callbackPath === MOBILE_GMAIL_CALLBACK;
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
-    redirect_uri: redirectUri(GMAIL_CALLBACK),
+    redirect_uri: redirectUri(callbackPath, baseUrl),
     response_type: "code",
-    scope: GMAIL_SCOPES.join(" "),
+    scope: mobile ? GMAIL_READONLY_SCOPE : GMAIL_SCOPES.join(" "),
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "false",
@@ -61,7 +73,7 @@ interface TokenResponse {
   id_token?: string;
 }
 
-export async function exchangeCode(code: string, callbackPath = GMAIL_CALLBACK): Promise<TokenResponse> {
+export async function exchangeCode(code: string, callbackPath = GMAIL_CALLBACK, base?: string): Promise<TokenResponse> {
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -69,7 +81,7 @@ export async function exchangeCode(code: string, callbackPath = GMAIL_CALLBACK):
       code,
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: redirectUri(callbackPath),
+      redirect_uri: redirectUri(callbackPath, base),
       grant_type: "authorization_code",
     }),
   });
@@ -124,10 +136,13 @@ async function accessTokenFor(connectionId: string): Promise<string> {
     throw new Error("Gmail authorization expired; reconnect required");
   }
   const t: TokenResponse = await res.json();
-  await db.financialConnection.update({
-    where: { id: connectionId },
-    data: { encryptedAccessToken: encrypt(t.access_token), accessTokenExpiresAt: new Date(Date.now() + t.expires_in * 1000) },
-  });
+  const access = {
+    encryptedAccessToken: encrypt(t.access_token),
+    accessTokenExpiresAt: new Date(Date.now() + t.expires_in * 1000),
+    ...(t.refresh_token ? { encryptedRefreshToken: encrypt(t.refresh_token) } : {}),
+  };
+  await db.financialConnection.update({ where: { id: connectionId }, data: access });
+  await db.emailConnection.updateMany({ where: { financialConnectionId: connectionId }, data: access });
   return t.access_token;
 }
 

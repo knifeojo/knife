@@ -8,11 +8,14 @@ About 15 minutes. Until Google verifies the app, only test users you list can co
    - Scopes: add `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile`, `.../auth/gmail.readonly`. Nothing else.
    - Test users: add each tester's Gmail address.
 4. **Credentials → Create credentials → OAuth client ID** → Web application.
-   - Authorized redirect URIs (both are needed):
+   - Authorized redirect URIs:
      - `http://localhost:3000/api/auth/google/callback` (Continue with Google sign-in, identity only)
-     - `http://localhost:3000/api/gmail/callback` (Connect Gmail, read-only mailbox access)
-     - Add the same two paths on your production domain later.
-5. Put the client id and secret in `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Make sure `APP_URL` matches the origin of the redirect URI. Restart `npm run dev`.
+     - `http://localhost:3000/api/gmail/callback` (Connect Gmail on the website, read-only mailbox access)
+     - `https://<your-public-host>/api/v1/email/google/callback` (Sign in with Google started from the phone)
+     - Add the same paths on your production domain later.
+5. Put the client id and secret in `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Make sure `APP_URL` matches the website origin. Set `PUBLIC_BASE_URL` to the https origin Google can reach (a Tailscale Funnel address works). Restart `npm run dev`.
+
+The phone starts Sign in with Google from Settings → Add email. The scope is `gmail.readonly` with offline access. Each inbox is its own EmailConnection with an encrypted refresh token. Several Gmail accounts can sit next to Yahoo or IMAP. Background sync runs the existing alert and statement parsers for every connected inbox. The same debit is counted once across inboxes, SMS and push when the amount, account and time match.
 6. In the app: Log in → **Continue with Google**. New users land on the Gmail consent screen; click **Continue with Google** again to grant read-only mailbox access. Sign-in and Gmail access are deliberately separate consents.
 
 ## Before claiming "live"

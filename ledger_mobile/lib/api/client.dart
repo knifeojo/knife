@@ -353,6 +353,27 @@ class LedgerApi {
 
   Future<Map<String, dynamic>> alertStatus() => _object(_uri('/api/v1/alerts/status'), _get);
 
+  Future<List<Map<String, dynamic>>> emailConnections() async {
+    final json = await _object(_uri('/api/v1/email/connections'), _get);
+    final rows = json['connections'];
+    if (rows is! List) return const [];
+    return [for (final item in rows) _asMap(item)];
+  }
+
+  /// Web OAuth URL for Sign in with Google (gmail.readonly, offline). The phone opens it.
+  Future<String> startGoogleEmail() async {
+    final json = await _object(_uri('/api/v1/email/google/start'), (uri) => _post(uri, const {}));
+    final url = json['url'];
+    if (url is! String || !url.startsWith('https://')) {
+      throw const ApiException(0, 'Google did not return a sign-in link.');
+    }
+    return url;
+  }
+
+  Future<void> removeEmailConnection(String id) async {
+    await _object(_uri('/api/v1/email/connections/$id'), _delete);
+  }
+
   Future<Map<String, dynamic>> syncAlerts() => _object(_uri('/api/v1/alerts/sync'), (uri) => _post(uri, const {}));
 
   Future<Map<String, dynamic>> alertParsers() => _object(_uri('/api/v1/alerts/parsers'), _get);

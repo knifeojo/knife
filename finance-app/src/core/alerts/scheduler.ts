@@ -29,9 +29,18 @@ export async function syncOneConnection(connectionId: string): Promise<SyncSumma
   });
   if (running) return null;
 
-  if (conn.provider === "gmail") return syncEmailSource(conn.userId, conn.id, new GmailEmailSource(conn.id));
-  if (conn.provider === "imap") return syncEmailSource(conn.userId, conn.id, ImapEmailSource.fromConnection(conn));
-  return null;
+  let summary: SyncSummary | null = null;
+  if (conn.provider === "gmail") summary = await syncEmailSource(conn.userId, conn.id, new GmailEmailSource(conn.id));
+  else if (conn.provider === "imap") summary = await syncEmailSource(conn.userId, conn.id, ImapEmailSource.fromConnection(conn));
+  else return null;
+  const fresh = await db.financialConnection.findUnique({ where: { id: connectionId } });
+  if (fresh) {
+    await db.emailConnection.updateMany({
+      where: { financialConnectionId: connectionId },
+      data: { lastSyncedAt: fresh.lastSyncedAt, lastError: fresh.lastError, status: fresh.status },
+    });
+  }
+  return summary;
 }
 
 export async function syncDueConnections(now = new Date()): Promise<{ attempted: number; ok: number; failed: number }> {
